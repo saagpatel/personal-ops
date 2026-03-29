@@ -2,12 +2,15 @@ import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import {
   formatDoctorReport,
+  formatHealthCheckReport,
   formatNowReport,
   formatSendWindowStatus,
   formatStatusReport,
   formatWorklistReport,
 } from "../../formatters.js";
+import { buildHealthCheckReport } from "../../health.js";
 import type { Logger } from "../../logger.js";
+import type { Paths } from "../../types.js";
 import type { CliContext } from "../shared.js";
 
 function openUrl(url: string): void {
@@ -22,7 +25,7 @@ function openUrl(url: string): void {
   execFileSync("xdg-open", [url]);
 }
 
-export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger) {
+export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger, paths: Paths) {
   program
     .command("notify")
     .description("Local notification helpers.")
@@ -93,6 +96,27 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
       const query = options.deep ? "?deep=true" : "";
       const response = await context.requestJson<{ doctor: unknown }>("GET", `/v1/doctor${query}`);
       context.printOutput(response, (value) => formatDoctorReport(value.doctor), options.json);
+    });
+
+  const health = program.command("health").description("Run recurring-friendly local health checks.");
+  health
+    .command("check")
+    .description("Run a compact health pass that combines install, runtime, and snapshot freshness.")
+    .option("--deep", "Include live Gmail and Google Calendar verification")
+    .option("--max-snapshot-age-hours <hours>", "Warn when the latest snapshot is older than this many hours", "24")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const rawHours = Number(options.maxSnapshotAgeHours);
+      const snapshotAgeLimitHours =
+        Number.isFinite(rawHours) && rawHours > 0 ? rawHours : null;
+      const report = await buildHealthCheckReport(paths, context.requestJson, {
+        deep: Boolean(options.deep),
+        snapshotAgeLimitHours,
+      });
+      context.printOutput({ health_check: report }, (value) => formatHealthCheckReport(value.health_check), options.json);
+      if (report.state !== "ready") {
+        process.exitCode = 1;
+      }
     });
 
   const sendWindow = program.command("send-window").description("Inspect or control the timed send window.");

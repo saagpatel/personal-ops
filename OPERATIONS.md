@@ -141,6 +141,8 @@ These are the main operator commands after setup:
   The full attention queue.
 - `personal-ops doctor`
   Local diagnostics with next-step guidance.
+- `personal-ops health check`
+  The recurring-friendly compact health pass for install, runtime, and snapshot freshness.
 - `personal-ops install check`
   Local install, wrapper, and LaunchAgent verification without needing the daemon.
 
@@ -223,6 +225,47 @@ If the daemon is unreachable, the CLI will point you toward:
 - `personal-ops doctor`
 - restarting the LaunchAgent
 - starting `personal-opsd` directly
+
+## Recurring health checks
+
+Use the compact recurring health pass when you want one repeatable local check instead of remembering several commands:
+
+```bash
+personal-ops health check
+```
+
+Useful variants:
+
+```bash
+personal-ops health check --deep
+personal-ops health check --max-snapshot-age-hours 24
+```
+
+This check:
+
+- runs local install health
+- verifies daemon reachability
+- runs doctor or deep doctor
+- warns when the latest snapshot is too old
+- exits non-zero when attention is needed, which makes it suitable for recurring local automation
+
+For the full ship gate, use the release checklist in [RELEASING.md](RELEASING.md).
+
+## Release and maintenance gate
+
+From `app/`, the full local release gate is:
+
+```bash
+npm run release:check
+```
+
+That is the formal local ship path.
+
+GitHub CI covers the lighter baseline:
+
+- `npm run typecheck`
+- `npm test`
+- `npm run verify:smoke`
 
 ## Backup and restore
 

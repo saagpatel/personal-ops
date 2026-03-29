@@ -8,11 +8,14 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   formatDoctorReport,
+  formatHealthCheckReport,
   formatNowReport,
   formatStatusReport,
   formatWorklistReport,
 } from "../src/formatters.js";
 import { formatGoogleLoginError as formatCliGoogleLoginError } from "../src/cli/http-client.js";
+import { buildHealthCheckReport } from "../src/health.js";
+import { buildInstallCheckReport, fixInstallPermissions, installAll } from "../src/install.js";
 import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
 import { PersonalOpsService } from "../src/service.js";
@@ -23,6 +26,30 @@ const cliIdentity: ClientIdentity = {
   requested_by: "operator",
   auth_role: "operator",
 };
+
+function createLaunchctlStub(initiallyLoaded = false) {
+  let loaded = initiallyLoaded;
+  return {
+    execFileSyncImpl(_file: string, args: readonly string[]) {
+      const normalized = args.map((value) => String(value));
+      if (normalized[0] === "print") {
+        if (!loaded) {
+          throw new Error("not loaded");
+        }
+        return `${normalized[1]} = {\n\tstate = running\n}`;
+      }
+      if (normalized[0] === "bootout") {
+        loaded = false;
+        return "";
+      }
+      if (normalized[0] === "bootstrap" || normalized[0] === "kickstart") {
+        loaded = true;
+        return "";
+      }
+      throw new Error(`Unexpected launchctl args: ${normalized.join(" ")}`);
+    },
+  };
+}
 
 function repoAppDir() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -42,9 +69,7 @@ function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
     previous.set(key, process.env[key]);
     process.env[key] = env[key];
   }
-  try {
-    return fn();
-  } finally {
+  const restoreEnv = () => {
     for (const key of keys) {
       const value = previous.get(key);
       if (value === undefined) {
@@ -52,6 +77,19 @@ function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
       } else {
         process.env[key] = value;
       }
+    }
+  };
+  try {
+    const result = fn();
+    const maybePromise = result as unknown as PromiseLike<unknown>;
+    if (result && typeof maybePromise.then === "function") {
+      return Promise.resolve(result).finally(restoreEnv) as T;
+    }
+    restoreEnv();
+    return result;
+  } finally {
+    if (process.env.HOME !== env.HOME) {
+      restoreEnv();
     }
   }
 }
@@ -192,7 +230,7 @@ function createServiceFixture() {
         running: true,
         label: env.PERSONAL_OPS_LAUNCH_AGENT_LABEL,
         plistPath: path.join(path.dirname(paths.logDir), "LaunchAgents", `${env.PERSONAL_OPS_LAUNCH_AGENT_LABEL}.plist`),
-        programPath: path.join(paths.appDir, "dist", "src", "daemon.js"),
+        programPath: path.join(env.HOME, ".local", "bin", "personal-opsd"),
         workingDirectory: paths.appDir,
         stdoutPath: paths.appLogFile,
         stderrPath: paths.appLogFile,
@@ -256,8 +294,82 @@ test("Phase 4 top-level help highlights the main operator path and the now short
 
   assert.match(output, /Start here:/i);
   assert.match(output, /personal-ops install check/);
+  assert.match(output, /personal-ops health check/);
   assert.match(output, /personal-ops now/);
   assert.match(output, /status \[options\]\s+Show the full operator readiness summary for the local/i);
+});
+
+test("health check warns when the daemon is unavailable and no snapshot exists", async () => {
+  const { env, paths } = createTempEnv("health-offline");
+  writeFixtureFiles(paths, 46212);
+
+  const report = await withRuntimeEnv(env, () =>
+    buildHealthCheckReport(
+      paths,
+      async () => {
+        throw new Error("daemon unavailable");
+      },
+      { deep: false, snapshotAgeLimitHours: 24 },
+    ),
+  );
+
+  const formatted = formatHealthCheckReport(report);
+  assert.equal(report.state, "degraded");
+  assert.match(formatted, /ATTENTION NEEDED|DEGRADED/);
+  assert.match(formatted, /daemon unavailable/);
+  assert.match(formatted, /No snapshots were found/);
+});
+
+test("health check stays ready when runtime is healthy and snapshot is fresh", async () => {
+  const { service, paths, env } = createServiceFixture();
+  const launchctl = createLaunchctlStub();
+  await withRuntimeEnv(env, () =>
+    installAll(paths, process.execPath, {
+      launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+      waitForDaemonReadyImpl: async () => {},
+    }),
+  );
+  fixInstallPermissions(paths);
+  await withRuntimeEnv(env, () => service.createSnapshot());
+  const requestJson = async <T>(method: string, pathname: string): Promise<T> => {
+    if (method === "GET" && pathname === "/v1/status") {
+      return withRuntimeEnv(env, async () => ({ status: await service.getStatusReport({ httpReachable: true }) } as T));
+    }
+    if (method === "GET" && pathname === "/v1/doctor") {
+      return {
+        doctor: {
+          generated_at: new Date().toISOString(),
+          state: "ready",
+          deep: false,
+          summary: { pass: 1, warn: 0, fail: 0 },
+          checks: [],
+        },
+      } as T;
+    }
+    throw new Error(`Unexpected request: ${method} ${pathname}`);
+  };
+
+  const report = await withRuntimeEnv(env, () =>
+    buildHealthCheckReport(
+      paths,
+      requestJson,
+      {
+        deep: false,
+        snapshotAgeLimitHours: 24,
+      },
+      {
+        buildInstallCheckReportImpl: (reportPaths) =>
+          buildInstallCheckReport(reportPaths, {
+            launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+          }),
+      },
+    ),
+  );
+
+  const formatted = formatHealthCheckReport(report);
+  assert.equal(report.state, "ready");
+  assert.match(formatted, /Personal Ops Health Check: READY/);
+  assert.match(formatted, /Everything looks healthy right now/);
 });
 
 test("hardening install help includes fix-permissions guidance", () => {

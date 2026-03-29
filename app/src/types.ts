@@ -1390,6 +1390,26 @@ export interface DoctorReport {
   checks: DoctorCheck[];
 }
 
+export type HealthCheckState = "ready" | "attention_needed" | "degraded";
+
+export interface HealthCheckReport {
+  generated_at: string;
+  state: HealthCheckState;
+  deep: boolean;
+  snapshot_age_limit_hours: number | null;
+  install_check_state: ServiceState;
+  daemon_reachable: boolean;
+  doctor_state: ServiceState | null;
+  latest_snapshot_age_hours: number | null;
+  latest_snapshot_id: string | null;
+  summary: {
+    pass: number;
+    warn: number;
+    fail: number;
+  };
+  checks: DoctorCheck[];
+}
+
 export interface SnapshotManifest {
   snapshot_id: string;
   created_at: string;
