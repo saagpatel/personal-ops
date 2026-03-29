@@ -55,6 +55,7 @@ Important rules:
 - snapshots do not restore OAuth client JSON, API tokens, or Keychain secrets
 - rerunning install commands is safe; deleting secrets by hand is not a normal workflow
 - if auth breaks, prefer install-check, doctor, and re-auth over ad hoc local cleanup
+- if secret file permissions drift too broad, run `personal-ops install fix-permissions`
 
 ## Install and bootstrap
 
@@ -198,6 +199,7 @@ Useful commands:
 
 ```bash
 personal-ops install all
+personal-ops install fix-permissions
 personal-ops install wrapper --kind cli
 personal-ops install wrapper --kind daemon
 personal-ops install wrapper --kind mcp --assistant codex
@@ -267,6 +269,7 @@ These are meant to be safe repeat operations:
 
 - `./bootstrap`
 - `personal-ops install all`
+- `personal-ops install fix-permissions`
 - `personal-ops install check`
 - `personal-ops install launchagent`
 - `personal-ops doctor`
@@ -282,12 +285,25 @@ These are meant to be safe repeat operations:
 From `app/`:
 
 ```bash
-npm run typecheck
-npm test
-npm run verify:smoke
-npm run verify:full
-npm run verify:console
+npm run verify:all
 ```
+
+`verify:all` runs:
+
+- `npm run typecheck`
+- `npm test`
+- `npm run verify:smoke`
+- `npm run verify:full`
+- `npm run verify:console`
+- `npm run verify:launchagent`
+
+### CI baseline
+
+GitHub Actions now runs the stable cross-platform subset on pushes and pull requests:
+
+- `npm run typecheck`
+- `npm test`
+- `npm run verify:smoke`
 
 ### Live operator sanity path
 
@@ -325,6 +341,7 @@ Likely fixes:
 - fill in `config.toml`
 - place the OAuth client JSON
 - replace the OAuth client JSON if it is malformed, placeholder-only, or not a Desktop OAuth client
+- run `personal-ops install fix-permissions` if secret files are readable by group or world
 - rerun auth login commands
 - rerun `personal-ops install all`
 

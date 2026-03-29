@@ -1,6 +1,7 @@
 import type {
   InstallCheckReport,
   InstallManifest,
+  InstallPermissionsFixResult,
   RestoreResult,
   SnapshotInspection,
   SnapshotManifest,
@@ -102,6 +103,24 @@ export function formatInstallCheckReport(report: InstallCheckReport): string {
   for (const check of notableChecks) {
     lines.push(`[${formatSeverity(check.severity)}] ${check.title}`);
     lines.push(`  ${check.message}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatInstallPermissionsFixResult(result: InstallPermissionsFixResult): string {
+  const lines: string[] = [];
+  lines.push("Permissions repaired");
+  lines.push(line("Generated", result.generated_at));
+  lines.push(
+    line(
+      "Summary",
+      `${result.summary.updated} updated / ${result.summary.already_secure} already secure / ${result.summary.missing} missing / ${result.summary.failed} failed`,
+    ),
+  );
+  lines.push("");
+  for (const file of result.files) {
+    lines.push(`[${file.status}] ${file.label}`);
+    lines.push(`  ${file.message}`);
   }
   return lines.join("\n");
 }

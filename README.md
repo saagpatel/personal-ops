@@ -35,6 +35,7 @@ In practice, that means it can:
 - Shared CLI, HTTP, and MCP access for both humans and assistants
 - Read-first local operator console served by the daemon
 - One-command bootstrap plus repo-managed wrapper and LaunchAgent install
+- Explicit secret-permission repair with `personal-ops install fix-permissions`
 - Backup, inspect, and machine-aware restore flows with rescue snapshots
 - Operator-gated approvals, reviews, and mutation flows
 - Assistant-safe audit feed with categorized recent activity
@@ -79,6 +80,8 @@ Today, the repo includes:
 - a read-first local operator console opened with `personal-ops console`
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
+- one-command local release verification with `npm run verify:all` from `app/`
+- a first CI baseline for typecheck, tests, and smoke verification on pushes and PRs
 
 ## Learn More
 

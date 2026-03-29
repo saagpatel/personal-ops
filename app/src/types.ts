@@ -1187,6 +1187,28 @@ export interface InstallCheckReport {
   manifest: InstallManifest | null;
 }
 
+export type InstallPermissionsFixStatus = "updated" | "already_secure" | "missing" | "failed";
+
+export interface InstallPermissionsFixItem {
+  label: string;
+  path: string;
+  status: InstallPermissionsFixStatus;
+  message: string;
+  previous_mode?: number | undefined;
+  current_mode?: number | undefined;
+}
+
+export interface InstallPermissionsFixResult {
+  generated_at: string;
+  summary: {
+    updated: number;
+    already_secure: number;
+    missing: number;
+    failed: number;
+  };
+  files: InstallPermissionsFixItem[];
+}
+
 export interface RestoreResult {
   restored_snapshot_id: string;
   rescue_snapshot_id: string;

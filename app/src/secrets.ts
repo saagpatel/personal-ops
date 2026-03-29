@@ -34,6 +34,13 @@ export interface SecretFilePermissionsValidation {
   mode?: number;
 }
 
+export interface SecretFilePermissionsRepair {
+  status: "updated" | "already_secure" | "missing" | "failed";
+  message: string;
+  previousMode?: number | undefined;
+  currentMode?: number | undefined;
+}
+
 export type KeychainProbeStatus = "present" | "missing" | "unavailable";
 
 export interface KeychainProbeResult {
@@ -210,7 +217,7 @@ export function validateSecretFilePermissions(filePath: string, label: string): 
       return {
         status: "too_broad",
         mode,
-        message: `${label} permissions are ${renderMode(mode)}. Tighten them to owner-only access such as 0600.`,
+        message: `${label} permissions are ${renderMode(mode)}. Tighten them to owner-only access such as 0600, or run \`personal-ops install fix-permissions\`.`,
       };
     }
     return {
@@ -222,6 +229,51 @@ export function validateSecretFilePermissions(filePath: string, label: string): 
     return {
       status: "unreadable",
       message: error instanceof Error ? error.message : `${filePath} permissions could not be checked.`,
+    };
+  }
+}
+
+export function repairSecretFilePermissions(
+  filePath: string,
+  label: string,
+  targetMode = 0o600,
+): SecretFilePermissionsRepair {
+  if (!fs.existsSync(filePath)) {
+    return {
+      status: "missing",
+      message: `${label} is missing at ${filePath}.`,
+    };
+  }
+  try {
+    const previousMode = fs.statSync(filePath).mode & 0o777;
+    if ((previousMode & 0o077) === 0 && previousMode === targetMode) {
+      return {
+        status: "already_secure",
+        previousMode,
+        currentMode: previousMode,
+        message: `${label} already uses owner-only access (${renderMode(previousMode)}).`,
+      };
+    }
+    fs.chmodSync(filePath, targetMode);
+    const currentMode = fs.statSync(filePath).mode & 0o777;
+    if (currentMode !== targetMode) {
+      return {
+        status: "failed",
+        previousMode,
+        currentMode,
+        message: `${label} permissions changed from ${renderMode(previousMode)} to ${renderMode(currentMode)}, but did not reach ${renderMode(targetMode)}.`,
+      };
+    }
+    return {
+      status: "updated",
+      previousMode,
+      currentMode,
+      message: `${label} permissions changed from ${renderMode(previousMode)} to ${renderMode(currentMode)}.`,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      message: error instanceof Error ? error.message : `${label} permissions could not be repaired.`,
     };
   }
 }

@@ -12,6 +12,13 @@
 
 The current roadmap starts after that completed program. It focuses on productization, maintainability, confidence, operator experience, documentation layering, secrets resilience, multi-machine strategy, and the local operator console.
 
+After Phase 8, the active follow-on track is conservative hardening:
+
+- dependency remediation for open supply-chain alerts
+- explicit local secret-permission repair
+- one-command local release verification
+- a first CI baseline for stable cross-platform checks
+
 ## Phase Ledger
 
 | Phase | Title | Goal | Status | Primary Docs |
@@ -128,11 +135,20 @@ Phase 8 completed the first local operator console backed by the existing local 
 - local browser session access via `personal-ops console`
 - read-first browser behavior that keeps CLI as the high-trust mutation path
 
+## Follow-On Hardening
+
+The current post-roadmap hardening track focuses on four audit-backed improvements:
+
+- remediate the open `path-to-regexp` runtime advisories
+- add `personal-ops install fix-permissions` for explicit secret-file repair
+- add `npm run verify:all` as the local release gate
+- add a first CI workflow for `typecheck`, `test`, and `verify:smoke`
+
 ## Current Working Memory
 
 ### Current Goal
 
-Phase 8 is complete. The repo now has a read-first local operator console on top of the Phase 1 to 7 foundation.
+Phase 8 is complete. The current follow-on work is a conservative hardening pass over dependency safety, secret-file permissions, release verification, and CI.
 
 ### Guardrails
 
@@ -144,6 +160,7 @@ Phase 8 is complete. The repo now has a read-first local operator console on top
 - keep the new operator-facing wording aligned with the underlying trust model
 - keep the new docs layer aligned with the verified command surface and trust model
 - use the Phase 3 verification commands and the later live sanity passes as the baseline confidence layer for later phases
+- keep the post-Phase-8 hardening work additive and local-first
 
 ### Current Assumptions
 
@@ -157,6 +174,7 @@ Phase 8 is complete. The repo now has a read-first local operator console on top
 - Phase 7 made the machine model explicit: single primary machine, backup-based portability, and explicit cross-machine restore guardrails
 - Phase 8 added a same-origin local operator console with a read-only browser session model and browser-aware verification
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
+- the current hardening track should resolve open runtime dependency alerts before adding new product features
 
 ### Required End-of-Phase Verification
 

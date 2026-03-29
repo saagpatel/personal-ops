@@ -1,6 +1,6 @@
 import type { Command } from "commander";
-import { buildInstallCheckReport, installAll, installLaunchAgent, installWrapper } from "../../install.js";
-import { formatInstallCheckReport, formatInstallManifest, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest } from "../../formatters.js";
+import { buildInstallCheckReport, fixInstallPermissions, installAll, installLaunchAgent, installWrapper } from "../../install.js";
+import { formatInstallCheckReport, formatInstallManifest, formatInstallPermissionsFixResult, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest } from "../../formatters.js";
 import { restoreSnapshot } from "../../restore.js";
 import type { Paths } from "../../types.js";
 import type { CliContext } from "../shared.js";
@@ -53,6 +53,15 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .action((options) => {
       const manifest = installLaunchAgent(paths);
       context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
+    });
+
+  install
+    .command("fix-permissions")
+    .description("Tighten owner-only permissions on known local secret files if they exist.")
+    .option("--json", "Print raw JSON")
+    .action((options) => {
+      const result = fixInstallPermissions(paths);
+      context.printOutput({ permissions: result }, (value) => formatInstallPermissionsFixResult(value.permissions), options.json);
     });
 
   const backup = program
