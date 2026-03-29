@@ -24,8 +24,8 @@ The post-launch roadmap should build on those foundations instead of reworking t
 
 | Phase | Title | Goal | Status |
 | --- | --- | --- | --- |
-| 1 | Automation and Daily Briefings | Make the system proactively useful through recurring checks, summaries, and operator nudges | Planned |
-| 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Planned |
+| 1 | Automation and Daily Briefings | Make the system proactively useful through recurring checks, summaries, and operator nudges | Completed |
+| 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Next |
 | 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Planned |
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Planned |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Planned |
@@ -34,7 +34,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 
 ## Phase 1: Automation and Daily Briefings
 
-This is the recommended next phase.
+Phase 1 is complete.
 
 ### Goal
 
@@ -58,6 +58,14 @@ Priority targets:
 - one or more saved automations that use the completed verification and health surfaces
 - stronger operator rhythm around `now`, `worklist`, `health check`, and snapshot freshness
 - reusable automation patterns that later phases can extend
+
+Delivered in this phase:
+
+- `Morning Brief`
+- `Midday Health Guard`
+- `End-of-Day Wrap-Up`
+- repo automation docs in `docs/AUTOMATIONS.md`
+- a dedicated phase plan and rollout record
 
 ### Guardrails
 
@@ -173,7 +181,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 1: Automation and Daily Briefings
+- the recommended next build is Phase 2: Console Phase 2
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

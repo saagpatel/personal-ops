@@ -9,6 +9,7 @@ Use this document for:
 - local secret handling and re-auth recovery
 - machine ownership and intentional migration
 - read-first operator console access
+- operator automations
 - daily commands
 - backup and restore
 - verification and troubleshooting
@@ -154,6 +155,29 @@ Other common commands:
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup inspect <snapshotId>`
   Inspects snapshot contents and warnings.
+
+## Operator automations
+
+The first post-launch automation layer adds three read-first weekday automations:
+
+- Morning Brief
+- Midday Health Guard
+- End-of-Day Wrap-Up
+
+These automations:
+
+- use the existing `personal-ops` CLI as their source of truth
+- stay read-first
+- open one inbox item each run
+- do not send, restore, approve, re-authenticate, or mutate state
+
+Use [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md) as the source of truth for:
+
+- schedules
+- automation ids
+- workspace path
+- prompt intent
+- pause, update, and recreate steps
 
 ## Operator console
 

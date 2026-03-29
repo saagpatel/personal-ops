@@ -45,9 +45,24 @@ Keep these pieces separate:
 - `personal-ops install check`
   The local install and wrapper check.
 
+### Daily automation loop
+
+The first post-launch automation phase adds three weekday briefings:
+
+- Morning Brief
+- Midday Health Guard
+- End-of-Day Wrap-Up
+
+They are read-first and built on the same CLI surfaces you would use manually.
+
+Read next:
+
+- [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
+
 ### Read next
 
 - [OPERATIONS.md](OPERATIONS.md)
+- [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
 - [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 
