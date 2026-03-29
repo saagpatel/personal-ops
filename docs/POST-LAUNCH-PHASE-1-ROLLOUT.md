@@ -88,11 +88,11 @@ Branch:
 Commits:
 
 - `aa8a906` `docs(roadmap): record post-launch roadmap handoff`
-- phase implementation commit pending final closeout
+- `d7d3959` `docs(automation): add daily briefing runbook`
 
 Draft PR:
 
-- pending final closeout
+- [#10](https://github.com/saagpatel/personal-ops/pull/10)
 
 ## Next recommended phase
 
