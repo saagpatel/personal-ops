@@ -66,11 +66,11 @@ Also confirm:
 - branch name
   `codex/phase-5-documentation-layers`
 - commit hash
-  Pending final closeout.
+  `46ad8e8` (`docs(ops): add the phase 5 documentation layer`)
 - pushed remote branch
-  Pending final closeout.
+  `origin/codex/phase-5-documentation-layers`
 - draft PR link
-  Pending final closeout.
+  [#2](https://github.com/saagpatel/personal-ops/pull/2) (stacked on `codex/phase-4-operator-ux`)
 
 ## Notes
 
