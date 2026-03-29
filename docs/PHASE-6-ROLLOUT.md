@@ -75,9 +75,10 @@ Live sanity pass:
 Closeout metadata for this phase:
 
 - branch name: `codex/phase-6-secrets-safety-ops`
-- commit hashes: pending closeout
-- pushed remote branch: pending closeout
-- draft PR link: pending closeout
+- commit hashes:
+  - `bad039a` — main Phase 6 implementation
+- pushed remote branch: `origin/codex/phase-6-secrets-safety-ops`
+- draft PR link: [#3](https://github.com/saagpatel/personal-ops/pull/3)
 
 ## Notes
 
