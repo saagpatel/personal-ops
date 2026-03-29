@@ -164,15 +164,19 @@ async function createSnapshot(
   );
 }
 
-test("install all creates runtime files, generated artifacts, and a healthy install report", () => {
+test("install all creates runtime files, generated artifacts, and a healthy install report", async () => {
   const fixture = createFixture();
   const launchctl = createLaunchctlStub();
+  const waitCalls: Array<{ host: string; port: number; timeoutMs: number }> = [];
   try {
     setConfiguredMailbox(fixture.paths, "machine@example.com");
     setConfiguredOauth(fixture.paths);
 
-    const manifest = installAll(fixture.paths, "/custom/node", {
+    const manifest = await installAll(fixture.paths, "/custom/node", {
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+      waitForDaemonReadyImpl: async (host, port, timeoutMs) => {
+        waitCalls.push({ host, port, timeoutMs });
+      },
     });
     const report = buildInstallCheckReport(fixture.paths, {
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
@@ -188,6 +192,7 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
     assert.equal(fs.existsSync(artifacts.codexMcpWrapperPath), true);
     assert.equal(fs.existsSync(artifacts.claudeMcpWrapperPath), true);
     assert.equal(fs.existsSync(artifacts.launchAgentPlistPath), true);
+    assert.deepEqual(waitCalls, [{ host: "127.0.0.1", port: 46210, timeoutMs: 15000 }]);
     assert.equal(report.state, "ready");
     assert.equal(report.checks.some((check) => check.id === "launch_agent_loaded" && check.severity === "pass"), true);
   } finally {
@@ -195,19 +200,39 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
   }
 });
 
-test("machine identity stays stable across rerun install", () => {
+test("machine identity stays stable across rerun install", async () => {
   const fixture = createFixture();
   const launchctl = createLaunchctlStub();
   try {
-    const first = installAll(fixture.paths, "/custom/node", {
+    const first = await installAll(fixture.paths, "/custom/node", {
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+      waitForDaemonReadyImpl: async () => {},
     });
-    const second = installAll(fixture.paths, "/custom/node", {
+    const second = await installAll(fixture.paths, "/custom/node", {
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+      waitForDaemonReadyImpl: async () => {},
     });
 
     assert.equal(first.machine_id, second.machine_id);
     assert.equal(first.machine_label, second.machine_label);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("install all surfaces daemon readiness failures clearly", async () => {
+  const fixture = createFixture();
+  const launchctl = createLaunchctlStub();
+  try {
+    await assert.rejects(
+      installAll(fixture.paths, "/custom/node", {
+        launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+        waitForDaemonReadyImpl: async () => {
+          throw new Error("daemon did not become reachable");
+        },
+      }),
+      /daemon did not become reachable/,
+    );
   } finally {
     fixture.restoreEnv();
   }
