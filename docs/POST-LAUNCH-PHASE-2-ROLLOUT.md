@@ -103,11 +103,11 @@ Branch:
 
 Commits:
 
-- pending final closeout
+- `8ff39c4` `feat(console): add narrow browser-safe phase 2 actions`
 
 Draft PR:
 
-- pending final closeout
+- [#11](https://github.com/saagpatel/personal-ops/pull/11)
 
 ## Next recommended phase
 
