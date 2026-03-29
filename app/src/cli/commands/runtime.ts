@@ -2,6 +2,9 @@ import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import {
   formatDoctorReport,
+  formatGithubPullDetail,
+  formatGithubPullRequests,
+  formatGithubStatus,
   formatHealthCheckReport,
   formatNowReport,
   formatSendWindowStatus,
@@ -97,6 +100,53 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .action(async (options) => {
       const response = await context.requestJson<{ worklist: unknown }>("GET", "/v1/worklist");
       context.printOutput(response, (value) => formatWorklistReport(value.worklist), options.json);
+    });
+
+  const github = program.command("github").description("Read the narrow GitHub PR and review queue context.");
+  github
+    .command("status")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ github: unknown }>("GET", "/v1/github/status");
+      context.printOutput(response, (value) => formatGithubStatus(value.github), options.json);
+    });
+
+  github
+    .command("sync")
+    .description("Run a foreground GitHub PR/review sync now.")
+    .command("now")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ github: unknown }>("POST", "/v1/github/sync");
+      context.printOutput(response, (value) => formatGithubStatus(value.github), options.json);
+    });
+
+  github
+    .command("reviews")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ pull_requests: unknown[] }>("GET", "/v1/github/reviews");
+      context.printOutput(response, (value) => formatGithubPullRequests("GitHub Reviews", value.pull_requests), options.json);
+    });
+
+  github
+    .command("pulls")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ pull_requests: unknown[] }>("GET", "/v1/github/pulls");
+      context.printOutput(response, (value) => formatGithubPullRequests("GitHub Pull Requests", value.pull_requests), options.json);
+    });
+
+  github
+    .command("pr")
+    .argument("<prKey>", "Pull request in owner/repo#number form")
+    .option("--json", "Print raw JSON")
+    .action(async (prKey, options) => {
+      const response = await context.requestJson<{ pull_request: unknown }>(
+        "GET",
+        `/v1/github/pulls/${encodeURIComponent(prKey)}`,
+      );
+      context.printOutput(response, (value) => formatGithubPullDetail(value.pull_request), options.json);
     });
 
   const workflow = program.command("workflow").description("Compose the day-start operator flow into bounded workflow bundles.");

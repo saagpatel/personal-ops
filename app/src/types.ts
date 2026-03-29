@@ -26,6 +26,10 @@ export interface Config {
   allowedOrigins: string[];
   gmailAccountEmail: string;
   gmailReviewUrl: string;
+  githubEnabled: boolean;
+  includedGithubRepositories: string[];
+  githubSyncIntervalMinutes: number;
+  githubKeychainService: string;
   calendarEnabled: boolean;
   calendarProvider: CalendarProvider;
   includedCalendarIds: string[];
@@ -118,6 +122,71 @@ export type PlanningRecommendationFollowThroughState =
   | "proposal_dismissed";
 export type CalendarProvider = "google";
 export type CalendarSyncStatus = "idle" | "syncing" | "ready" | "degraded";
+export type GithubSyncStatus = "idle" | "syncing" | "ready" | "degraded";
+export type GithubAttentionKind =
+  | "github_review_requested"
+  | "github_pr_checks_failing"
+  | "github_pr_changes_requested"
+  | "github_pr_merge_ready";
+export type GithubCheckState = "unknown" | "pending" | "success" | "failing";
+export type GithubReviewState = "unknown" | "review_requested" | "changes_requested" | "approved" | "commented";
+
+export interface GithubAccount {
+  login: string;
+  keychain_service: string;
+  keychain_account: string;
+  connected_at: string;
+  updated_at: string;
+  profile_json: string;
+}
+
+export interface GithubSyncState {
+  provider: "github";
+  status: GithubSyncStatus;
+  last_synced_at?: string | undefined;
+  last_error_code?: string | undefined;
+  last_error_message?: string | undefined;
+  last_sync_duration_ms?: number | undefined;
+  repositories_scanned_count?: number | undefined;
+  pull_requests_refreshed_count?: number | undefined;
+  updated_at: string;
+}
+
+export interface GithubPullRequest {
+  pr_key: string;
+  repository: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  html_url: string;
+  author_login: string;
+  is_draft: boolean;
+  state: string;
+  created_at: string;
+  updated_at: string;
+  requested_reviewers: string[];
+  head_sha: string;
+  check_state: GithubCheckState;
+  review_state: GithubReviewState;
+  mergeable_state?: string | undefined;
+  is_review_requested: boolean;
+  is_authored_by_viewer: boolean;
+  attention_kind?: GithubAttentionKind | undefined;
+  attention_summary?: string | undefined;
+}
+
+export interface GithubStatusReport {
+  enabled: boolean;
+  connected_login: string | null;
+  authenticated: boolean;
+  sync_status: GithubSyncStatus | "not_configured";
+  last_synced_at: string | null;
+  included_repository_count: number;
+  review_requested_count: number;
+  authored_pr_attention_count: number;
+  top_item_summary: string | null;
+}
 
 export interface TaskItem {
   task_id: string;
@@ -1447,6 +1516,7 @@ export interface ServiceStatusReport {
     top_item_summary: string | null;
     top_scheduling_item_summary: string | null;
   };
+  github: GithubStatusReport;
 }
 
 export interface DoctorReport {

@@ -17,6 +17,12 @@ allowed_origins = []
 account_email = ""
 review_url = "https://mail.google.com/mail/u/0/#drafts"
 
+[github]
+enabled = false
+included_repositories = []
+sync_interval_minutes = 10
+keychain_service = "personal-ops.github"
+
 [calendar]
 enabled = true
 provider = "google"
@@ -104,6 +110,12 @@ export function loadConfig(paths: Paths): Config {
     allowedOrigins: Array.isArray(doc.http?.allowed_origins) ? doc.http.allowed_origins : [],
     gmailAccountEmail: String(doc.gmail?.account_email ?? ""),
     gmailReviewUrl: String(doc.gmail?.review_url ?? "https://mail.google.com/mail/u/0/#drafts"),
+    githubEnabled: Boolean(doc.github?.enabled ?? false),
+    includedGithubRepositories: Array.isArray(doc.github?.included_repositories)
+      ? doc.github.included_repositories.map((value: unknown) => String(value).trim()).filter(Boolean)
+      : [],
+    githubSyncIntervalMinutes: Number(doc.github?.sync_interval_minutes ?? 10),
+    githubKeychainService: String(doc.github?.keychain_service ?? "personal-ops.github"),
     calendarEnabled: Boolean(doc.calendar?.enabled ?? true),
     calendarProvider: String(doc.calendar?.provider ?? "google") as "google",
     includedCalendarIds: Array.isArray(doc.calendar?.included_calendar_ids)

@@ -202,6 +202,18 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Top scheduling item", topSummary(report.calendar.top_scheduling_item_summary, "nothing urgent")),
   ]);
 
+  pushSection(lines, "GitHub", [
+    line("Enabled", yesNo(report.github.enabled)),
+    line("Connected login", report.github.connected_login ?? "not connected"),
+    line("Authenticated", yesNo(report.github.authenticated)),
+    line("Sync status", report.github.sync_status),
+    line("Included repositories", String(report.github.included_repository_count)),
+    line("Review requests", String(report.github.review_requested_count)),
+    line("Authored PR attention", String(report.github.authored_pr_attention_count)),
+    line("Last synced", report.github.last_synced_at ?? "never"),
+    line("Top GitHub item", topSummary(report.github.top_item_summary, "nothing notable")),
+  ]);
+
   pushSection(lines, "Queues", [
     line("Review pending", String(report.review_queue.pending_count)),
     line("Approval pending", String(report.approval_queue.pending_count)),

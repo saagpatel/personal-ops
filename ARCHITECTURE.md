@@ -6,7 +6,7 @@ This document describes the current `personal-ops` system shape after Phases 1 t
 
 `personal-ops` is a local control plane for personal workflow.
 
-It exists so assistants can help with inbox, calendar, task, planning, and draft workflow without taking direct ownership of provider-side logic or high-trust actions.
+It exists so assistants can help with inbox, calendar, task, planning, draft, and narrow GitHub PR and review workflow without taking direct ownership of provider-side logic or high-trust actions.
 
 The trust model is intentional:
 
@@ -42,6 +42,7 @@ flowchart LR
   service --> config["Local config / policy / tokens / logs"]
   service --> gmail["Gmail"]
   service --> calendar["Google Calendar"]
+  service --> github["GitHub"]
 ```
 
 ## Local state and path model
@@ -91,6 +92,10 @@ Recent operator-focused entrypoints:
 - `personal-ops worklist`
 - `personal-ops doctor`
 - `personal-ops install check`
+- `personal-ops github status`
+- `personal-ops github reviews`
+- `personal-ops github pulls`
+- `personal-ops github pr <owner/repo#number>`
 
 ### Local HTTP API
 
@@ -114,6 +119,7 @@ It is intentionally read-first in Phase 8:
 - approvals and drafts inspection
 - planning and audit inspection
 - backup list and provenance inspection
+- compact GitHub PR and review attention when configured
 
 It does not replace the CLI for high-trust or mutating actions.
 
@@ -137,6 +143,7 @@ Assistants may read shared operational state such as:
 - status and worklist
 - inbox and calendar context
 - tasks and planning reads
+- assistant-safe GitHub PR and review reads
 - assistant-safe audit reads
 
 Assistants may create only the limited suggestion surfaces already allowed by contract.
@@ -151,6 +158,8 @@ These remain outside assistant control:
 - calendar writes
 - planning recommendation apply, reject, snooze, refresh, and replan
 - policy and governance mutation
+- GitHub auth mutation and explicit GitHub sync mutation
+- any GitHub write action
 
 `CLIENTS.md` remains the authoritative contract for the safe read surface and operator-only boundaries.
 
