@@ -58,6 +58,9 @@ function statusActionItems(report: ServiceStatusReport): string[] {
 }
 
 function doctorFollowUp(check: DoctorCheck): string | null {
+  if (check.id.endsWith("_permissions_secure")) {
+    return "Run `personal-ops install fix-permissions`, then rerun install check or doctor.";
+  }
   if (check.id.includes("keychain")) {
     return "Confirm Keychain access on this Mac, then rerun `personal-ops auth gmail login` and `personal-ops auth google login` if needed.";
   }

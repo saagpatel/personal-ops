@@ -21,6 +21,7 @@ export {
   formatSnapshotInspection,
   formatInstallManifest,
   formatInstallCheckReport,
+  formatInstallPermissionsFixResult,
   formatRestoreResult,
 } from "./formatters/install.js";
 export { formatInboxStatus, formatInboxThreads, formatInboxThreadDetail } from "./formatters/inbox.js";

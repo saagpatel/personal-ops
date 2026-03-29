@@ -260,6 +260,20 @@ test("Phase 4 top-level help highlights the main operator path and the now short
   assert.match(output, /status \[options\]\s+Show the full operator readiness summary for the local/i);
 });
 
+test("hardening install help includes fix-permissions guidance", () => {
+  const { env, paths } = createTempEnv("install-help");
+  writeFixtureFiles(paths, 46212);
+
+  const output = execFileSync(process.execPath, [cliEntryPath(), "install", "--help"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+
+  assert.match(output, /fix-permissions/i);
+  assert.match(output, /owner-only permissions/i);
+});
+
 test("Phase 4 daemon-unreachable errors point the operator to the next local checks", () => {
   const { env, paths } = createTempEnv("unreachable");
   writeFixtureFiles(paths, 49999);

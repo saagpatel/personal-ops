@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolvePaths } from "./paths.js";
 
 export const CONSOLE_SESSION_COOKIE = "personal_ops_console_session";
@@ -93,9 +94,24 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
   );
 }
 
+function candidateAppDirs(): string[] {
+  const resolvedAppDir = resolvePaths().appDir;
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolvedAppDir,
+    path.resolve(moduleDir, "..", ".."),
+    path.resolve(moduleDir, ".."),
+  ];
+  return [...new Set(candidates)];
+}
+
+function firstExistingPath(pathsToCheck: string[]): string {
+  const existing = pathsToCheck.find((candidate) => fs.existsSync(candidate));
+  return existing ?? pathsToCheck[0] ?? "";
+}
+
 export function consoleShellPath(): string {
-  const paths = resolvePaths();
-  return path.join(paths.appDir, "dist", "console", "index.html");
+  return firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "console", "index.html")));
 }
 
 export function resolveConsoleAsset(assetPath: string): { filePath: string; contentType: string } | null {
@@ -103,16 +119,17 @@ export function resolveConsoleAsset(assetPath: string): { filePath: string; cont
   if (!normalized || normalized.startsWith("..") || normalized.includes("\0")) {
     return null;
   }
-  const paths = resolvePaths();
   if (normalized.endsWith(".js")) {
+    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "src", "console", normalized)));
     return {
-      filePath: path.join(paths.appDir, "dist", "src", "console", normalized),
+      filePath,
       contentType: "text/javascript; charset=utf-8",
     };
   }
   if (normalized.endsWith(".css")) {
+    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "console", normalized)));
     return {
-      filePath: path.join(paths.appDir, "dist", "console", normalized),
+      filePath,
       contentType: "text/css; charset=utf-8",
     };
   }

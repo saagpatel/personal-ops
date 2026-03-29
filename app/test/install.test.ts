@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
-import { buildInstallCheckReport, getInstallArtifactPaths, installAll, installWrapper } from "../src/install.js";
+import { buildInstallCheckReport, fixInstallPermissions, getInstallArtifactPaths, installAll, installWrapper } from "../src/install.js";
 import { getLaunchAgentLabel, renderLaunchAgentPlist } from "../src/launchagent.js";
 import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, readRestoreProvenance, writeRestoreProvenance } from "../src/machine.js";
@@ -272,6 +272,52 @@ test("Phase 6 install check reports blank keychain service, empty tokens, and br
     assert.equal(report.checks.some((check) => check.id === "local_api_token_nonempty" && check.severity === "fail"), true);
     assert.equal(report.checks.some((check) => check.id === "local_api_token_permissions_secure" && check.severity === "warn"), true);
     assert.equal(report.checks.some((check) => check.id === "assistant_api_token_permissions_secure" && check.severity === "warn"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("install fix-permissions tightens known secret files and leaves missing files alone", () => {
+  const fixture = createFixture();
+  try {
+    fs.writeFileSync(fixture.paths.configFile, fs.readFileSync(fixture.paths.configFile, "utf8"), { encoding: "utf8", mode: 0o644 });
+    fs.writeFileSync(fixture.paths.policyFile, fs.readFileSync(fixture.paths.policyFile, "utf8"), { encoding: "utf8", mode: 0o644 });
+    fs.writeFileSync(fixture.paths.oauthClientFile, fs.readFileSync(fixture.paths.oauthClientFile, "utf8"), { encoding: "utf8", mode: 0o644 });
+    fs.writeFileSync(fixture.paths.apiTokenFile, "local-token", { encoding: "utf8", mode: 0o644 });
+    fs.writeFileSync(fixture.paths.assistantApiTokenFile, "assistant-token", { encoding: "utf8", mode: 0o600 });
+    fs.chmodSync(fixture.paths.configFile, 0o644);
+    fs.chmodSync(fixture.paths.policyFile, 0o644);
+    fs.chmodSync(fixture.paths.oauthClientFile, 0o644);
+    fs.chmodSync(fixture.paths.apiTokenFile, 0o644);
+    fs.chmodSync(fixture.paths.assistantApiTokenFile, 0o600);
+
+    const result = fixInstallPermissions(fixture.paths);
+
+    assert.equal(result.summary.updated, 4);
+    assert.equal(result.summary.already_secure, 1);
+    assert.equal(result.summary.failed, 0);
+    assert.equal(fs.statSync(fixture.paths.configFile).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(fixture.paths.policyFile).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(fixture.paths.oauthClientFile).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(fixture.paths.apiTokenFile).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(fixture.paths.assistantApiTokenFile).mode & 0o777, 0o600);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("install check permission warnings recommend fix-permissions", () => {
+  const fixture = createFixture();
+  try {
+    fs.writeFileSync(fixture.paths.oauthClientFile, fs.readFileSync(fixture.paths.oauthClientFile, "utf8"), { encoding: "utf8", mode: 0o644 });
+    fs.chmodSync(fixture.paths.oauthClientFile, 0o644);
+
+    const report = buildInstallCheckReport(fixture.paths);
+    const warning = report.checks.find((check) => check.id === "oauth_client_permissions_secure");
+
+    assert.ok(warning);
+    assert.equal(warning?.severity, "warn");
+    assert.match(String(warning?.message), /install fix-permissions/);
   } finally {
     fixture.restoreEnv();
   }

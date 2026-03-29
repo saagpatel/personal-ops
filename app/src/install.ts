@@ -10,6 +10,8 @@ import {
   writeLaunchAgentPlist,
 } from "./launchagent.js";
 import {
+  InstallPermissionsFixItem,
+  InstallPermissionsFixResult,
   AssistantKind,
   DoctorCheck,
   InstallCheckReport,
@@ -24,6 +26,7 @@ import {
   readRestoreProvenance,
 } from "./machine.js";
 import {
+  repairSecretFilePermissions,
   validateOAuthClientFile,
   validateSecretFilePermissions,
   validateSecretTextFile,
@@ -46,6 +49,14 @@ export interface InstallArtifactPaths {
 interface InstallDependencies {
   launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
 }
+
+const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Paths) => string }> = [
+  { label: "Config file", resolvePath: (paths) => paths.configFile },
+  { label: "Policy file", resolvePath: (paths) => paths.policyFile },
+  { label: "OAuth client file", resolvePath: (paths) => paths.oauthClientFile },
+  { label: "Local API token", resolvePath: (paths) => paths.apiTokenFile },
+  { label: "Assistant API token", resolvePath: (paths) => paths.assistantApiTokenFile },
+];
 
 function shellQuote(value: string): string {
   return JSON.stringify(value);
@@ -325,6 +336,35 @@ export function installAll(
   const manifest = buildInstallManifest(paths, nodeExecutable, DEFAULT_ASSISTANTS);
   writeInstallManifest(paths, manifest);
   return manifest;
+}
+
+export function fixInstallPermissions(paths: Paths): InstallPermissionsFixResult {
+  const files: InstallPermissionsFixItem[] = SECRET_PERMISSION_TARGETS.map((target) => {
+    const filePath = target.resolvePath(paths);
+    const repaired = repairSecretFilePermissions(filePath, target.label);
+    return {
+      label: target.label,
+      path: filePath,
+      status: repaired.status,
+      message: repaired.message,
+      previous_mode: repaired.previousMode,
+      current_mode: repaired.currentMode,
+    };
+  });
+
+  const summary = files.reduce(
+    (accumulator, file) => {
+      accumulator[file.status] += 1;
+      return accumulator;
+    },
+    { updated: 0, already_secure: 0, missing: 0, failed: 0 },
+  );
+
+  return {
+    generated_at: new Date().toISOString(),
+    summary,
+    files,
+  };
 }
 
 export function buildInstallCheckReport(paths: Paths, dependencies: InstallDependencies = {}): InstallCheckReport {
