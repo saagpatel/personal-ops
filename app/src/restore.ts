@@ -15,6 +15,7 @@ import {
   startLaunchAgent,
   stopLaunchAgent,
 } from "./launchagent.js";
+import { readServiceVersion } from "./version.js";
 import { Paths, RestoreMode, RestoreResult, ServiceState, SnapshotManifest } from "./types.js";
 
 interface RestoreDependencies {
@@ -24,15 +25,6 @@ interface RestoreDependencies {
 function removeDatabaseSidecars(databaseFile: string): void {
   for (const suffix of ["-wal", "-shm", "-journal"]) {
     fs.rmSync(`${databaseFile}${suffix}`, { force: true });
-  }
-}
-
-function getServiceVersion(paths: Paths): string {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(paths.appDir, "package.json"), "utf8")) as { version?: string };
-    return pkg.version ?? "0.1.0";
-  } catch {
-    return "0.1.0";
   }
 }
 
@@ -72,7 +64,7 @@ async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, note
   const manifest: SnapshotManifest = {
     snapshot_id: snapshotId,
     created_at: new Date().toISOString(),
-    service_version: getServiceVersion(paths),
+    service_version: readServiceVersion(paths.appDir),
     schema_version: CURRENT_SCHEMA_VERSION,
     backup_intent: "recovery",
     source_machine: machineDescriptorFromIdentity(machineIdentity),

@@ -34,6 +34,8 @@ Keep these pieces separate:
 
 - `personal-ops console`
   Opens the local operator console with narrow browser-safe actions for planning and snapshots.
+- `personal-ops version`
+  Shows the current product version and the official source-first upgrade path.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -66,6 +68,7 @@ Read next:
 ### Read next
 
 - [OPERATIONS.md](OPERATIONS.md)
+- [UPGRADING.md](UPGRADING.md)
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
 - [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)

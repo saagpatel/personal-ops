@@ -83,6 +83,7 @@ program
     "after",
     `
 Start here:
+  personal-ops version         See current version and source-first upgrade path
   personal-ops install check   Verify local setup without needing the daemon
   personal-ops health check    Run the recurring-friendly health pass
   personal-ops status          See full readiness and next attention

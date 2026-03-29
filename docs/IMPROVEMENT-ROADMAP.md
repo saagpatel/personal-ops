@@ -153,7 +153,7 @@ The current post-roadmap hardening track focuses on four audit-backed improvemen
 
 ### Current Goal
 
-The original roadmap and the follow-on hardening pass are complete. The next recommended build track is the post-launch roadmap starting with Phase 1: Automation and Daily Briefings.
+The original roadmap and the follow-on hardening pass are complete. Post-launch Phases 1 to 4 are now complete. The next recommended build track is Post-Launch Phase 5: Workflow Actions and Bundles.
 
 ### Guardrails
 
@@ -210,8 +210,8 @@ The original roadmap and the follow-on hardening pass are complete. The next rec
 - Phase 8 completed the first read-first operator console with local browser sessions and Playwright-backed verification
 - the follow-on hardening track now includes CI maintenance, a formal release checklist, and a recurring-friendly health check command
 - the post-launch roadmap is recorded in `docs/POST-LAUNCH-ROADMAP.md`
-- the next recommended phase is Post-Launch Phase 1: Automation and Daily Briefings
-- the next-phase handoff lives in `docs/POST-LAUNCH-PHASE-1-HANDOFF.md`
+- Post-Launch Phases 1 to 4 are complete
+- the next recommended phase is Post-Launch Phase 5: Workflow Actions and Bundles
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule

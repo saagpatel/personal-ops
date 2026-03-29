@@ -27,7 +27,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | 1 | Automation and Daily Briefings | Make the system proactively useful through recurring checks, summaries, and operator nudges | Completed |
 | 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Completed |
 | 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Completed |
-| 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Planned |
+| 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Completed |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Planned |
 | 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Planned |
 | 7 | Integrations and Context Expansion | Add the next external systems only where they make the operator loop meaningfully stronger | Planned |
@@ -114,16 +114,17 @@ Phase 3 is complete.
 
 ## Phase 4: Release and Distribution Polish
 
-This phase should make `personal-ops` feel more like a maintained product.
+Phase 4 is complete.
 
-Good targets:
+### Delivered
 
-- versioning strategy
-- changelog / release notes workflow
-- tagged releases
-- upgrade instructions or upgrade helpers
-- stronger release check documentation and branch discipline
-- optional release packaging polish
+- explicit version visibility through `personal-ops version`
+- additive `service_version` in `status`
+- console Overview version display
+- `CHANGELOG.md` and `UPGRADING.md`
+- `release:prep` and `release:notes` helper scripts
+- tag-driven GitHub Release workflow for source-based releases
+- clearer release and upgrade docs for the source-first distribution model
 
 ## Phase 5: Workflow Actions and Bundles
 
@@ -187,7 +188,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 4: Release and Distribution Polish
+- the recommended next build is Phase 5: Workflow Actions and Bundles
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

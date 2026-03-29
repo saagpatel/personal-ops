@@ -13,6 +13,7 @@ Use this document for:
 - daily commands
 - backup and restore
 - verification and troubleshooting
+- release and upgrade flow
 
 ## Runtime shape
 
@@ -30,6 +31,13 @@ Main directories:
 - state: `~/Library/Application Support/personal-ops`
 - logs: `~/Library/Logs/personal-ops`
 - default repo path: `~/.local/share/personal-ops`
+
+Official distribution model in this phase:
+
+- source checkout plus `./bootstrap`
+- tagged source releases with notes in `CHANGELOG.md`
+- in-place upgrades through repo update plus rerun `./bootstrap`
+- no packaged installer or package-manager distribution yet
 
 ## Secret model
 
@@ -134,6 +142,8 @@ These are the main operator commands after setup:
 
 - `personal-ops console`
   Opens the local operator console in the browser.
+- `personal-ops version`
+  Shows the current product version, release tag, release gate, and official upgrade hint.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -311,11 +321,32 @@ npm run release:check
 
 That is the formal local ship path.
 
+Version and release helpers:
+
+```bash
+personal-ops version
+npm run release:prep -- --version X.Y.Z --dry-run
+npm run release:notes -- --version X.Y.Z
+```
+
 GitHub CI covers the lighter baseline:
 
 - `npm run typecheck`
 - `npm test`
 - `npm run verify:smoke`
+
+The source-first release workflow is:
+
+1. land the intended changes on `main`
+2. run `npm run release:check`
+3. run `npm run release:prep -- --version X.Y.Z`
+4. review `CHANGELOG.md`
+5. commit the version bump and changelog
+6. tag `vX.Y.Z`
+7. push `main` and the tag
+8. let the tag workflow publish the GitHub Release from the changelog section
+
+Use [UPGRADING.md](UPGRADING.md) for the official in-place upgrade flow after changing branches or tags.
 
 ## Backup and restore
 

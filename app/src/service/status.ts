@@ -73,6 +73,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const provenance = restoreProvenance.status === "configured" ? restoreProvenance.provenance : null;
   return {
     generated_at: new Date().toISOString(),
+    service_version: service.getServiceVersion(),
     state: service.classifyState(checks),
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,

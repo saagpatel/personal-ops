@@ -4,6 +4,13 @@ This is the practical release and maintenance checklist for `personal-ops`.
 
 Use this when you want one repeatable path before shipping or after landing a meaningful change.
 
+The official distribution model in this phase is source-first:
+
+- releases are tagged as `vX.Y.Z`
+- GitHub Releases publish source-based release notes
+- installs and upgrades still happen through repo checkout plus `./bootstrap`
+- no Homebrew, npm publish, binary packaging, or signed installer is part of this phase
+
 ## Release gates
 
 Local full gate from `app/`:
@@ -110,6 +117,64 @@ Do not treat a build as releasable if any of these are true:
 - `personal-ops health check` reports attention needed or degraded state
 - no recent recovery snapshot exists
 - no recent successful recovery rehearsal exists
+
+## Version and release prep
+
+Current version surface:
+
+```bash
+personal-ops version
+personal-ops version --json
+```
+
+Release prep helpers from `app/`:
+
+```bash
+npm run release:prep -- --version X.Y.Z --dry-run
+npm run release:prep -- --version X.Y.Z
+npm run release:notes -- --version X.Y.Z
+```
+
+Rules:
+
+- `app/package.json` is the canonical version source
+- release prep requires a clean worktree
+- the target version must be newer than the current version
+- `CHANGELOG.md` must already contain a section for the target version
+- release notes are extracted from the matching `CHANGELOG.md` section
+
+## Tagged release flow
+
+Cut source-first releases only from clean `main`.
+
+Recommended release sequence:
+
+1. run `npm run release:check`
+2. run `npm run release:prep -- --version X.Y.Z`
+3. review `CHANGELOG.md`
+4. commit the version bump and changelog
+5. create tag `vX.Y.Z`
+6. push `main` and the tag
+7. let `.github/workflows/release.yml` publish the GitHub Release
+
+The release workflow runs the stable CI subset:
+
+- `npm ci`
+- `npm run release:check:ci`
+- `npm run release:notes -- --version X.Y.Z`
+
+## Upgrade path
+
+Use [UPGRADING.md](UPGRADING.md) for the official in-place upgrade flow.
+
+Short version:
+
+1. `personal-ops backup create --json`
+2. update the repo to the intended tag or branch
+3. rerun `./bootstrap`
+4. rerun `personal-ops install check --json`
+5. rerun `personal-ops doctor --deep --json`
+6. rerun `personal-ops console --print-url`
 
 ## Rollback posture
 

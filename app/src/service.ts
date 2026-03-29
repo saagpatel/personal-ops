@@ -61,6 +61,7 @@ import {
   listSnapshots as listSnapshotsFromModule,
 } from "./service/install.js";
 import { buildDoctorReport, buildStatusReport } from "./service/status.js";
+import { readServiceVersion } from "./version.js";
 import {
   AttentionItem,
   AttentionSeverity,
@@ -9487,14 +9488,7 @@ export class PersonalOpsService {
   }
 
   private getServiceVersion(): string {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(this.paths.appDir, "package.json"), "utf8")) as {
-        version?: string;
-      };
-      return pkg.version ?? "0.1.0";
-    } catch {
-      return "0.1.0";
-    }
+    return readServiceVersion(this.paths.appDir);
   }
 
   private readSnapshotManifest(snapshotId: string): SnapshotManifest | null {

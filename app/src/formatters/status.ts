@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorReport, HealthCheckReport, ServiceStatusReport, WorklistReport } from "../types.js";
+import type { DoctorCheck, DoctorReport, HealthCheckReport, ServiceStatusReport, VersionReport, WorklistReport } from "../types.js";
 import {
   formatSeverity,
   formatStateLabel,
@@ -133,6 +133,7 @@ function lastRestoreSummary(report: ServiceStatusReport): string {
 export function formatStatusReport(report: ServiceStatusReport): string {
   const lines: string[] = [];
   lines.push(`Personal Ops Status: ${formatStateLabel(report.state)}`);
+  lines.push(line("Version", report.service_version));
   lines.push(line("Generated", report.generated_at));
   lines.push(line("Next attention", topSummary(report.worklist_summary.top_item_summary, "nothing urgent right now")));
   lines.push(line("Send enabled", yesNo(report.send_policy.effective_enabled)));
@@ -457,6 +458,16 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
   }
 
   return lines.join("\n");
+}
+
+export function formatVersionReport(report: VersionReport): string {
+  return [
+    `personal-ops ${report.service_version}`,
+    line("Release tag", report.release_tag),
+    line("Distribution", report.distribution_model === "source_checkout_plus_bootstrap" ? "source checkout + ./bootstrap" : report.distribution_model),
+    line("Release gate", report.release_check_command),
+    line("Upgrade path", report.upgrade_hint),
+  ].join("\n");
 }
 
 export function formatNowReport(status: ServiceStatusReport, worklist: WorklistReport): string {
