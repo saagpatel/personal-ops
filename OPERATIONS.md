@@ -143,7 +143,7 @@ These are the main operator commands after setup:
 - `personal-ops doctor`
   Local diagnostics with next-step guidance.
 - `personal-ops health check`
-  The recurring-friendly compact health pass for install, runtime, and snapshot freshness.
+  The recurring-friendly compact health pass for install, runtime, snapshot freshness, retention pressure, and recovery rehearsal confidence.
 - `personal-ops install check`
   Local install, wrapper, and LaunchAgent verification without needing the daemon.
 
@@ -153,23 +153,30 @@ Other common commands:
   Adds live Gmail and Google Calendar verification.
 - `personal-ops backup create`
   Creates a recovery snapshot with machine provenance.
+- `personal-ops backup prune --dry-run`
+  Previews which snapshots the retention policy would prune.
+- `personal-ops backup prune --yes`
+  Applies the local snapshot retention policy.
 - `personal-ops backup inspect <snapshotId>`
   Inspects snapshot contents and warnings.
 
 ## Operator automations
 
-The first post-launch automation layer adds three read-first weekday automations:
+The recurring automation layer now includes five operator automations:
 
 - Morning Brief
 - Midday Health Guard
 - End-of-Day Wrap-Up
+- End-of-Day Recovery Snapshot
+- Weekly Recovery Rehearsal Reminder
 
 These automations:
 
 - use the existing `personal-ops` CLI as their source of truth
-- stay read-first
+- stay read-first except for one narrow reliability automation
 - open one inbox item each run
-- do not send, restore, approve, re-authenticate, or mutate state
+- do not send, restore, approve, or re-authenticate in the background
+- only allow unattended local snapshot create and prune after a `ready` health gate
 
 Use [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md) as the source of truth for:
 
@@ -288,6 +295,8 @@ This check:
 - verifies daemon reachability
 - runs doctor or deep doctor
 - warns when the latest snapshot is too old
+- warns when retention candidates are waiting
+- warns when recovery rehearsal is missing or stale
 - exits non-zero when attention is needed, which makes it suitable for recurring local automation
 
 For the full ship gate, use the release checklist in [RELEASING.md](RELEASING.md).
@@ -316,7 +325,17 @@ GitHub CI covers the lighter baseline:
 personal-ops backup create
 personal-ops backup list
 personal-ops backup inspect <snapshotId>
+personal-ops backup prune --dry-run
+personal-ops backup prune --yes
 ```
+
+Retention policy in this phase:
+
+- keep every snapshot from the last 24 hours
+- for snapshots older than 24 hours and up to 14 days, keep the newest snapshot per local calendar day
+- for snapshots older than 14 days and up to 8 weeks, keep the newest snapshot per local calendar week
+- prune snapshots older than 8 weeks
+- always keep the single newest snapshot
 
 ### Restore behavior
 
@@ -361,6 +380,7 @@ These are meant to be safe repeat operations:
 - `personal-ops status`
 - `personal-ops worklist`
 - `personal-ops backup create`
+- `personal-ops backup prune --dry-run`
 
 ## Verification
 
@@ -380,6 +400,9 @@ npm run verify:all
 - `npm run verify:full`
 - `npm run verify:console`
 - `npm run verify:launchagent`
+- `npm run verify:recovery`
+
+`verify:recovery` is the restore confidence loop. It runs an isolated backup-and-restore rehearsal, verifies rescue snapshot behavior, checks machine provenance handling, verifies prune logic, and only then writes the local recovery rehearsal success stamp.
 
 ### CI baseline
 

@@ -34,6 +34,16 @@ import {
   updateGmailDraft,
   verifyGmailMetadataAccess,
 } from "./gmail.js";
+import {
+  getLatestSnapshotSummary as getLatestSnapshotSummaryFromPaths,
+  pruneSnapshots,
+  readRecoveryRehearsalStamp,
+  readSnapshotManifest as readSnapshotManifestFromPaths,
+  recoveryRehearsalAgeHours,
+  RECOVERY_REHEARSAL_WARN_HOURS,
+  SNAPSHOT_FAIL_HOURS,
+  SNAPSHOT_WARN_HOURS,
+} from "./recovery.js";
 import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
@@ -3275,6 +3285,9 @@ export class PersonalOpsService {
     } else {
       checks.push(this.passCheck("state_origin_safe", "State origin", "No cross-machine restore provenance is recorded.", "setup"));
     }
+    checks.push(this.snapshotFreshnessCheck(this.getLatestSnapshotSummary()));
+    checks.push(this.snapshotRetentionPressureCheck());
+    checks.push(this.recoveryRehearsalFreshnessCheck());
     checks.push(
       options.httpReachable
         ? this.passCheck("daemon_http_reachable", "Daemon HTTP", "Daemon responded on localhost.", "runtime")
@@ -9470,7 +9483,7 @@ export class PersonalOpsService {
   }
 
   private getLatestSnapshotSummary(): SnapshotSummary | undefined {
-    return this.listSnapshots()[0];
+    return getLatestSnapshotSummaryFromPaths(this.paths) ?? undefined;
   }
 
   private getServiceVersion(): string {
@@ -9485,11 +9498,7 @@ export class PersonalOpsService {
   }
 
   private readSnapshotManifest(snapshotId: string): SnapshotManifest | null {
-    const manifestPath = path.join(this.paths.snapshotsDir, snapshotId, "manifest.json");
-    if (!fs.existsSync(manifestPath)) {
-      return null;
-    }
-    return JSON.parse(fs.readFileSync(manifestPath, "utf8")) as SnapshotManifest;
+    return readSnapshotManifestFromPaths(this.paths, snapshotId);
   }
 
   private fileCheck(id: string, title: string, filePath: string, parseRequired: boolean): DoctorCheck {
@@ -9525,6 +9534,105 @@ export class PersonalOpsService {
         "runtime",
       );
     }
+  }
+
+  private snapshotFreshnessCheck(snapshot: SnapshotSummary | undefined): DoctorCheck {
+    if (!snapshot) {
+      return this.failCheck(
+        "snapshot_freshness",
+        "Snapshot freshness",
+        "No recovery snapshots were found. Run `personal-ops backup create` before relying on restore.",
+        "runtime",
+      );
+    }
+    const createdMs = Date.parse(snapshot.created_at);
+    if (!Number.isFinite(createdMs)) {
+      return this.warnCheck(
+        "snapshot_freshness",
+        "Snapshot freshness",
+        `Latest snapshot ${snapshot.snapshot_id} has an invalid timestamp. Create a fresh recovery snapshot.`,
+        "runtime",
+      );
+    }
+    const ageHours = (Date.now() - createdMs) / (1000 * 60 * 60);
+    if (ageHours > SNAPSHOT_FAIL_HOURS) {
+      return this.failCheck(
+        "snapshot_freshness",
+        "Snapshot freshness",
+        `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old, beyond the ${SNAPSHOT_FAIL_HOURS}h recovery limit. Run \`personal-ops backup create\`.`,
+        "runtime",
+      );
+    }
+    if (ageHours > SNAPSHOT_WARN_HOURS) {
+      return this.warnCheck(
+        "snapshot_freshness",
+        "Snapshot freshness",
+        `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old. Capture a fresh recovery point with \`personal-ops backup create\`.`,
+        "runtime",
+      );
+    }
+    return this.passCheck(
+      "snapshot_freshness",
+      "Snapshot freshness",
+      `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old and within the 24h target.`,
+      "runtime",
+    );
+  }
+
+  private snapshotRetentionPressureCheck(): DoctorCheck {
+    const prune = pruneSnapshots(this.paths, { dryRun: true });
+    if (prune.prune_candidates > 0) {
+      return this.warnCheck(
+        "snapshot_retention_pressure",
+        "Snapshot retention",
+        `${prune.prune_candidates} snapshot${prune.prune_candidates === 1 ? "" : "s"} can be pruned under the retention policy. Run \`personal-ops backup prune --dry-run\`, then \`personal-ops backup prune --yes\` when it looks right.`,
+        "runtime",
+      );
+    }
+    return this.passCheck(
+      "snapshot_retention_pressure",
+      "Snapshot retention",
+      "Snapshot retention is within policy and no prune backlog is waiting.",
+      "runtime",
+    );
+  }
+
+  private recoveryRehearsalFreshnessCheck(): DoctorCheck {
+    const rehearsal = readRecoveryRehearsalStamp(this.paths);
+    if (rehearsal.status === "invalid") {
+      return this.warnCheck("recovery_rehearsal_freshness", "Recovery rehearsal", rehearsal.message, "runtime");
+    }
+    if (rehearsal.status === "missing" || !rehearsal.stamp) {
+      return this.warnCheck(
+        "recovery_rehearsal_freshness",
+        "Recovery rehearsal",
+        "No successful recovery rehearsal is recorded. Run `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`.",
+        "runtime",
+      );
+    }
+    const ageHours = recoveryRehearsalAgeHours(rehearsal.stamp);
+    if (ageHours == null) {
+      return this.warnCheck(
+        "recovery_rehearsal_freshness",
+        "Recovery rehearsal",
+        "Recovery rehearsal history exists but the timestamp could not be interpreted. Rerun `npm run verify:recovery`.",
+        "runtime",
+      );
+    }
+    if (ageHours > RECOVERY_REHEARSAL_WARN_HOURS) {
+      return this.warnCheck(
+        "recovery_rehearsal_freshness",
+        "Recovery rehearsal",
+        `Last successful recovery rehearsal was ${ageHours.toFixed(1)}h ago. Run \`cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery\`.`,
+        "runtime",
+      );
+    }
+    return this.passCheck(
+      "recovery_rehearsal_freshness",
+      "Recovery rehearsal",
+      `Last successful recovery rehearsal was ${ageHours.toFixed(1)}h ago via ${rehearsal.stamp.command_name}.`,
+      "runtime",
+    );
   }
 
   private passCheck(id: string, title: string, message: string, category: DoctorCheck["category"]): DoctorCheck {

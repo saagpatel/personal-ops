@@ -14,12 +14,14 @@ import { chromium } from "playwright";
 import { createRequestJson } from "../src/cli/http-client.js";
 import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
+import { readRecoveryRehearsalStamp, writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import type {
   ClientIdentity,
   Config,
   InstallCheckReport,
   Paths,
   RestoreResult,
+  SnapshotPruneResult,
   SnapshotInspection,
   SnapshotManifest,
   SnapshotSummary,
@@ -499,6 +501,47 @@ function mutateFixtureState(paths: Paths): void {
   );
 }
 
+function writeFixtureSnapshot(
+  paths: Paths,
+  input: {
+    snapshotId: string;
+    createdAt: string;
+    daemonState?: SnapshotManifest["daemon_state"];
+  },
+): void {
+  const snapshotDir = path.join(paths.snapshotsDir, input.snapshotId);
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const dbBackupPath = path.join(snapshotDir, "personal-ops.db");
+  const configCopy = path.join(snapshotDir, "config.toml");
+  const policyCopy = path.join(snapshotDir, "policy.toml");
+  const logCopy = path.join(snapshotDir, "app.jsonl");
+  fs.writeFileSync(dbBackupPath, "", "utf8");
+  fs.writeFileSync(configCopy, fs.readFileSync(paths.configFile, "utf8"), "utf8");
+  fs.writeFileSync(policyCopy, fs.readFileSync(paths.policyFile, "utf8"), "utf8");
+  fs.writeFileSync(logCopy, "", "utf8");
+  fs.writeFileSync(
+    path.join(snapshotDir, "manifest.json"),
+    JSON.stringify(
+      {
+        snapshot_id: input.snapshotId,
+        created_at: input.createdAt,
+        service_version: "0.1.0",
+        schema_version: 14,
+        backup_intent: "recovery",
+        mailbox: null,
+        db_backup_path: dbBackupPath,
+        config_paths: [configCopy, policyCopy],
+        log_paths: [logCopy],
+        daemon_state: input.daemonState ?? "ready",
+        notes: [],
+      } satisfies SnapshotManifest,
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
 function assertFixtureRestored(paths: Paths, originalSnapshotId: string, restoreResult: RestoreResult): void {
   const db = new PersonalOpsDb(paths.databaseFile);
   try {
@@ -874,6 +917,130 @@ export async function runConsoleVerification(): Promise<void> {
   } catch (error) {
     throw new Error(
       `Console verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
+    );
+  } finally {
+    await stopDaemonProcess(daemon);
+    if (process.platform === "darwin") {
+      await stopLaunchAgentIfPresent(env);
+    }
+    cleanupEnvironment(env);
+  }
+}
+
+export async function runRecoveryVerification(): Promise<void> {
+  const env = await createVerificationEnvironment("recovery");
+  let daemon: DaemonHandle | null = null;
+  try {
+    await runBootstrap(env);
+    assertBootstrapArtifacts(env);
+    if (process.platform === "darwin") {
+      await verifyLaunchAgentLoaded(env);
+      await stopLaunchAgentIfPresent(env);
+    }
+
+    seedFixtureState(env.paths);
+    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "recovery daemon wrapper");
+    const snapshotResponse = await runCliJson<{ snapshot: SnapshotManifest }>(env, ["backup", "create", "--json"]);
+    const snapshotId = snapshotResponse.snapshot.snapshot_id;
+    assert.ok(snapshotId, "recovery verification should create a snapshot.");
+    assert.ok(snapshotResponse.snapshot.source_machine?.machine_id, "snapshot should include machine provenance.");
+
+    await stopDaemonProcess(daemon);
+    daemon = null;
+
+    mutateFixtureState(env.paths);
+    const restoreResponse = await runCliJson<{ restore: RestoreResult }>(env, [
+      "backup",
+      "restore",
+      snapshotId,
+      "--yes",
+      "--with-config",
+      "--with-policy",
+      "--json",
+    ]);
+    assert.equal(restoreResponse.restore.restored_snapshot_id, snapshotId);
+    assert.equal(restoreResponse.restore.restore_mode, "same_machine");
+    assert.equal(restoreResponse.restore.cross_machine, false);
+    assert.equal(
+      restoreResponse.restore.source_machine?.machine_id,
+      snapshotResponse.snapshot.source_machine?.machine_id,
+      "restore should preserve same-machine provenance.",
+    );
+    assert.ok(restoreResponse.restore.rescue_snapshot_id, "restore should create a rescue snapshot.");
+    assertFixtureRestored(env.paths, snapshotId, restoreResponse.restore);
+
+    const localDate = (daysAgo: number, hour: number): string => {
+      const date = new Date();
+      date.setDate(date.getDate() - daysAgo);
+      date.setHours(hour, 0, 0, 0);
+      return date.toISOString();
+    };
+    writeFixtureSnapshot(env.paths, {
+      snapshotId: "2026-03-20T18-00-00Z",
+      createdAt: localDate(2, 18),
+    });
+    writeFixtureSnapshot(env.paths, {
+      snapshotId: "2026-03-20T09-00-00Z",
+      createdAt: localDate(2, 8),
+    });
+    writeFixtureSnapshot(env.paths, {
+      snapshotId: "2026-03-05T18-00-00Z",
+      createdAt: localDate(20, 18),
+    });
+    writeFixtureSnapshot(env.paths, {
+      snapshotId: "2026-03-03T09-00-00Z",
+      createdAt: localDate(19, 8),
+    });
+    writeFixtureSnapshot(env.paths, {
+      snapshotId: "2026-01-01T08-00-00Z",
+      createdAt: localDate(70, 8),
+    });
+
+    const prunePreview = await runCliJson<{ prune: SnapshotPruneResult }>(env, ["backup", "prune", "--dry-run", "--json"]);
+    assert.ok(prunePreview.prune.prune_candidates >= 3, "prune preview should find duplicate and expired snapshots.");
+    assert.equal(prunePreview.prune.deleted_snapshot_ids.length, 0, "dry-run should not delete snapshots.");
+    assert.equal(
+      prunePreview.prune.prune_candidate_items.some((item) => item.snapshot_id === "2026-03-20T09-00-00Z"),
+      true,
+      "older same-day snapshot should be a prune candidate.",
+    );
+    assert.equal(
+      prunePreview.prune.prune_candidate_items.some((item) => item.snapshot_id === "2026-03-05T18-00-00Z"),
+      true,
+      "older same-week snapshot should be a prune candidate.",
+    );
+    assert.equal(
+      prunePreview.prune.prune_candidate_items.some((item) => item.snapshot_id === "2026-01-01T08-00-00Z"),
+      true,
+      "expired snapshot should be a prune candidate.",
+    );
+    assert.equal(
+      prunePreview.prune.prune_candidate_items.some((item) => item.snapshot_id === restoreResponse.restore.rescue_snapshot_id),
+      false,
+      "the newest rescue snapshot should never be pruned.",
+    );
+
+    const pruneApply = await runCliJson<{ prune: SnapshotPruneResult }>(env, ["backup", "prune", "--yes", "--json"]);
+    assert.equal(pruneApply.prune.snapshots_deleted, prunePreview.prune.prune_candidates);
+    for (const snapshot of pruneApply.prune.deleted_snapshot_ids) {
+      assert.equal(fs.existsSync(path.join(env.paths.snapshotsDir, snapshot)), false, `${snapshot} should be deleted by prune.`);
+    }
+
+    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "post-recovery daemon wrapper");
+    await runHttpSmoke(env);
+
+    const stampPaths = ensureRuntimeFiles();
+    writeRecoveryRehearsalStamp(stampPaths, {
+      successful_at: new Date().toISOString(),
+      app_version: JSON.parse(fs.readFileSync(path.join(env.appDir, "package.json"), "utf8")).version ?? "0.1.0",
+      command_name: "npm run verify:recovery",
+    });
+    const recordedStamp = readRecoveryRehearsalStamp(stampPaths);
+    assert.equal(recordedStamp.status, "configured");
+    assert.equal(recordedStamp.stamp?.command_name, "npm run verify:recovery");
+  } catch (error) {
+    throw new Error(
+      `Recovery verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
     );
   } finally {
     await stopDaemonProcess(daemon);

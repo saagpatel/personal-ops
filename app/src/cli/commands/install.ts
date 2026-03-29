@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { buildInstallCheckReport, fixInstallPermissions, installAll, installLaunchAgent, installWrapper } from "../../install.js";
-import { formatInstallCheckReport, formatInstallManifest, formatInstallPermissionsFixResult, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest } from "../../formatters.js";
+import { formatInstallCheckReport, formatInstallManifest, formatInstallPermissionsFixResult, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest, formatSnapshotPruneResult } from "../../formatters.js";
+import { pruneSnapshots } from "../../recovery.js";
 import { restoreSnapshot } from "../../restore.js";
 import type { Paths } from "../../types.js";
 import type { CliContext } from "../shared.js";
@@ -66,7 +67,7 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
 
   const backup = program
     .command("backup")
-    .description("Create, inspect, and restore recovery snapshots with explicit cross-machine guardrails.");
+    .description("Create, inspect, prune, and restore recovery snapshots with explicit cross-machine guardrails.");
   backup
     .command("create")
     .option("--json", "Print raw JSON")
@@ -90,6 +91,20 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .action(async (snapshotId, options) => {
       const response = await context.requestJson<{ snapshot: unknown }>("GET", `/v1/snapshots/${snapshotId}`);
       context.printOutput(response, (value) => formatSnapshotInspection(value.snapshot), options.json);
+    });
+
+  backup
+    .command("prune")
+    .description("Preview or apply the snapshot retention policy.")
+    .option("--dry-run", "Preview prune candidates without deleting them")
+    .option("--yes", "Delete prune candidates")
+    .option("--json", "Print raw JSON")
+    .action((options) => {
+      if (options.dryRun && options.yes) {
+        throw new Error("Use either --dry-run or --yes, not both.");
+      }
+      const result = pruneSnapshots(paths, { dryRun: !options.yes });
+      context.printOutput({ prune: result }, (value) => formatSnapshotPruneResult(value.prune), options.json);
     });
 
   backup

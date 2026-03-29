@@ -61,6 +61,15 @@ function doctorFollowUp(check: DoctorCheck): string | null {
   if (check.id.endsWith("_permissions_secure")) {
     return "Run `personal-ops install fix-permissions`, then rerun install check or doctor.";
   }
+  if (check.id === "snapshot_freshness") {
+    return "Run `personal-ops backup create`, then rerun `personal-ops health check`.";
+  }
+  if (check.id === "snapshot_retention_pressure") {
+    return "Run `personal-ops backup prune --dry-run`, then `personal-ops backup prune --yes` when the candidates look right.";
+  }
+  if (check.id === "recovery_rehearsal_freshness") {
+    return "Run `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`, then rerun `personal-ops health check`.";
+  }
   if (check.id.includes("keychain")) {
     return "Confirm Keychain access on this Mac, then rerun `personal-ops auth gmail login` and `personal-ops auth google login` if needed.";
   }
@@ -394,6 +403,14 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
       report.snapshot_age_limit_hours == null ? "disabled" : `${report.snapshot_age_limit_hours}h`,
     ),
   );
+  lines.push(line("Prune candidates", String(report.prune_candidate_count)));
+  lines.push(line("Last recovery rehearsal", report.last_recovery_rehearsal_at ?? "none recorded"));
+  lines.push(
+    line(
+      "Rehearsal age",
+      report.recovery_rehearsal_age_hours == null ? "unknown" : `${report.recovery_rehearsal_age_hours.toFixed(1)}h`,
+    ),
+  );
   lines.push(line("Summary", `${report.summary.pass} pass / ${report.summary.warn} warn / ${report.summary.fail} fail`));
   lines.push("");
 
@@ -404,6 +421,9 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
     lines.push("- This recurring check found warnings worth reviewing soon.");
   } else {
     lines.push("- This recurring check found at least one failure that should be repaired before trusting the runtime.");
+  }
+  if (report.next_repair_step) {
+    lines.push(`- First repair step: \`${report.next_repair_step}\`.`);
   }
   if (report.summary.warn > 0 || report.summary.fail > 0) {
     lines.push("- Run `personal-ops install check` and `personal-ops doctor` for the fuller local picture.");
@@ -419,6 +439,15 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
     report.latest_snapshot_age_hours > report.snapshot_age_limit_hours
   ) {
     lines.push("- Create a fresh recovery snapshot with `personal-ops backup create`.");
+  }
+  if (report.prune_candidate_count > 0) {
+    lines.push("- Apply retention with `personal-ops backup prune --dry-run`, then `personal-ops backup prune --yes`.");
+  }
+  if (
+    report.last_recovery_rehearsal_at == null ||
+    (report.recovery_rehearsal_age_hours != null && report.recovery_rehearsal_age_hours > 14 * 24)
+  ) {
+    lines.push("- Refresh recovery confidence with `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`.");
   }
   lines.push("");
 

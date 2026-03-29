@@ -18,6 +18,7 @@ import { buildHealthCheckReport } from "../src/health.js";
 import { buildInstallCheckReport, fixInstallPermissions, installAll } from "../src/install.js";
 import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
+import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import { PersonalOpsService } from "../src/service.js";
 import type { ClientIdentity, Config, Paths, Policy } from "../src/types.js";
 
@@ -331,6 +332,11 @@ test("health check stays ready when runtime is healthy and snapshot is fresh", a
   );
   fixInstallPermissions(paths);
   await withRuntimeEnv(env, () => service.createSnapshot());
+  writeRecoveryRehearsalStamp(paths, {
+    successful_at: new Date().toISOString(),
+    app_version: "0.1.0-test",
+    command_name: "npm run verify:recovery",
+  });
   const requestJson = async <T>(method: string, pathname: string): Promise<T> => {
     if (method === "GET" && pathname === "/v1/status") {
       return withRuntimeEnv(env, async () => ({ status: await service.getStatusReport({ httpReachable: true }) } as T));

@@ -9,6 +9,7 @@ export interface Paths {
   snapshotsDir: string;
   machineIdentityFile: string;
   restoreProvenanceFile: string;
+  recoveryRehearsalFile: string;
   configFile: string;
   policyFile: string;
   oauthClientFile: string;
@@ -1114,6 +1115,7 @@ export type ServiceState = "ready" | "setup_required" | "degraded";
 export type DoctorCheckSeverity = "pass" | "warn" | "fail";
 export type AssistantKind = "codex" | "claude";
 export type RestoreMode = "same_machine" | "cross_machine" | "legacy_unknown";
+export type SnapshotRetentionBucket = "latest" | "last_24h" | "daily" | "weekly" | "expired" | "invalid";
 export type MachineStateOrigin =
   | "native"
   | "restored_same_machine"
@@ -1141,6 +1143,12 @@ export interface RestoreProvenance {
   source_hostname: string | null;
   cross_machine: boolean;
   snapshot_created_at: string;
+}
+
+export interface RecoveryRehearsalStamp {
+  successful_at: string;
+  app_version: string;
+  command_name: string;
 }
 
 export interface DoctorCheck {
@@ -1222,6 +1230,29 @@ export interface RestoreResult {
   source_machine: MachineDescriptor | null;
   local_machine: MachineDescriptor;
   provenance_warning: string | null;
+}
+
+export interface SnapshotPruneItem {
+  snapshot_id: string;
+  created_at: string;
+  path: string;
+  daemon_state: ServiceState;
+  bucket: SnapshotRetentionBucket;
+  reason: string;
+}
+
+export interface SnapshotPruneResult {
+  generated_at: string;
+  dry_run: boolean;
+  policy_summary: string;
+  total_snapshots: number;
+  snapshots_kept: number;
+  prune_candidates: number;
+  snapshots_deleted: number;
+  newest_snapshot_id: string | null;
+  kept: SnapshotPruneItem[];
+  prune_candidate_items: SnapshotPruneItem[];
+  deleted_snapshot_ids: string[];
 }
 
 export interface ServiceStatusReport {
@@ -1402,6 +1433,10 @@ export interface HealthCheckReport {
   doctor_state: ServiceState | null;
   latest_snapshot_age_hours: number | null;
   latest_snapshot_id: string | null;
+  prune_candidate_count: number;
+  last_recovery_rehearsal_at: string | null;
+  recovery_rehearsal_age_hours: number | null;
+  next_repair_step: string | null;
   summary: {
     pass: number;
     warn: number;
