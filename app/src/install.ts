@@ -138,7 +138,7 @@ function renderWrapper(
   targetFile: string,
   env?: Partial<Record<"PERSONAL_OPS_CLIENT_ID" | "PERSONAL_OPS_REQUESTED_BY" | "PERSONAL_OPS_ORIGIN", string>>,
 ): string {
-  const lines = ["#!/bin/zsh", "set -euo pipefail", ""];
+  const lines = ["#!/bin/sh", "set -eu", ""];
   if (env) {
     for (const [key, value] of Object.entries(env)) {
       if (!value) continue;
