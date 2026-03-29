@@ -16,6 +16,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - shared status and worklist views for humans and assistants
 - a local operator console with narrow browser-safe actions
 - grouped inbox autopilot that prepares reply and follow-up drafts for review
+- meeting-prep packets that stage agenda, checklist, and linked context before imminent meetings
 - machine-aware backups and restore guardrails
 
 In practice, that means it can:
@@ -80,6 +81,7 @@ Today, the repo includes:
 - CLI, local HTTP API, and MCP bridge access
 - a local operator console opened with `personal-ops console`
 - `personal-ops inbox autopilot` for grouped inbox draft preparation and review handoff
+- `personal-ops workflow prep-meetings --event <eventId> --prepare` for one-meeting packet staging and refresh
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

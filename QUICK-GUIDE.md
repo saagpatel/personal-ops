@@ -48,6 +48,8 @@ Keep these pieces separate:
   The focused “what should I do next right now?” command.
 - `personal-ops workflow prep-day`
   The preferred day-start bundle with exact next commands.
+- `personal-ops workflow prep-meetings --today`
+  The current-day meeting prep bundle, now with packet-ready meetings first.
 - `personal-ops github status`
   The optional GitHub PR and review queue summary.
 - `personal-ops drive status`
@@ -77,7 +79,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. Drafts is now the grouped inbox autopilot review workspace, where the assistant can stage reply and follow-up drafts, the operator can review them, and approval can be requested without dropping into the CLI for ordinary inbox prep. Higher-trust flows like send and approval decisions still stay gated in the CLI.
+The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. It also adds a `Today's Prep` meeting card so the next useful meeting packet is already staged or one click away. Drafts remains the grouped inbox autopilot review workspace, where the assistant can stage reply and follow-up drafts, the operator can review them, and approval can be requested without dropping into the CLI for ordinary inbox prep. Higher-trust flows like send, attendee communication, and approval decisions still stay gated in the CLI.
 
 Read next:
 

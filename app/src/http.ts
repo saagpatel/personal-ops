@@ -444,6 +444,31 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname.startsWith("/v1/workflows/prep-meetings/")) {
+        const eventId = decodeURIComponent(url.pathname.slice("/v1/workflows/prep-meetings/".length));
+        if (eventId && !eventId.includes("/")) {
+          sendJson(response, 200, {
+            meeting_prep_packet: await service.getMeetingPrepPacket(eventId),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/workflows/prep-meetings/") && url.pathname.endsWith("/prepare")) {
+        const eventId = decodeURIComponent(
+          url.pathname.slice("/v1/workflows/prep-meetings/".length, -"/prepare".length),
+        );
+        if (eventId && !eventId.includes("/")) {
+          sendJson(response, 200, {
+            meeting_prep_packet: await service.prepareMeetingPrepPacket(
+              extractIdentity(request, auth?.role ?? "operator"),
+              eventId,
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/github/status") {
         sendJson(response, 200, {
           github: service.getGithubStatusReport(),

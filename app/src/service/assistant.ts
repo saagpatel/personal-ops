@@ -9,6 +9,7 @@ import type {
   InboxAutopilotGroup,
   WorkflowBundleAction,
 } from "../types.js";
+import { listMeetingPrepCandidates, prepareMeetingPacketActionId } from "./meeting-prep.js";
 
 const ACTION_SYNC_WORKSPACE = "assistant.sync-workspace";
 const ACTION_CREATE_SNAPSHOT = "assistant.create-snapshot";
@@ -190,10 +191,12 @@ async function buildCandidates(
     worklist,
     nowNext,
     inboxAutopilot,
+    meetingPrepCandidates,
   ] = await Promise.all([
     service.getWorklistReport(options),
     service.getNowNextWorkflowReport(options),
     service.getInboxAutopilotReport(options),
+    listMeetingPrepCandidates(service, { scope: "today" }),
   ]);
   const inbox = service.getInboxStatusReport();
   const calendar = service.getCalendarStatusReport();
@@ -383,6 +386,29 @@ async function buildCandidates(
     });
   }
 
+  for (const packet of meetingPrepCandidates.filter((candidate) => candidate.packet_worthy).slice(0, 2)) {
+    const prepared = Boolean(packet.packet_record);
+    candidates.push({
+      action_id: prepareMeetingPacketActionId(packet.event.event_id),
+      title: prepared ? "Review meeting prep packet" : "Prepare meeting packet",
+      summary: packet.summary,
+      section: "overview",
+      batch: false,
+      one_click: !prepared && packet.state !== "blocked",
+      review_required: prepared,
+      why_now: packet.why_now,
+      command: prepared
+        ? `personal-ops workflow prep-meetings --event ${packet.event.event_id}`
+        : `personal-ops workflow prep-meetings --event ${packet.event.event_id} --prepare`,
+      target_type: "calendar_event",
+      target_id: packet.event.event_id,
+      signals: packet.signals,
+      ...(packet.state === "blocked" ? { blocking_reason: "Calendar sync or meeting context needs repair before packet prep can run safely." } : {}),
+      satisfied: packet.state === "completed",
+      priority: prepared ? 18 : 16,
+    });
+  }
+
   const latestRuns = latestRunMap(service);
   return candidates
     .map((candidate) => {
@@ -542,6 +568,10 @@ export async function runAssistantAction(
     if (actionId.startsWith("assistant.prepare-reply-group:") || actionId.startsWith("assistant.prepare-followup-group:")) {
       const groupId = actionId.split(":").slice(1).join(":");
       return await service.prepareInboxAutopilotGroup(identity, groupId);
+    }
+    if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
+      const eventId = actionId.split(":").slice(1).join(":");
+      return await service.prepareMeetingPrepPacket(identity, eventId);
     }
     if (actionId === ACTION_SYNC_WORKSPACE) {
       return await runWorkspaceSync(service, identity);

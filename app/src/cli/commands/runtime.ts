@@ -11,6 +11,7 @@ import {
   formatGithubPullRequests,
   formatGithubStatus,
   formatHealthCheckReport,
+  formatMeetingPrepPacket,
   formatNowReport,
   formatSendWindowStatus,
   formatStatusReport,
@@ -249,10 +250,33 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .description("Show the meeting-prep bundle for today or the next 24 hours.")
     .option("--today", "Limit the bundle to meetings later today")
     .option("--next-24h", "Limit the bundle to meetings in the next 24 hours")
+    .option("--event <eventId>", "Show the full packet detail for one calendar event")
+    .option("--prepare", "Prepare or refresh the packet for the selected event before showing it")
     .option("--json", "Print raw JSON")
     .action(async (options) => {
       if (options.today && options.next24h) {
         throw new Error("Choose either --today or --next-24h, not both.");
+      }
+      if (options.prepare && !options.event) {
+        throw new Error("Use --prepare together with --event <eventId>.");
+      }
+      if (options.event) {
+        const encodedEventId = encodeURIComponent(options.event);
+        if (options.prepare) {
+          const prepared = await context.requestJson<{ meeting_prep_packet: { packet: unknown } }>(
+            "POST",
+            `/v1/workflows/prep-meetings/${encodedEventId}/prepare`,
+            {},
+          );
+          context.printOutput(prepared, (value) => formatMeetingPrepPacket(value.meeting_prep_packet.packet), options.json);
+          return;
+        }
+        const response = await context.requestJson<{ meeting_prep_packet: unknown }>(
+          "GET",
+          `/v1/workflows/prep-meetings/${encodedEventId}`,
+        );
+        context.printOutput(response, (value) => formatMeetingPrepPacket(value.meeting_prep_packet), options.json);
+        return;
       }
       const scope = options.next24h ? "next_24h" : "today";
       const response = await context.requestJson<{ workflow: unknown }>(

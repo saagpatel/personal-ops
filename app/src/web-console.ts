@@ -85,6 +85,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/workflows/prep-day" ||
       pathname === "/v1/workflows/follow-up-block" ||
       pathname === "/v1/workflows/prep-meetings" ||
+      pathname.startsWith("/v1/workflows/prep-meetings/") ||
       pathname === "/v1/github/status" ||
       pathname === "/v1/github/reviews" ||
       pathname === "/v1/github/pulls" ||
@@ -113,6 +114,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
     return (
       /^\/v1\/assistant\/actions\/[^/]+\/run$/.test(pathname) ||
       /^\/v1\/inbox\/autopilot\/groups\/[^/]+\/prepare$/.test(pathname) ||
+      /^\/v1\/workflows\/prep-meetings\/[^/]+\/prepare$/.test(pathname) ||
       pathname === "/v1/snapshots" ||
       pathname === "/v1/mail/drafts" ||
       /^\/v1\/mail\/drafts\/[^/]+$/.test(pathname) ||

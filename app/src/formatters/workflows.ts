@@ -1,4 +1,4 @@
-import type { WorkflowBundleReport } from "../types.js";
+import type { MeetingPrepPacket, WorkflowBundleReport } from "../types.js";
 import { formatStateLabel } from "./shared.js";
 
 function pushSection(lines: string[], title: string, items: string[]) {
@@ -52,5 +52,46 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
     );
   }
 
+  return lines.join("\n").trimEnd();
+}
+
+export function formatMeetingPrepPacket(packet: MeetingPrepPacket): string {
+  const lines: string[] = [];
+  lines.push(`Meeting Prep Packet: ${packet.meeting.summary ?? packet.event_id}`);
+  lines.push(`Generated: ${packet.generated_at}`);
+  lines.push(`State: ${formatStateLabel(packet.state)}`);
+  lines.push(`Summary: ${packet.summary}`);
+  lines.push(`Why now: ${packet.why_now}`);
+  lines.push(`Score band: ${packet.score_band}`);
+  lines.push(`Starts: ${packet.meeting.start_at}`);
+  lines.push(`Ends: ${packet.meeting.end_at}`);
+  lines.push("");
+  pushSection(
+    lines,
+    "Agenda",
+    packet.agenda.length > 0 ? packet.agenda.map((item) => `- ${item}`) : ["- No agenda items are staged yet."],
+  );
+  pushSection(
+    lines,
+    "Prep Checklist",
+    packet.prep_checklist.length > 0
+      ? packet.prep_checklist.map((item) => `- ${item}`)
+      : ["- No prep checklist items are staged yet."],
+  );
+  pushSection(
+    lines,
+    "Open Questions",
+    packet.open_questions.length > 0 ? packet.open_questions.map((item) => `- ${item}`) : ["- No open questions are recorded."],
+  );
+  pushSection(
+    lines,
+    "Related Docs",
+    packet.related_docs.length > 0 ? packet.related_docs.map((doc) => `- ${doc.title}`) : ["- No related docs are linked."],
+  );
+  pushSection(
+    lines,
+    "Next Commands",
+    packet.next_commands.length > 0 ? packet.next_commands.map((command) => `- ${command}`) : ["- No next commands are staged."],
+  );
   return lines.join("\n").trimEnd();
 }

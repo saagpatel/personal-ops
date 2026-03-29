@@ -31,7 +31,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | --- | --- | --- | --- |
 | 1 | Assistant Action Queue and Console-First Workflow Execution | Make the console the main working surface with a first-class assistant queue and safe one-click actions | Complete |
 | 2 | Inbox and Follow-Up Autopilot | Reduce reply and follow-up labor through assistant-prepared drafts, grouped thread handling, and queue shaping | Complete |
-| 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Planned |
+| 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Complete |
 | 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Planned |
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Planned |
 
@@ -92,14 +92,16 @@ Delivered shape:
 
 ## Phase 3
 
-This phase should make upcoming meetings feel mostly pre-assembled.
+Phase 3 is now complete.
 
-Expected direction:
+Delivered shape:
 
-- meeting-prep packets
-- richer agenda and prep checklists
-- linked-doc bundles
-- bounded prep automations that run before the operator asks
+- meeting-prep packets with agenda draft, prep checklist, and open questions
+- explicit-docs-first meeting context with related thread, task, and recommendation attachment
+- `prep-meetings --event <eventId>` packet detail plus `--prepare` refresh
+- console `Today's Prep` and worklist packet detail with one-click packet preparation
+- assistant queue and workflow ranking that can prefer real packet-ready meeting prep when it truly matters
+- attendee communication and send still gated outside browser execution
 
 ## Phase 4
 
@@ -126,7 +128,7 @@ Expected direction:
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1 and 2 are complete
+- Phases 1, 2, and 3 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

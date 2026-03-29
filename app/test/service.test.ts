@@ -6233,6 +6233,146 @@ test("phase-5 meeting workflow respects today vs next-24h scope", async () => {
   assert.match(next24Text, /Tomorrow workflow meeting/);
 });
 
+test("assistant-led phase 3 prepares a bounded meeting packet with grounded context", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({
+    accountEmail,
+    driveEnabled: true,
+    includedDriveFiles: ["doc-meeting-packet"],
+  });
+  seedMailboxReadyState(service, accountEmail, "meeting-packet");
+  service.db.upsertCalendarSyncState(accountEmail, "google", {
+    status: "ready",
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    calendars_refreshed_count: 1,
+    events_refreshed_count: 1,
+  });
+  service.db.replaceDriveFiles([
+    {
+      file_id: "doc-meeting-packet",
+      name: "Project packet",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-meeting-packet/edit",
+      parents: [],
+      scope_source: "included_file",
+      updated_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
+    },
+  ]);
+  service.db.replaceDriveDocs([
+    {
+      file_id: "doc-meeting-packet",
+      title: "Project packet",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-meeting-packet/edit",
+      snippet: "Agenda and open issues",
+      text_content: "Agenda and open issues",
+      updated_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
+    },
+  ]);
+  const eventId = "primary:assistant-led-phase3";
+  service.db.upsertCalendarEvent({
+    event_id: eventId,
+    provider_event_id: "assistant-led-phase3",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Assistant-led project sync",
+    status: "confirmed",
+    start_at: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+    end_at: new Date(Date.now() + 150 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    created_by_personal_ops: false,
+    attendee_count: 3,
+    organizer_email: "owner@example.com",
+    notes: "Packet https://docs.google.com/document/d/doc-meeting-packet/edit",
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+  service.db.replaceDriveLinkProvenance([
+    {
+      source_type: "calendar_event",
+      source_id: eventId,
+      file_id: "doc-meeting-packet",
+      match_type: "explicit_link",
+      matched_url: "https://docs.google.com/document/d/doc-meeting-packet/edit",
+      discovered_at: new Date().toISOString(),
+    },
+  ]);
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("meeting-thread", accountEmail, {
+      thread_id: "thread-meeting-packet",
+      history_id: "meeting-thread-1",
+      internal_date: String(Date.now() - 60 * 60 * 1000),
+      label_ids: ["INBOX"],
+      from_header: "Partner <partner@example.com>",
+      subject: "Assistant-led project sync follow-up",
+    }),
+    new Date().toISOString(),
+  );
+  service.db.createTask(cliIdentity, {
+    title: "Finalize project sync checklist",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    source_calendar_event_id: eventId,
+  });
+
+  const result = await service.prepareMeetingPrepPacket(cliIdentity, eventId);
+  const packet = await service.getMeetingPrepPacket(eventId);
+
+  assert.equal(result.success, true);
+  assert.equal(packet.state, "awaiting_review");
+  assert.match(packet.summary, /Assistant-led project sync/);
+  assert.equal(packet.related_docs.length, 1);
+  assert.equal(packet.related_tasks.length, 1);
+  assert.equal(packet.related_threads.length, 1);
+  assert.equal(packet.agenda.length > 0, true);
+});
+
+test("assistant-led phase 3 low-context packets fall back to missing-context guidance", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "meeting-packet-low-context");
+  service.db.upsertCalendarSyncState(accountEmail, "google", {
+    status: "ready",
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    calendars_refreshed_count: 1,
+    events_refreshed_count: 1,
+  });
+  const eventId = "primary:assistant-led-phase3-low-context";
+  service.db.upsertCalendarEvent({
+    event_id: eventId,
+    provider_event_id: "assistant-led-phase3-low-context",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Low context meeting",
+    status: "confirmed",
+    start_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    end_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    created_by_personal_ops: false,
+    attendee_count: 1,
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+
+  const result = await service.prepareMeetingPrepPacket(cliIdentity, eventId);
+
+  assert.equal(result.packet.related_docs.length, 0);
+  assert.equal(result.packet.related_tasks.length, 0);
+  assert.equal(result.packet.related_threads.length, 0);
+  assert.match(result.packet.agenda[0] ?? "", /Clarify the meeting goal/i);
+  assert.match(result.packet.open_questions.join(" "), /primary doc|outcome/i);
+});
+
 test("phase-6 now-next leads with the first repair step when readiness is degraded", async () => {
   const { service } = createFixture();
   const degradedWorklist: WorklistReport = {

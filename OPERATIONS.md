@@ -239,6 +239,10 @@ Other common commands:
   Builds the current-day meeting prep bundle.
 - `personal-ops workflow prep-meetings --next-24h`
   Builds the next-24-hours meeting prep bundle.
+- `personal-ops workflow prep-meetings --event <eventId>`
+  Shows one meeting-prep packet in detail.
+- `personal-ops workflow prep-meetings --event <eventId> --prepare`
+  Prepares or refreshes one meeting-prep packet, then returns the packet detail.
 - `personal-ops github status`
   Shows whether the optional GitHub integration is connected and what PR attention is waiting.
 - `personal-ops github reviews`
@@ -332,11 +336,12 @@ Browser-safe console actions now include:
 - grouped inbox autopilot draft preparation
 - draft review open and resolve
 - approval request handoff from a prepared draft
+- meeting-packet preparation and refresh
 - create snapshot
 - apply, snooze, and reject a planning recommendation
 - snooze or reject a planning recommendation group
 
-The Overview section now leads with the assistant queue, then the current inbox autopilot block, then the current now-next guidance, then the day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
+The Overview section now leads with the assistant queue, then the current inbox autopilot block, then `Today's Prep`, then the current now-next guidance, then the day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
 
 The Drafts section now acts as the grouped inbox review workspace:
 
@@ -346,6 +351,17 @@ The Drafts section now acts as the grouped inbox review workspace:
 - send still stays out of browser scope
 
 When GitHub is configured, the Overview and worklist detail can also surface narrow PR and review queue context with exact CLI handoff plus an external GitHub link.
+
+When calendar context is ready, the Overview and Worklist can also surface meeting-prep packets with:
+
+- agenda draft
+- prep checklist
+- open questions
+- related docs
+- related threads
+- exact next commands
+
+Packet preparation is browser-safe in this phase, but attendee communication still stays outside browser scope.
 
 These actions always require explicit confirmation in the browser.
 

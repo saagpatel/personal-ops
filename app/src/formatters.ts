@@ -72,4 +72,4 @@ export {
   formatPlanningRecommendationPolicyPruneResult,
   formatPlanningRecommendationDetail,
 } from "./formatters/planning.js";
-export { formatWorkflowBundleReport } from "./formatters/workflows.js";
+export { formatMeetingPrepPacket, formatWorkflowBundleReport } from "./formatters/workflows.js";

@@ -13,6 +13,7 @@ import type {
   InboxAutopilotGroup,
   InboxAutopilotReport,
   MailThreadDetail,
+  MeetingPrepPacket,
   PlanningRecommendationDetail,
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
@@ -37,6 +38,7 @@ interface ConsolePayload {
   inboxAutopilot: InboxAutopilotReport;
   nowNextWorkflow: WorkflowBundleReport;
   prepDayWorkflow: WorkflowBundleReport;
+  prepMeetingsWorkflow: WorkflowBundleReport;
   doctor: DoctorReport;
   approvals: ApprovalRequest[];
   drafts: DraftArtifact[];
@@ -74,6 +76,10 @@ interface AssistantRunResponse {
 
 interface WorkflowResponse {
   workflow: WorkflowBundleReport;
+}
+
+interface MeetingPrepPacketResponse {
+  meeting_prep_packet: MeetingPrepPacket;
 }
 
 interface DoctorResponse {
@@ -139,6 +145,7 @@ interface ThreadDetailResponse {
 type WorklistDetail =
   | { kind: "task"; item: AttentionItem; detail: TaskDetail }
   | { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
+  | { kind: "meeting_packet"; item: AttentionItem; detail: MeetingPrepPacket }
   | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
   | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
   | { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
@@ -332,6 +339,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     inboxAutopilotResponse,
     nowNextWorkflowResponse,
     workflowResponse,
+    prepMeetingsWorkflowResponse,
     doctorResponse,
     approvalsResponse,
     draftsResponse,
@@ -348,6 +356,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
     fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
+    fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
     fetchJson<DoctorResponse>("/v1/doctor"),
     fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
     fetchJson<DraftResponse>("/v1/mail/drafts"),
@@ -366,6 +375,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
     nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
+    prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
     doctor: doctorResponse.doctor,
     approvals: approvalsResponse.approval_requests,
     drafts: draftsResponse.drafts,
@@ -712,6 +722,9 @@ function workflowByName(payload: ConsolePayload, workflow: WorkflowBundleReport[
   if (workflow === "now-next") {
     return payload.nowNextWorkflow;
   }
+  if (workflow === "prep-meetings") {
+    return payload.prepMeetingsWorkflow;
+  }
   return payload.prepDayWorkflow;
 }
 
@@ -804,6 +817,21 @@ function intelligenceForWorklistItem(
 
 function nextRecommendationId(payload: ConsolePayload): string | null {
   return payload.planningNext?.recommendation.recommendation_id ?? payload.planningGroups[0]?.top_recommendation_id ?? null;
+}
+
+function syntheticAttentionItem(targetType: string, targetId: string, title: string, summary: string, command: string): AttentionItem {
+  return {
+    item_id: `${targetType}:${targetId}`,
+    kind: targetType,
+    severity: "info",
+    title,
+    summary,
+    target_type: targetType,
+    target_id: targetId,
+    created_at: new Date().toISOString(),
+    suggested_command: command,
+    metadata_json: "{}",
+  };
 }
 
 function resolveSelections(payload: ConsolePayload): void {
@@ -916,6 +944,12 @@ async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail>
     const response = await fetchJson<ThreadDetailResponse>(`/v1/inbox/threads/${encodeURIComponent(item.target_id)}`);
     return { kind: "mail_thread", item, detail: response.thread };
   }
+  if (item.target_type === "calendar_event") {
+    const response = await fetchJson<MeetingPrepPacketResponse>(
+      `/v1/workflows/prep-meetings/${encodeURIComponent(item.target_id)}`,
+    );
+    return { kind: "meeting_packet", item, detail: response.meeting_prep_packet };
+  }
   if (item.target_type === "planning_recommendation") {
     const response = await fetchJson<PlanningRecommendationDetailResponse>(
       `/v1/planning-recommendations/${encodeURIComponent(item.target_id)}`,
@@ -990,11 +1024,13 @@ function renderOverview(payload: ConsolePayload): string {
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
   const workflow = payload.prepDayWorkflow;
+  const prepMeetings = payload.prepMeetingsWorkflow;
   const nowNext = payload.nowNextWorkflow;
   const assistantQueue = payload.assistantQueue;
   const primaryNowNext = nowNext.actions[0] ?? null;
   const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
   const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
+  const topMeetingPrep = prepMeetings.actions[0] ?? null;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -1052,6 +1088,29 @@ function renderOverview(payload: ConsolePayload): string {
             topAutopilotGroup
               ? renderInboxAutopilotGroupCard(payload, topAutopilotGroup, { showThreads: false })
               : `<div class="empty">No grouped inbox blocks need assistant prep right now.</div>`
+          }
+        </section>
+        <section class="detail-card">
+          <h3>Today’s Prep</h3>
+          <p class="subtle subtle--body">Meeting prep packets gather agenda, checklist, docs, and related work so the next move can be review instead of last-minute context gathering.</p>
+          ${
+            topMeetingPrep
+              ? `
+                <article class="list-item">
+                  <div class="list-item__top">
+                    <h4>${escapeHtml(topMeetingPrep.label)}</h4>
+                    <span class="pill pill--good">${escapeHtml(topMeetingPrep.score_band ?? "high")}</span>
+                  </div>
+                  <p>${escapeHtml(topMeetingPrep.summary)}</p>
+                  <p class="subtle subtle--body">${escapeHtml(topMeetingPrep.why_now ?? "This meeting packet is the strongest prep move right now.")}</p>
+                  ${renderRelatedDocs(topMeetingPrep.related_docs)}
+                  <div class="list-item__actions">
+                    <button class="button button--primary" data-workflow="${escapeHtml(prepMeetings.workflow)}" data-workflow-action="0" type="button">Open meeting prep</button>
+                    <button class="copy-button" data-copy="${escapeHtml(topMeetingPrep.command)}" type="button">Copy CLI command</button>
+                  </div>
+                </article>
+              `
+              : `<div class="empty">No meetings need a staged prep packet right now.</div>`
           }
         </section>
         <section class="detail-card">
@@ -1244,6 +1303,55 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       ${intelligenceBlock}
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([thread.suggested_next_command])}
+      </div>
+    `;
+  }
+
+  if (detail.kind === "meeting_packet") {
+    const packet = detail.detail;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Meeting</dt><dd>${escapeHtml(packet.meeting.summary ?? packet.event_id)}</dd></div>
+        <div class="detail-row"><dt>State</dt><dd>${escapeHtml(packet.state)}</dd></div>
+        <div class="detail-row"><dt>Starts</dt><dd>${escapeHtml(formatTime(packet.meeting.start_at))}</dd></div>
+        <div class="detail-row"><dt>Attendees</dt><dd>${escapeHtml(String(packet.meeting.attendee_count))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(packet.why_now)}</p>
+      <section class="panel">
+        <h4>Agenda</h4>
+        ${packet.agenda.length > 0 ? `<ul>${packet.agenda.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<div class="empty">No agenda items are staged yet.</div>`}
+      </section>
+      <section class="panel">
+        <h4>Prep checklist</h4>
+        ${packet.prep_checklist.length > 0 ? `<ul>${packet.prep_checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<div class="empty">No checklist items are staged yet.</div>`}
+      </section>
+      <section class="panel">
+        <h4>Open questions</h4>
+        ${packet.open_questions.length > 0 ? `<ul>${packet.open_questions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<div class="empty">No open questions are recorded.</div>`}
+      </section>
+      ${renderRelatedDocs(packet.related_docs)}
+      <section class="panel">
+        <h4>Related threads</h4>
+        ${
+          packet.related_threads.length > 0
+            ? `<ul>${packet.related_threads.map((item) => `<li>${escapeHtml(item.subject)} · ${escapeHtml(item.counterparty_summary)}</li>`).join("")}</ul>`
+            : `<div class="empty">No related inbox threads were attached.</div>`
+        }
+      </section>
+      <section class="panel">
+        <h4>Related tasks and recommendations</h4>
+        ${
+          packet.related_tasks.length > 0 || packet.related_recommendations.length > 0
+            ? `<ul>${packet.related_tasks.map((item) => `<li>${escapeHtml(item.title)}</li>`).join("")}${packet.related_recommendations.map((item) => `<li>${escapeHtml(item.summary)}</li>`).join("")}</ul>`
+            : `<div class="empty">No directly linked prep work is attached.</div>`
+        }
+      </section>
+      <div class="list-item__actions">
+        <button class="button button--primary" data-prepare-meeting-packet="${escapeHtml(packet.event_id)}" type="button">Prepare or refresh packet</button>
+        <button class="copy-button" data-copy="${escapeHtml(`personal-ops workflow prep-meetings --event ${packet.event_id}`)}" type="button">Copy CLI command</button>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack(packet.next_commands)}
       </div>
     `;
   }
@@ -2086,6 +2194,21 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
     await selectApproval(action.target_id);
     return;
   }
+  if (action.target_type === "calendar_event" && action.target_id) {
+    state.section = "worklist";
+    location.hash = state.section;
+    state.worklistDetail = await buildWorklistDetail(
+      syntheticAttentionItem(
+        "calendar_event",
+        action.target_id,
+        action.label,
+        action.summary,
+        action.command,
+      ),
+    );
+    render();
+    return;
+  }
 
   await navigator.clipboard.writeText(action.command);
   setFlash("No in-console detail exists for that action yet. The CLI command has been copied instead.", "warn");
@@ -2122,6 +2245,21 @@ async function openAssistantAction(actionId: string): Promise<void> {
   }
   if (action.target_type === "snapshot" && action.target_id) {
     await selectSnapshot(action.target_id);
+    return;
+  }
+  if (action.target_type === "calendar_event" && action.target_id) {
+    state.section = "worklist";
+    location.hash = state.section;
+    state.worklistDetail = await buildWorklistDetail(
+      syntheticAttentionItem(
+        "calendar_event",
+        action.target_id,
+        action.title,
+        action.summary,
+        action.command ?? `personal-ops workflow prep-meetings --event ${action.target_id}`,
+      ),
+    );
+    render();
     return;
   }
   if (action.section === "drafts") {
@@ -2176,6 +2314,46 @@ async function prepareInboxAutopilotGroupFromConsole(groupId: string): Promise<v
     }
     setFlash(
       `${error instanceof Error ? error.message : String(error)} Run personal-ops inbox autopilot for the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function prepareMeetingPacketFromConsole(eventId: string): Promise<void> {
+  if (!confirm("Prepare or refresh this meeting packet now? This only stages local prep and does not contact attendees.")) {
+    return;
+  }
+  try {
+    const response = await postJson<{
+      meeting_prep_packet: {
+        summary: string;
+        packet: MeetingPrepPacket;
+      };
+    }>(`/v1/workflows/prep-meetings/${encodeURIComponent(eventId)}/prepare`, {});
+    setFlash(response.meeting_prep_packet.summary, "good");
+    state.section = "worklist";
+    location.hash = state.section;
+    await refreshAll();
+    state.worklistDetail = {
+      kind: "meeting_packet",
+      item: syntheticAttentionItem(
+        "calendar_event",
+        eventId,
+        response.meeting_prep_packet.packet.meeting.summary ?? eventId,
+        response.meeting_prep_packet.packet.summary,
+        `personal-ops workflow prep-meetings --event ${eventId}`,
+      ),
+      detail: response.meeting_prep_packet.packet,
+    };
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run personal-ops workflow prep-meetings --event ${eventId} --prepare if you need the CLI path.`,
       "critical",
     );
     render();
@@ -2268,6 +2446,11 @@ async function runAssistantActionFromConsole(actionId: string): Promise<void> {
   if (actionId.startsWith("assistant.prepare-reply-group:") || actionId.startsWith("assistant.prepare-followup-group:")) {
     const groupId = actionId.split(":").slice(1).join(":");
     await prepareInboxAutopilotGroupFromConsole(groupId);
+    return;
+  }
+  if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
+    const eventId = actionId.split(":").slice(1).join(":");
+    await prepareMeetingPacketFromConsole(eventId);
     return;
   }
   try {
@@ -2511,6 +2694,12 @@ document.addEventListener("click", async (event) => {
   const autopilotOpenButton = target.closest<HTMLButtonElement>("[data-autopilot-open]");
   if (autopilotOpenButton?.dataset.autopilotOpen) {
     await openAutopilotGroup(autopilotOpenButton.dataset.autopilotOpen);
+    return;
+  }
+
+  const prepareMeetingPacketButton = target.closest<HTMLButtonElement>("[data-prepare-meeting-packet]");
+  if (prepareMeetingPacketButton?.dataset.prepareMeetingPacket) {
+    await prepareMeetingPacketFromConsole(prepareMeetingPacketButton.dataset.prepareMeetingPacket);
     return;
   }
 

@@ -205,6 +205,42 @@ function seedPlanningFixture(paths: Paths): { recommendationId: string } {
   }
 }
 
+function seedMeetingPrepFixture(paths: Paths, mailbox: string): string {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    db.upsertMailAccount(mailbox, "personal-ops.gmail.console-test", JSON.stringify({ emailAddress: mailbox }));
+    db.upsertCalendarSyncState(mailbox, "google", {
+      status: "ready",
+      last_synced_at: new Date().toISOString(),
+      last_seeded_at: new Date().toISOString(),
+      calendars_refreshed_count: 1,
+      events_refreshed_count: 1,
+    });
+    const eventId = "primary:console-meeting-packet";
+    db.upsertCalendarEvent({
+      event_id: eventId,
+      provider_event_id: "console-meeting-packet",
+      calendar_id: "primary",
+      provider: "google",
+      account: mailbox,
+      summary: "Console prep meeting",
+      status: "confirmed",
+      start_at: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+      end_at: new Date(Date.now() + 150 * 60 * 1000).toISOString(),
+      is_all_day: false,
+      is_busy: true,
+      created_by_personal_ops: false,
+      attendee_count: 2,
+      organizer_email: "organizer@example.com",
+      updated_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
+    });
+    return eventId;
+  } finally {
+    db.close();
+  }
+}
+
 function cookieValue(setCookieHeader: string | null): string {
   assert.ok(setCookieHeader, "expected set-cookie header");
   const cookie = setCookieHeader.split(";")[0];
@@ -497,6 +533,62 @@ test("assistant-led Phase 2 console sessions can prepare inbox autopilot drafts,
       body: JSON.stringify({ note: "still blocked" }),
     });
     assert.equal(sendResponse.status, 403);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("assistant-led Phase 3 console sessions can prepare a meeting packet through the browser-safe route", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    const eventId = seedMeetingPrepFixture(fixture.paths, mailbox);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const detailResponse = await fetch(`${baseUrl}/v1/workflows/prep-meetings/${encodeURIComponent(eventId)}`, {
+      headers: { cookie },
+    });
+    assert.equal(detailResponse.status, 200);
+
+    const prepareResponse = await fetch(
+      `${baseUrl}/v1/workflows/prep-meetings/${encodeURIComponent(eventId)}/prepare`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(prepareResponse.status, 200);
+    const preparePayload = (await prepareResponse.json()) as {
+      meeting_prep_packet: { packet: { event_id: string; state: string; agenda: string[] } };
+    };
+    assert.equal(preparePayload.meeting_prep_packet.packet.event_id, eventId);
+    assert.equal(preparePayload.meeting_prep_packet.packet.state, "awaiting_review");
+    assert.equal(preparePayload.meeting_prep_packet.packet.agenda.length > 0, true);
+
+    const blockedResponse = await fetch(`${baseUrl}/v1/mail/drafts/test-draft/send`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(blockedResponse.status, 403);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

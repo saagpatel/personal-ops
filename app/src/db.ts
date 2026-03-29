@@ -36,6 +36,7 @@ import {
   MailSyncState,
   MailSyncStatus,
   MailThread,
+  MeetingPrepPacketRecord,
   PolicySnapshot,
   PlanningHygienePolicyProposal,
   PlanningHygienePolicyProposalStatus,
@@ -63,7 +64,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -323,6 +324,14 @@ export class PersonalOpsDb {
           message: `Schema is missing ${tableName}.`,
         };
       }
+    }
+    if (!this.tableExists("meeting_prep_packets")) {
+      return {
+        current_version: current,
+        expected_version: SCHEMA_VERSION,
+        compatible: false,
+        message: "Schema is missing meeting_prep_packets.",
+      };
     }
     return {
       current_version: current,
@@ -1934,6 +1943,71 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapDriveLinkProvenance(row));
   }
 
+  upsertMeetingPrepPacket(packet: MeetingPrepPacketRecord): MeetingPrepPacketRecord {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO meeting_prep_packets (
+          event_id, summary, why_now, score_band, signals_json, meeting_json, agenda_json, prep_checklist_json,
+          open_questions_json, related_docs_json, related_threads_json, related_tasks_json, related_recommendations_json,
+          next_commands_json, generated_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(event_id) DO UPDATE SET
+          summary = excluded.summary,
+          why_now = excluded.why_now,
+          score_band = excluded.score_band,
+          signals_json = excluded.signals_json,
+          meeting_json = excluded.meeting_json,
+          agenda_json = excluded.agenda_json,
+          prep_checklist_json = excluded.prep_checklist_json,
+          open_questions_json = excluded.open_questions_json,
+          related_docs_json = excluded.related_docs_json,
+          related_threads_json = excluded.related_threads_json,
+          related_tasks_json = excluded.related_tasks_json,
+          related_recommendations_json = excluded.related_recommendations_json,
+          next_commands_json = excluded.next_commands_json,
+          generated_at = excluded.generated_at,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        packet.event_id,
+        packet.summary,
+        packet.why_now,
+        packet.score_band,
+        toJson(packet.signals),
+        toJson(packet.meeting),
+        toJson(packet.agenda),
+        toJson(packet.prep_checklist),
+        toJson(packet.open_questions),
+        toJson(packet.related_docs),
+        toJson(packet.related_threads),
+        toJson(packet.related_tasks),
+        toJson(packet.related_recommendations),
+        toJson(packet.next_commands),
+        packet.generated_at,
+        packet.updated_at || now,
+      );
+    return this.getMeetingPrepPacket(packet.event_id)!;
+  }
+
+  getMeetingPrepPacket(eventId: string): MeetingPrepPacketRecord | null {
+    const row = this.db
+      .prepare(`SELECT * FROM meeting_prep_packets WHERE event_id = ?`)
+      .get(eventId) as Record<string, unknown> | undefined;
+    return row ? this.mapMeetingPrepPacketRecord(row) : null;
+  }
+
+  listMeetingPrepPackets(): MeetingPrepPacketRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM meeting_prep_packets ORDER BY generated_at DESC, event_id ASC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapMeetingPrepPacketRecord(row));
+  }
+
+  deleteMeetingPrepPacket(eventId: string): void {
+    this.db.prepare(`DELETE FROM meeting_prep_packets WHERE event_id = ?`).run(eventId);
+  }
+
   getCalendarSyncState(account: string): CalendarSyncState | null {
     const row = this.db
       .prepare(`SELECT * FROM calendar_sync_state WHERE account = ?`)
@@ -3027,6 +3101,28 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_calendar_events_account_range
         ON calendar_events(account, start_at ASC, end_at ASC);
 
+      CREATE TABLE IF NOT EXISTS meeting_prep_packets (
+        event_id TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        why_now TEXT NOT NULL,
+        score_band TEXT NOT NULL,
+        signals_json TEXT NOT NULL,
+        meeting_json TEXT NOT NULL,
+        agenda_json TEXT NOT NULL,
+        prep_checklist_json TEXT NOT NULL,
+        open_questions_json TEXT NOT NULL,
+        related_docs_json TEXT NOT NULL,
+        related_threads_json TEXT NOT NULL,
+        related_tasks_json TEXT NOT NULL,
+        related_recommendations_json TEXT NOT NULL,
+        next_commands_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_meeting_prep_packets_generated_at
+        ON meeting_prep_packets(generated_at DESC);
+
     `);
     if (this.columnExists("tasks", "scheduled_calendar_event_id")) {
       this.db.exec(`
@@ -3094,7 +3190,9 @@ export class PersonalOpsDb {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
       const inferred = this.tableExists("drive_files")
-        ? 16
+        ? this.tableExists("meeting_prep_packets")
+          ? 18
+          : 16
         : this.tableExists("github_pull_requests")
         ? 15
         : this.tableExists("planning_hygiene_policy_governance_events")
@@ -3193,6 +3291,10 @@ export class PersonalOpsDb {
       } else if (version === 16) {
         this.migrateToV17();
         version = 17;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 17) {
+        this.migrateToV18();
+        version = 18;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -3832,6 +3934,32 @@ export class PersonalOpsDb {
     this.addColumnIfMissing("draft_artifacts", "assistant_why_now", `TEXT`);
   }
 
+  private migrateToV18() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS meeting_prep_packets (
+        event_id TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        why_now TEXT NOT NULL,
+        score_band TEXT NOT NULL,
+        signals_json TEXT NOT NULL,
+        meeting_json TEXT NOT NULL,
+        agenda_json TEXT NOT NULL,
+        prep_checklist_json TEXT NOT NULL,
+        open_questions_json TEXT NOT NULL,
+        related_docs_json TEXT NOT NULL,
+        related_threads_json TEXT NOT NULL,
+        related_tasks_json TEXT NOT NULL,
+        related_recommendations_json TEXT NOT NULL,
+        next_commands_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_meeting_prep_packets_generated_at
+        ON meeting_prep_packets(generated_at DESC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -3970,6 +4098,27 @@ export class PersonalOpsDb {
       match_type: String(row.match_type) as DriveLinkProvenance["match_type"],
       matched_url: row.matched_url ? String(row.matched_url) : undefined,
       discovered_at: String(row.discovered_at),
+    };
+  }
+
+  private mapMeetingPrepPacketRecord(row: Record<string, unknown>): MeetingPrepPacketRecord {
+    return {
+      event_id: String(row.event_id),
+      summary: String(row.summary),
+      why_now: String(row.why_now),
+      score_band: String(row.score_band) as MeetingPrepPacketRecord["score_band"],
+      signals: JSON.parse(String(row.signals_json ?? "[]")),
+      meeting: JSON.parse(String(row.meeting_json ?? "{}")),
+      agenda: JSON.parse(String(row.agenda_json ?? "[]")),
+      prep_checklist: JSON.parse(String(row.prep_checklist_json ?? "[]")),
+      open_questions: JSON.parse(String(row.open_questions_json ?? "[]")),
+      related_docs: JSON.parse(String(row.related_docs_json ?? "[]")),
+      related_threads: JSON.parse(String(row.related_threads_json ?? "[]")),
+      related_tasks: JSON.parse(String(row.related_tasks_json ?? "[]")),
+      related_recommendations: JSON.parse(String(row.related_recommendations_json ?? "[]")),
+      next_commands: JSON.parse(String(row.next_commands_json ?? "[]")),
+      generated_at: String(row.generated_at),
+      updated_at: String(row.updated_at),
     };
   }
 

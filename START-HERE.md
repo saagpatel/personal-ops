@@ -85,7 +85,7 @@ Use this path if you want to:
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The assistant-led initiative, now through Phase 2 with the inbox autopilot and grouped draft review path.
+  The assistant-led initiative, now through Phase 3 with inbox autopilot plus meeting-prep packets.
 
 ## History and deep context
 
@@ -113,8 +113,9 @@ If you are a new operator:
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
 3. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
-4. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
-5. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
+4. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet.
+5. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
+6. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 
 If you are a new assistant or contributor:
 

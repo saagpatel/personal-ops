@@ -70,6 +70,7 @@ import {
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
 import { buildAssistantActionQueueReport, runAssistantAction } from "./service/assistant.js";
 import { buildInboxAutopilotReport, prepareInboxAutopilotGroup } from "./service/inbox-autopilot.js";
+import { getMeetingPrepPacketDetail, maybeAutoPrepareMeetingPackets, prepareMeetingPrepPacket } from "./service/meeting-prep.js";
 import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
@@ -178,6 +179,7 @@ import {
   PlanningRecommendationTuningFamilyReport,
   PlanningRecommendationTuningHistoryReport,
   PlanningRecommendationTuningReport,
+  MeetingPrepPacket,
   RelatedDriveDoc,
   ReviewDetail,
   SendWindow,
@@ -652,6 +654,14 @@ export class PersonalOpsService {
 
   async getPrepMeetingsWorkflowReport(options: { httpReachable: boolean; scope: "today" | "next_24h" }) {
     return buildPrepMeetingsWorkflowReport(this, options);
+  }
+
+  async getMeetingPrepPacket(eventId: string): Promise<MeetingPrepPacket> {
+    return getMeetingPrepPacketDetail(this, eventId);
+  }
+
+  async prepareMeetingPrepPacket(identity: ClientIdentity, eventId: string) {
+    return prepareMeetingPrepPacket(this, identity, eventId);
   }
 
   async getAssistantActionQueueReport(options: { httpReachable: boolean }): Promise<AssistantActionQueueReport> {
@@ -3016,6 +3026,7 @@ export class PersonalOpsService {
   async runAttentionSweep(options: { httpReachable: boolean }) {
     this.normalizeRuntimeState();
     this.refreshPlanningRecommendationsInternal(this.systemPlanningIdentity("attention-sweep"));
+    await maybeAutoPrepareMeetingPackets(this, options);
     const worklist = await this.getWorklistReport(options);
     const notifyable = worklist.items.filter((item) => {
       if (

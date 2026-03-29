@@ -13,6 +13,7 @@ import type {
   WorkflowBundleSectionItem,
   WorklistReport,
 } from "../types.js";
+import { listMeetingPrepCandidates, type MeetingPrepCandidate } from "./meeting-prep.js";
 
 const MAX_SECTION_ITEMS = 3;
 const MAX_ACTIONS = 3;
@@ -33,6 +34,7 @@ interface WorkflowContext {
   needsReplyThreads: InboxThreadSummary[];
   staleFollowupThreads: InboxThreadSummary[];
   upcomingEvents: CalendarEvent[];
+  meetingPrepCandidates: MeetingPrepCandidate[];
 }
 
 function commandForThread(threadId: string): string {
@@ -573,6 +575,44 @@ function eventCandidate(event: CalendarEvent): WorkflowCandidate | null {
   };
 }
 
+function compactEventCandidate(service: any, event: CalendarEvent): WorkflowCandidate {
+  return attachRelatedDocs(
+    service,
+    {
+      label: event.summary?.trim() || "Upcoming meeting",
+      summary: `Starts ${formatTimestamp(event.start_at)}.`,
+      command: commandForCalendarEvent(event.event_id),
+      target_type: "calendar_event",
+      target_id: event.event_id,
+      why_now: "This meeting is in the current scope, but it does not need a full packet yet.",
+      signals: ["meeting_in_scope"],
+      score: 180,
+      category: "meeting",
+      source_key: `event:${event.event_id}`,
+    },
+    { allowFallback: false },
+  );
+}
+
+function meetingPacketCandidate(candidate: MeetingPrepCandidate): WorkflowCandidate {
+  const prepared = Boolean(candidate.packet_record);
+  return {
+    label: prepared ? "Review meeting prep packet" : "Prepare meeting packet",
+    summary: candidate.summary,
+    command: prepared
+      ? `personal-ops workflow prep-meetings --event ${candidate.event.event_id}`
+      : `personal-ops workflow prep-meetings --event ${candidate.event.event_id} --prepare`,
+    target_type: "calendar_event",
+    target_id: candidate.event.event_id,
+    why_now: candidate.why_now,
+    signals: candidate.signals,
+    score: candidate.score + (prepared ? 40 : 0),
+    category: "meeting",
+    source_key: `event:${candidate.event.event_id}`,
+    related_docs: candidate.related_docs,
+  };
+}
+
 function dedupeAndSortCandidates(candidates: WorkflowCandidate[]): WorkflowCandidate[] {
   const byKey = new Map<string, WorkflowCandidate>();
   for (const candidate of candidates) {
@@ -601,7 +641,7 @@ function attachRelatedDocs(
 }
 
 async function loadWorkflowContext(service: any, options: { httpReachable: boolean }): Promise<WorkflowContext> {
-  const [status, worklist, recommendations, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents] = await Promise.all([
+  const [status, worklist, recommendations, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
     service.getStatusReport(options),
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
@@ -609,6 +649,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     Promise.resolve(service.listNeedsReplyThreads(10)),
     Promise.resolve(service.listFollowupThreads(10)),
     Promise.resolve(service.listUpcomingCalendarEvents(1, 20)),
+    listMeetingPrepCandidates(service, { scope: "next_24h" }),
   ]);
 
   const orderedRecommendations = [...recommendations].sort((left, right) => service.compareNextActionableRecommendations(left, right));
@@ -624,6 +665,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     needsReplyThreads,
     staleFollowupThreads,
     upcomingEvents,
+    meetingPrepCandidates,
   };
 }
 
@@ -671,13 +713,17 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     pushUniqueCandidate(candidates, candidate);
   }
 
-  for (const event of context.upcomingEvents) {
-    if (recommendationSourceKeys.has(`event:${event.event_id}`)) {
+  for (const meetingCandidate of context.meetingPrepCandidates) {
+    if (recommendationSourceKeys.has(`event:${meetingCandidate.event.event_id}`)) {
       continue;
     }
-    const candidate = eventCandidate(event);
-    if (candidate) {
-      pushUniqueCandidate(candidates, attachRelatedDocs(service, candidate, { allowFallback: true }));
+    if (meetingCandidate.packet_worthy) {
+      pushUniqueCandidate(candidates, meetingPacketCandidate(meetingCandidate));
+      continue;
+    }
+    const fallback = eventCandidate(meetingCandidate.event);
+    if (fallback) {
+      pushUniqueCandidate(candidates, attachRelatedDocs(service, fallback, { allowFallback: true }));
     }
   }
 
@@ -904,61 +950,44 @@ export async function buildPrepMeetingsWorkflowReport(
   options: { httpReachable: boolean; scope: "today" | "next_24h" },
 ): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
-  const scopedEvents = context.upcomingEvents
-    .filter((event) => !event.is_all_day && event.status !== "cancelled")
-    .filter((event) => (options.scope === "today" ? new Date(event.start_at).toDateString() === new Date().toDateString() : (maybeHoursUntil(event.start_at) ?? 99) <= 24))
+  const scopedCandidates = context.meetingPrepCandidates
+    .filter((candidate) =>
+      options.scope === "today"
+        ? new Date(candidate.event.start_at).toDateString() === new Date().toDateString()
+        : (maybeHoursUntil(candidate.event.start_at) ?? 99) <= 24,
+    )
     .slice(0, 10);
-  const recommendationCandidates = context.recommendationDetails
-    .filter((detail) => detail.recommendation.kind === "schedule_event_prep")
-    .map((detail) => attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: false }));
-  const recommendationEventKeys = new Set(recommendationCandidates.map((candidate) => candidate.source_key));
-  const eventCandidates = scopedEvents
-    .map((event) => eventCandidate(event))
-    .filter((candidate): candidate is WorkflowCandidate => Boolean(candidate))
-    .map((candidate) => attachRelatedDocs(service, candidate, { allowFallback: false }))
-    .filter((candidate) => !recommendationEventKeys.has(candidate.source_key));
-  const candidates = dedupeAndSortCandidates([...recommendationCandidates, ...eventCandidates]);
-  const topScore = candidates[0]?.score ?? 0;
+  const packetCandidates = dedupeAndSortCandidates(
+    scopedCandidates
+      .filter((candidate) => candidate.packet_worthy)
+      .map((candidate) => meetingPacketCandidate(candidate)),
+  );
+  const topScore = packetCandidates[0]?.score ?? 0;
 
   return buildWorkflowReport({
     workflow: "prep-meetings",
     readiness: context.status.state,
     summary:
-      candidates.length === 0
+      packetCandidates.length === 0
         ? "No meetings in scope need prep right now."
-        : `${scopedEvents.length} meeting${scopedEvents.length === 1 ? "" : "s"} in scope and ${candidates.length} prep item${candidates.length === 1 ? "" : "s"} surfaced.`,
+        : `${scopedCandidates.length} meeting${scopedCandidates.length === 1 ? "" : "s"} in scope and ${packetCandidates.length} packet-ready item${packetCandidates.length === 1 ? "" : "s"} surfaced.`,
     sections: [
       {
         title: "Upcoming Meetings",
-        items: scopedEvents.slice(0, MAX_SECTION_ITEMS).map((event) => {
-          const candidate = eventCandidate(event);
-          return toBundleItem(
-            candidate
-              ? attachRelatedDocs(service, candidate, { allowFallback: false })
-              : {
-              label: event.summary?.trim() || "Upcoming meeting",
-              summary: `Starts ${formatTimestamp(event.start_at)}.`,
-              command: commandForCalendarEvent(event.event_id),
-              target_type: "calendar_event",
-              target_id: event.event_id,
-              why_now: "This meeting is in the current scope.",
-              signals: ["meeting_in_scope"],
-              score: 200,
-              category: "meeting",
-              source_key: `event:${event.event_id}`,
-              related_docs: service.getRelatedDocsForTarget("calendar_event", event.event_id, { allowFallback: false }),
-            },
+        items: scopedCandidates.slice(0, MAX_SECTION_ITEMS).map((candidate) =>
+          toBundleItem(
+            candidate.packet_worthy ? meetingPacketCandidate(candidate) : compactEventCandidate(service, candidate.event),
             topScore || 200,
-          );
-        }),
+          ),
+        ),
       },
       {
         title: "Prep Needed",
-        items: candidates.slice(0, MAX_SECTION_ITEMS).map((candidate) => toBundleItem(candidate, topScore)),
+        items: packetCandidates.slice(0, MAX_SECTION_ITEMS).map((candidate) => toBundleItem(candidate, topScore)),
       },
       { title: "Next Commands", items: [] },
     ],
     worklist: context.worklist,
-    actions: candidates,
+    actions: packetCandidates,
   });
 }

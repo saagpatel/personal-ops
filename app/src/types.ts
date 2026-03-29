@@ -1274,6 +1274,80 @@ export interface InboxAutopilotReport {
   groups: InboxAutopilotGroup[];
 }
 
+export interface MeetingPrepThreadSummary {
+  thread_id: string;
+  subject: string;
+  counterparty_summary: string;
+  last_message_at: string;
+  suggested_command: string;
+}
+
+export interface MeetingPrepTaskSummary {
+  task_id: string;
+  title: string;
+  state: TaskState;
+  due_at?: string | undefined;
+  suggested_command: string;
+}
+
+export interface MeetingPrepRecommendationSummary {
+  recommendation_id: string;
+  title: string;
+  summary: string;
+  suggested_command: string;
+}
+
+export interface MeetingPrepPacketMeeting {
+  event_id: string;
+  summary?: string | undefined;
+  start_at: string;
+  end_at: string;
+  location?: string | undefined;
+  organizer_email?: string | undefined;
+  attendee_count: number;
+  notes?: string | undefined;
+  html_link?: string | undefined;
+}
+
+export interface MeetingPrepPacket {
+  event_id: string;
+  state: AssistantActionState;
+  generated_at: string;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  signals: string[];
+  meeting: MeetingPrepPacketMeeting;
+  agenda: string[];
+  prep_checklist: string[];
+  open_questions: string[];
+  related_docs: RelatedDriveDoc[];
+  related_threads: MeetingPrepThreadSummary[];
+  related_tasks: MeetingPrepTaskSummary[];
+  related_recommendations: MeetingPrepRecommendationSummary[];
+  next_commands: string[];
+  assistant_action_id: string;
+}
+
+export interface MeetingPrepPacketRecord {
+  event_id: string;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  signals: string[];
+  meeting: MeetingPrepPacketMeeting;
+  agenda: string[];
+  prep_checklist: string[];
+  open_questions: string[];
+  related_docs: RelatedDriveDoc[];
+  related_threads: MeetingPrepThreadSummary[];
+  related_tasks: MeetingPrepTaskSummary[];
+  related_recommendations: MeetingPrepRecommendationSummary[];
+  next_commands: string[];
+  generated_at: string;
+  updated_at: string;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;
