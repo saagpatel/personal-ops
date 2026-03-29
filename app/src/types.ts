@@ -1530,6 +1530,7 @@ export interface InstallManifest {
     codex_mcp: string;
     claude_mcp: string;
   };
+  desktop?: DesktopStatusReport | undefined;
 }
 
 export interface InstallCheckReport {
@@ -1542,6 +1543,28 @@ export interface InstallCheckReport {
   };
   checks: DoctorCheck[];
   manifest: InstallManifest | null;
+}
+
+export interface DesktopToolchainReport {
+  platform_supported: boolean;
+  npm_available: boolean;
+  cargo_available: boolean;
+  rustc_available: boolean;
+  xcode_select_available: boolean;
+  ready: boolean;
+  summary: string;
+}
+
+export interface DesktopStatusReport {
+  supported: boolean;
+  installed: boolean;
+  bundle_exists: boolean;
+  app_path: string;
+  build_bundle_path: string;
+  project_path: string;
+  toolchain: DesktopToolchainReport;
+  daemon_session_handoff_ready: boolean;
+  launch_url: string | null;
 }
 
 export type InstallPermissionsFixStatus = "updated" | "already_secure" | "missing" | "failed";
@@ -1759,6 +1782,7 @@ export interface ServiceStatusReport {
   };
   github: GithubStatusReport;
   drive: DriveStatusReport;
+  desktop: DesktopStatusReport;
 }
 
 export interface DoctorReport {

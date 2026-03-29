@@ -41,6 +41,7 @@ Use this path if you want to:
 - install or move the system to another Mac
 - understand the single-primary-machine model before using backups to migrate state
 - use the local operator console for daily visibility plus narrow browser-safe actions
+- optionally use the macOS desktop shell for the same console in a native window
 - use inbox autopilot to stage grouped reply and follow-up drafts before asking for approval
 - use the new day-start workflow bundle before dropping into narrower commands
 - optionally add narrow GitHub PR and review context
@@ -79,13 +80,13 @@ Use this path if you want to:
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
   The operator automation runbook for the recurring briefing, recovery snapshot, and rehearsal reminder layer.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
-  The current system shape after Phases 1 to 4, including trust boundaries and module layout.
+  The current system shape after Phases 1 to 8 plus the Assistant-Led roadmap through desktop shell support, including trust boundaries and module layout.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
   The shortest role-based onboarding path for a new operator or a new assistant.
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The assistant-led initiative, now through Phase 3 with inbox autopilot plus meeting-prep packets.
+  The assistant-led initiative, now through Phase 4 with the optional macOS desktop shell.
 
 ## History and deep context
 
@@ -114,8 +115,9 @@ If you are a new operator:
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
 3. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
 4. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet.
-5. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
-6. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
+5. If you want the console to feel more native on macOS, run `personal-ops install desktop` and then `personal-ops desktop open`.
+6. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
+7. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 
 If you are a new assistant or contributor:
 

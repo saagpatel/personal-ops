@@ -1,4 +1,5 @@
 import type { DoctorReport, ServiceStatusReport } from "../types.js";
+import { getDesktopStatusReport } from "../desktop.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
@@ -30,6 +31,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const calendarStatus = service.getCalendarStatusReport();
   const githubStatus = service.getGithubStatusReport();
   const driveStatus = service.getDriveStatusReport();
+  const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
       ["sync_degraded", "inbox_unread_old", "thread_needs_reply", "thread_stale_followup"].includes(item.kind),
@@ -246,6 +248,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
     },
     github: githubStatus,
     drive: driveStatus,
+    desktop: desktopStatus,
   };
 }
 

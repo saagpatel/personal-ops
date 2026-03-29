@@ -23,6 +23,7 @@ Main runtime pieces:
 - local config and policy files
 - operator CLI
 - local operator console
+- optional macOS desktop shell
 - local HTTP API
 - MCP bridge for assistants
 - generated wrappers
@@ -34,9 +35,11 @@ Main runtime pieces:
 flowchart LR
   operator["Operator"] --> cli["CLI / wrappers"]
   operator --> console["Browser console"]
+  operator --> desktop["Desktop shell"]
   assistants["Assistants (Codex, Claude)"] --> mcp["MCP bridge"]
   cli --> service["personal-ops daemon"]
   console --> service
+  desktop --> service
   mcp --> service
   service --> db["Local SQLite state"]
   service --> config["Local config / policy / tokens / logs"]
@@ -100,6 +103,9 @@ Recent operator-focused entrypoints:
 - `personal-ops drive status`
 - `personal-ops drive files`
 - `personal-ops drive doc <fileId>`
+- `personal-ops install desktop`
+- `personal-ops desktop open`
+- `personal-ops desktop status`
 
 ### Local HTTP API
 
@@ -127,6 +133,19 @@ It is intentionally read-first in Phase 8:
 - linked Google Docs context when present and in scope
 
 It does not replace the CLI for high-trust or mutating actions.
+
+### Desktop shell
+
+Assistant-Led Phase 4 adds an optional macOS Tauri shell under `desktop/`.
+
+It is intentionally a thin operator client:
+
+- it loads the existing console UI in a native webview
+- it requests console launch grants from the daemon through `POST /v1/console/session`
+- it adds tray or menu bar affordances plus bounded desktop notifications
+- it does not become a second control plane or a second source of truth
+
+The daemon and CLI remain authoritative. The desktop shell is a convenience client for the same local system.
 
 ### MCP bridge
 
@@ -167,6 +186,7 @@ These remain outside assistant control:
 - GitHub auth mutation and explicit GitHub sync mutation
 - any GitHub write action
 - any Google write action through Drive or Docs
+- any new high-trust mutation through the desktop shell
 
 `CLIENTS.md` remains the authoritative contract for the safe read surface and operator-only boundaries.
 
@@ -206,7 +226,7 @@ Use these rules for future changes:
 - architecture or subsystem shape changes
   update `ARCHITECTURE.md` and the active phase docs
 - future operator console work
-  keep the existing local HTTP API as the primary backend surface and keep browser-session additions narrow and read-first unless a later track explicitly expands mutation support
+  keep the existing local HTTP API as the primary backend surface and keep browser-session or desktop-session additions narrow unless a later track explicitly expands mutation support
 
 ## Related docs
 

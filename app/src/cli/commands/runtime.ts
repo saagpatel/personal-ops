@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
+import { getDesktopStatusReport, openDesktopApp } from "../../desktop.js";
 import {
   formatAssistantActionRunResult,
   formatAssistantQueueReport,
+  formatDesktopStatus,
   formatDriveDoc,
   formatDriveFiles,
   formatDriveStatus,
@@ -57,7 +59,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .description("Open the local operator console with narrow browser-safe actions.")
     .option("--print-url", "Print the console launch URL instead of opening the browser")
     .action(async (options) => {
-      const response = await context.requestJson<{ console_session: { launch_url: string } }>("POST", "/v1/web/session-grants");
+      const response = await context.requestJson<{ console_session: { launch_url: string } }>("POST", "/v1/console/session");
       const launchUrl = response.console_session.launch_url;
       if (options.printUrl) {
         process.stdout.write(`${launchUrl}\n`);
@@ -66,6 +68,25 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
       openUrl(launchUrl);
       logger.info("console_opened", { launch_url: launchUrl });
       process.stdout.write(`Opened operator console: ${launchUrl}\n`);
+    });
+
+  const desktop = program.command("desktop").description("Open or inspect the optional native desktop shell.");
+  desktop
+    .command("open")
+    .description("Open or focus the installed macOS desktop shell.")
+    .action(async () => {
+      openDesktopApp(paths);
+      const desktopStatus = await getDesktopStatusReport(paths);
+      process.stdout.write(`Opened desktop app: ${desktopStatus.app_path}\n`);
+    });
+
+  desktop
+    .command("status")
+    .description("Show whether the local desktop shell is installed and ready.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const desktopStatus = await getDesktopStatusReport(paths);
+      context.printOutput({ desktop: desktopStatus }, (value) => formatDesktopStatus(value.desktop), options.json);
     });
 
   program

@@ -10,6 +10,7 @@ The official distribution model in this phase is source-first:
 - GitHub Releases publish source-based release notes
 - installs and upgrades still happen through repo checkout plus `./bootstrap`
 - no Homebrew, npm publish, binary packaging, or signed installer is part of this phase
+- the optional macOS desktop shell remains a locally built unsigned `.app`, not a signed release artifact
 
 ## Release gates
 
@@ -28,6 +29,7 @@ That runs:
 - `npm run verify:console`
 - `npm run verify:launchagent`
 - `npm run verify:recovery`
+- `npm run verify:desktop`
 
 GitHub CI baseline:
 

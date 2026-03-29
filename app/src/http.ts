@@ -371,7 +371,10 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/web/session-grants") {
+      if (
+        request.method === "POST" &&
+        (url.pathname === "/v1/web/session-grants" || url.pathname === "/v1/console/session")
+      ) {
         if (!auth || auth.source !== "bearer" || auth.role !== "operator") {
           throw new HttpError(403, "Console session grants require the operator bearer token.");
         }

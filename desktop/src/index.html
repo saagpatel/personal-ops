@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Ops Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Personal Ops Desktop</p>
+          <h1>Assistant-Led Workspace</h1>
+          <p id="summary" class="subtle">Connecting to the local daemon…</p>
+        </div>
+        <div class="actions">
+          <button id="refresh-session" class="button button--primary" type="button">Refresh Session</button>
+          <button id="focus-console" class="button" type="button">Focus Window</button>
+        </div>
+      </header>
+
+      <section id="status-card" class="status-card">
+        <div class="status-row">
+          <div>
+            <p class="eyebrow">Readiness</p>
+            <p id="readiness" class="status-value">Loading…</p>
+          </div>
+          <div>
+            <p class="eyebrow">Now Next</p>
+            <p id="now-next" class="status-value status-value--compact">Checking the next move…</p>
+          </div>
+          <div>
+            <p class="eyebrow">Assistant Review</p>
+            <p id="awaiting-review" class="status-value">0</p>
+          </div>
+          <div>
+            <p class="eyebrow">Approvals</p>
+            <p id="pending-approvals" class="status-value">0</p>
+          </div>
+        </div>
+        <p id="repair-hint" class="subtle"></p>
+      </section>
+
+      <section id="frame-shell" class="frame-shell">
+        <div id="blocked-state" class="blocked-state blocked-state--hidden">
+          <p class="eyebrow">Desktop shell waiting on the daemon</p>
+          <h2>Personal Ops needs the local service before it can load the console.</h2>
+          <p id="blocked-copy" class="subtle">
+            Run <span class="code">personal-ops install check</span> and <span class="code">personal-ops doctor</span> if the daemon is not ready yet.
+          </p>
+        </div>
+        <iframe id="console-frame" title="Personal Ops Console"></iframe>
+      </section>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

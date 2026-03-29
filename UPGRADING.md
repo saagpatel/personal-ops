@@ -30,10 +30,18 @@ personal-ops doctor --deep --json
 personal-ops console --print-url
 ```
 
+6. If you use the optional macOS desktop shell, refresh it after the upgrade:
+
+```bash
+personal-ops install desktop
+personal-ops desktop status
+```
+
 Important notes:
 
 - Releases are tagged and documented, but not packaged as installers in this phase.
 - Upgrades are in-place source upgrades.
+- The optional macOS desktop shell remains a locally built unsigned `.app`.
 - `app/package.json` is the canonical product version source.
 - Use `cd /Users/d/.local/share/personal-ops/app && npm run release:check` before treating a branch as releasable.
 - Restore remains manual and CLI-only.

@@ -32,7 +32,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 1 | Assistant Action Queue and Console-First Workflow Execution | Make the console the main working surface with a first-class assistant queue and safe one-click actions | Complete |
 | 2 | Inbox and Follow-Up Autopilot | Reduce reply and follow-up labor through assistant-prepared drafts, grouped thread handling, and queue shaping | Complete |
 | 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Complete |
-| 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Planned |
+| 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Complete |
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Planned |
 
 ## Phase 1
@@ -105,15 +105,18 @@ Delivered shape:
 
 ## Phase 4
 
-This phase should wrap the matured console in a lightweight native shell.
+Phase 4 is now complete.
 
-Chosen direction:
+Delivered shape:
 
-- Tauri-style native wrapper
-- same daemon and same local API
-- no full native rewrite
-
-The desktop shell belongs after the assistant workflows feel strong enough to deserve a more productized home.
+- a macOS-only Tauri desktop shell under `desktop/`
+- the same daemon, local HTTP API, and console UI inside a native webview
+- `personal-ops install desktop`, `personal-ops desktop open`, and `personal-ops desktop status`
+- operator-only `POST /v1/console/session` for native session handoff
+- tray or menu bar controls for open, refresh session, readiness, and now-next summary
+- bounded native notifications for readiness degradation, assistant review growth, and new approval pressure
+- local unsigned `.app` install at `~/Applications/Personal Ops.app`
+- unchanged trust boundaries for send, approval decisions, restore, auth mutation, and destructive actions
 
 ## Phase 5
 
@@ -128,11 +131,11 @@ Expected direction:
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, and 3 are complete
+- Phases 1, 2, 3, and 4 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work
   - more prepared assistant actions
   - console first
-  - desktop wrapper later
+  - optional desktop wrapper for daily use
   - trust boundaries still explicit for risky actions

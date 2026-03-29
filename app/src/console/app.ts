@@ -424,6 +424,9 @@ function renderBannerCards(cards: Array<{ message: string; tone: BannerTone }>):
 }
 
 function renderLocked(): void {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: "personal-ops-console-locked" }, "*");
+  }
   renderBannerCards([
     {
       message: "Console session is missing or expired. Run `personal-ops console` to reopen the operator console.",
@@ -1971,6 +1974,11 @@ function syncNav(): void {
 function render(): void {
   syncNav();
   if (!state.payload) {
+    const cards: Array<{ message: string; tone: BannerTone }> = [];
+    if (state.flash) {
+      cards.push(state.flash);
+    }
+    renderBannerCards(cards);
     requiredContent.innerHTML = `<section class="hero"><h3>Loading console…</h3><p>The daemon is gathering local operator state.</p></section>`;
     return;
   }

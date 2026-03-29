@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
+import { getDesktopPaths, getDesktopToolchainReport, installDesktopApp, withDesktopManifest } from "./desktop.js";
 import { PersonalOpsDb } from "./db.js";
 import { getKeychainSecret } from "./keychain.js";
 import {
@@ -214,6 +215,7 @@ function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: 
   const artifacts = getInstallArtifactPaths(paths);
   const launchAgentLabel = getLaunchAgentLabel();
   const machine = ensureMachineIdentity(paths);
+  const existingDesktop = readInstallManifest(paths)?.desktop;
   return {
     generated_at: new Date().toISOString(),
     node_executable: nodeExecutable,
@@ -229,6 +231,7 @@ function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: 
       codex_mcp: artifacts.codexMcpWrapperPath,
       claude_mcp: artifacts.claudeMcpWrapperPath,
     },
+    ...(existingDesktop ? { desktop: existingDesktop } : {}),
   };
 }
 
@@ -418,6 +421,19 @@ export async function installAll(
   return manifest;
 }
 
+export async function installDesktop(
+  paths: Paths,
+  nodeExecutable = process.execPath,
+): Promise<InstallManifest> {
+  const desktop = await installDesktopApp(paths);
+  const manifest = withDesktopManifest(
+    buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
+    desktop,
+  );
+  writeInstallManifest(paths, manifest);
+  return manifest;
+}
+
 export function fixInstallPermissions(paths: Paths): InstallPermissionsFixResult {
   const files: InstallPermissionsFixItem[] = SECRET_PERMISSION_TARGETS.map((target) => {
     const filePath = target.resolvePath(paths);
@@ -478,6 +494,8 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   const assistantApiTokenPermissions = validateSecretFilePermissions(paths.assistantApiTokenFile, "Assistant API token");
   const machineIdentity = readMachineIdentity(paths);
   const restoreProvenance = readRestoreProvenance(paths);
+  const desktopPaths = getDesktopPaths(paths);
+  const desktopToolchain = getDesktopToolchainReport(paths);
 
   checks.push(fileCheck("config_file_valid", "Config file", paths.configFile, true));
   checks.push(fileCheck("policy_file_valid", "Policy file", paths.policyFile, true));
@@ -863,6 +881,45 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     manifest
       ? passCheck("install_manifest_exists", "Install manifest", "Install manifest is present.", "integration")
       : warnCheck("install_manifest_exists", "Install manifest", "Install manifest is missing.", "integration"),
+  );
+  checks.push(
+    desktopToolchain.platform_supported
+      ? passCheck("desktop_platform_supported", "Desktop platform", "Desktop shell is supported on this Mac.", "integration")
+      : passCheck("desktop_platform_supported", "Desktop platform", "Desktop shell is macOS-only and not required here.", "integration"),
+  );
+  checks.push(
+    !desktopToolchain.platform_supported
+      ? passCheck("desktop_toolchain_ready", "Desktop toolchain", desktopToolchain.summary, "integration")
+      : !fs.existsSync(desktopPaths.packageJsonPath)
+        ? passCheck(
+            "desktop_toolchain_ready",
+            "Desktop toolchain",
+            "Desktop shell source is not present in this runtime environment. The native shell remains optional.",
+            "integration",
+          )
+        : desktopToolchain.ready
+          ? passCheck("desktop_toolchain_ready", "Desktop toolchain", desktopToolchain.summary, "integration")
+          : passCheck(
+              "desktop_toolchain_ready",
+              "Desktop toolchain",
+              `${desktopToolchain.summary} The native shell remains optional until you choose to install it.`,
+              "integration",
+            ),
+  );
+  checks.push(
+    fs.existsSync(desktopPaths.installedAppPath)
+      ? passCheck(
+          "desktop_app_installed",
+          "Desktop app bundle",
+          `Desktop app is installed at ${desktopPaths.installedAppPath}.`,
+          "integration",
+        )
+      : passCheck(
+          "desktop_app_installed",
+          "Desktop app bundle",
+          `Desktop app is optional in this phase and is not installed at ${desktopPaths.installedAppPath}. Run \`personal-ops install desktop\` when you want the native shell.`,
+          "integration",
+        ),
   );
 
   checks.push(

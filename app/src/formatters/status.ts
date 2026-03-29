@@ -226,6 +226,16 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Top Drive item", topSummary(report.drive.top_item_summary, "nothing notable")),
   ]);
 
+  pushSection(lines, "Desktop", [
+    line("Supported", yesNo(report.desktop.supported)),
+    line("Installed", yesNo(report.desktop.installed)),
+    line("Bundle exists", yesNo(report.desktop.bundle_exists)),
+    line("App path", report.desktop.app_path),
+    line("Toolchain ready", yesNo(report.desktop.toolchain.ready)),
+    line("Toolchain summary", report.desktop.toolchain.summary),
+    line("Session handoff", yesNo(report.desktop.daemon_session_handoff_ready)),
+  ]);
+
   pushSection(lines, "Queues", [
     line("Review pending", String(report.review_queue.pending_count)),
     line("Approval pending", String(report.approval_queue.pending_count)),

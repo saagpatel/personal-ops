@@ -24,6 +24,7 @@ export {
   formatSnapshotPruneResult,
   formatInstallManifest,
   formatInstallCheckReport,
+  formatDesktopStatus,
   formatInstallPermissionsFixResult,
   formatRestoreResult,
 } from "./formatters/install.js";

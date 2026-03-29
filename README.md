@@ -15,6 +15,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - assistant-safe audit history
 - shared status and worklist views for humans and assistants
 - a local operator console with narrow browser-safe actions
+- an optional macOS desktop shell that opens the same console in a native window
 - grouped inbox autopilot that prepares reply and follow-up drafts for review
 - meeting-prep packets that stage agenda, checklist, and linked context before imminent meetings
 - machine-aware backups and restore guardrails
@@ -27,6 +28,7 @@ In practice, that means it can:
 - show assistants safe operational context
 - keep higher-risk actions behind operator control
 - give the operator both CLI and local browser views into the same state
+- optionally wrap the same console in a local macOS desktop app without changing the control plane
 - support fresh-machine bootstrap, local install, and LaunchAgent setup from repo-managed commands
 
 ## Main Features
@@ -36,6 +38,7 @@ In practice, that means it can:
 - Task tracking, task suggestions, and planning recommendations
 - Shared CLI, HTTP, and MCP access for both humans and assistants
 - Local operator console served by the daemon with narrow browser-safe actions
+- Optional macOS desktop shell built locally as an unsigned `.app`
 - One-command bootstrap plus repo-managed wrapper and LaunchAgent install
 - Explicit secret-permission repair with `personal-ops install fix-permissions`
 - Backup, inspect, and machine-aware restore flows with rescue snapshots
@@ -80,6 +83,7 @@ Today, the repo includes:
 - local install commands for wrappers, LaunchAgent setup, and install checks
 - CLI, local HTTP API, and MCP bridge access
 - a local operator console opened with `personal-ops console`
+- optional native shell install and launch with `personal-ops install desktop` and `personal-ops desktop open`
 - `personal-ops inbox autopilot` for grouped inbox draft preparation and review handoff
 - `personal-ops workflow prep-meetings --event <eventId> --prepare` for one-meeting packet staging and refresh
 - backup create, inspect, and restore flows with machine-aware provenance

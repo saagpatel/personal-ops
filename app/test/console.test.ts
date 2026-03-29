@@ -304,6 +304,41 @@ test("Phase 6 console session grants are single-use and allow browser-safe workf
   }
 });
 
+test("assistant-led Phase 4 console session route is operator-only and stays blocked for browser sessions", async () => {
+  const fixture = await createConsoleFixture();
+  try {
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/console/session`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "desktop-test",
+      },
+    });
+    assert.equal(grantResponse.status, 200);
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    assert.match(grantPayload.console_session.launch_url, /\/console\/session\//);
+
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const blockedResponse = await fetch(`${baseUrl}/v1/console/session`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(blockedResponse.status, 403);
+    const blockedPayload = (await blockedResponse.json()) as { error?: string };
+    assert.match(blockedPayload.error ?? "", /browser-safe/i);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("Phase 2 console sessions can create snapshots and run narrow planning actions only", async () => {
   const fixture = await createConsoleFixture();
   try {

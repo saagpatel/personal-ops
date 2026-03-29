@@ -40,6 +40,7 @@ Official distribution model in this phase:
 - tagged source releases with notes in `CHANGELOG.md`
 - in-place upgrades through repo update plus rerun `./bootstrap`
 - no packaged installer or package-manager distribution yet
+- optional local macOS desktop shell built as an unsigned `.app`
 
 ## Secret model
 
@@ -101,6 +102,26 @@ Bootstrap and install create:
 - `~/.codex/bin/personal-ops-mcp`
 - `~/.claude/bin/personal-ops-mcp`
 - `~/Library/LaunchAgents/com.d.personal-ops.plist`
+
+### Optional macOS desktop shell
+
+Assistant-Led Phase 4 adds a macOS-only native shell around the existing console.
+
+Install it only if you want the console in a native window:
+
+```bash
+personal-ops install desktop
+personal-ops desktop status
+personal-ops desktop open
+```
+
+Important desktop-shell rules:
+
+- it uses the same daemon, the same local API, and the same console UI
+- it installs a locally built unsigned app bundle at `~/Applications/Personal Ops.app`
+- it is optional and does not change the baseline `./bootstrap` path
+- it does not widen browser-safe or assistant-safe mutation scope
+- send, approval decisions, restore, auth mutation, and destructive actions remain gated
 
 ## Auth flow
 
@@ -210,6 +231,12 @@ These are the main operator commands after setup:
 
 - `personal-ops console`
   Opens the local operator console in the browser.
+- `personal-ops install desktop`
+  Builds and installs or refreshes the optional local macOS desktop shell.
+- `personal-ops desktop open`
+  Opens or focuses the optional local macOS desktop shell.
+- `personal-ops desktop status`
+  Shows desktop install state, toolchain readiness, installed app path, and console session handoff readiness.
 - `personal-ops version`
   Shows the current product version, release tag, release gate, and official upgrade hint.
 - `personal-ops workflow prep-day`

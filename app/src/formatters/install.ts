@@ -1,4 +1,5 @@
 import type {
+  DesktopStatusReport,
   InstallCheckReport,
   InstallManifest,
   InstallPermissionsFixResult,
@@ -99,8 +100,32 @@ export function formatInstallManifest(manifest: InstallManifest): string {
     line("Codex MCP wrapper", manifest.wrapper_paths.codex_mcp),
     line("Claude MCP wrapper", manifest.wrapper_paths.claude_mcp),
     line("LaunchAgent", manifest.launch_agent_plist_path),
+    ...(manifest.desktop
+      ? [
+          line("Desktop app", manifest.desktop.app_path),
+          line("Desktop installed", yesNo(manifest.desktop.installed)),
+          line("Desktop toolchain", manifest.desktop.toolchain.summary),
+          line("Desktop handoff", yesNo(manifest.desktop.daemon_session_handoff_ready)),
+        ]
+      : []),
     "",
     "Next step: run `personal-ops install check` to confirm the local setup is healthy.",
+  ].join("\n");
+}
+
+export function formatDesktopStatus(report: DesktopStatusReport): string {
+  return [
+    "Desktop Status",
+    line("Supported", yesNo(report.supported)),
+    line("Installed", yesNo(report.installed)),
+    line("Bundle exists", yesNo(report.bundle_exists)),
+    line("App path", report.app_path),
+    line("Build bundle", report.build_bundle_path),
+    line("Project", report.project_path),
+    line("Toolchain ready", yesNo(report.toolchain.ready)),
+    line("Toolchain summary", report.toolchain.summary),
+    line("Session handoff", yesNo(report.daemon_session_handoff_ready)),
+    line("Launch URL", report.launch_url ?? "not available"),
   ].join("\n");
 }
 

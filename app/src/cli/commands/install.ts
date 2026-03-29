@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { buildInstallCheckReport, fixInstallPermissions, installAll, installLaunchAgent, installWrapper } from "../../install.js";
+import { buildInstallCheckReport, fixInstallPermissions, installAll, installDesktop, installLaunchAgent, installWrapper } from "../../install.js";
 import { formatInstallCheckReport, formatInstallManifest, formatInstallPermissionsFixResult, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest, formatSnapshotPruneResult } from "../../formatters.js";
 import { pruneSnapshots } from "../../recovery.js";
 import { restoreSnapshot } from "../../restore.js";
@@ -53,6 +53,15 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .option("--json", "Print raw JSON")
     .action(async (options) => {
       const manifest = await installLaunchAgent(paths);
+      context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
+    });
+
+  install
+    .command("desktop")
+    .description("Build and install the optional native desktop shell at ~/Applications/Personal Ops.app.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const manifest = await installDesktop(paths);
       context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
     });
 
