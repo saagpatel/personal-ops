@@ -5774,6 +5774,136 @@ test("phase-23 policy attention stays aligned across policy, status, and worklis
   }
 });
 
+test("phase-5 prep-day workflow stays bounded and leads with a repair step when needed", async () => {
+  const { service } = createFixture();
+  service.db.createTask(cliIdentity, {
+    title: "Reply to the first operator thread",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const report = await service.getPrepDayWorkflowReport({ httpReachable: true });
+
+  assert.equal(report.workflow, "prep-day");
+  assert.deepEqual(
+    report.sections.map((section) => section.title),
+    ["Overall State", "Top Attention", "Time-Sensitive Items", "Next Commands"],
+  );
+  assert.ok(report.actions.length <= 3);
+  assert.equal(report.sections[3]?.items.length, report.actions.length);
+  if (report.readiness !== "ready") {
+    assert.ok(report.first_repair_step);
+    assert.equal(report.actions[0]?.command, report.first_repair_step);
+  }
+});
+
+test("phase-5 follow-up workflow bundles needs-reply and stale follow-up pressure", async () => {
+  const accountEmail = "machine@example.com";
+  const now = Date.now();
+  const needsReply = buildMessage("msg-phase5-needs-reply", accountEmail, {
+    thread_id: "thread-phase5-needs-reply",
+    history_id: "7101",
+    internal_date: String(now - 30 * 60 * 60 * 1000),
+    label_ids: ["INBOX", "UNREAD"],
+    subject: "Need an operator reply",
+  });
+  const staleFollowup = buildMessage("msg-phase5-stale-followup", accountEmail, {
+    thread_id: "thread-phase5-stale-followup",
+    history_id: "7102",
+    internal_date: String(now - 90 * 60 * 60 * 1000),
+    label_ids: ["SENT"],
+    from_header: `Machine <${accountEmail}>`,
+    to_header: "friend@example.com",
+    subject: "Checking back in",
+  });
+  const messages = new Map([
+    [needsReply.message_id, needsReply],
+    [staleFollowup.message_id, staleFollowup],
+  ]);
+
+  const { service } = createFixture({
+    accountEmail,
+    profileHistoryId: "7199",
+    listRefsImpl: async (labelId) => ({
+      message_ids: labelId === "INBOX" ? [needsReply.message_id] : [staleFollowup.message_id],
+    }),
+    metadataImpl: async (messageId) => {
+      const message = messages.get(messageId);
+      if (!message) {
+        throw new Error(`Unknown message ${messageId}`);
+      }
+      return message;
+    },
+  });
+
+  await service.syncMailboxMetadata(cliIdentity);
+  service.refreshPlanningRecommendations(cliIdentity);
+
+  const report = await service.getFollowUpBlockWorkflowReport({ httpReachable: true });
+  const needsReplySection = report.sections.find((section) => section.title === "Needs Reply");
+  const waitingSection = report.sections.find((section) => section.title === "Waiting To Nudge");
+
+  assert.equal(report.workflow, "follow-up-block");
+  assert.match(JSON.stringify(needsReplySection?.items ?? []), /Need an operator reply/);
+  assert.match(JSON.stringify(waitingSection?.items ?? []), /Checking back in|follow-up/i);
+  assert.ok(report.actions.some((action) => action.command.startsWith("personal-ops inbox thread ")));
+});
+
+test("phase-5 meeting workflow respects today vs next-24h scope", async () => {
+  const { service, accountEmail } = createFixture();
+  const now = new Date();
+  const soonTodayStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const tomorrowStart = new Date(now);
+  tomorrowStart.setDate(now.getDate() + 1);
+  tomorrowStart.setSeconds(0, 0);
+
+  service.db.upsertCalendarEvent({
+    event_id: "primary:phase5-today",
+    provider_event_id: "phase5-today",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Today workflow meeting",
+    status: "confirmed",
+    start_at: soonTodayStart.toISOString(),
+    end_at: new Date(soonTodayStart.getTime() + 30 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+  service.db.upsertCalendarEvent({
+    event_id: "primary:phase5-tomorrow",
+    provider_event_id: "phase5-tomorrow",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Tomorrow workflow meeting",
+    status: "confirmed",
+    start_at: tomorrowStart.toISOString(),
+    end_at: new Date(tomorrowStart.getTime() + 30 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+
+  const todayReport = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "today" });
+  const next24Report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "next_24h" });
+  const todayText = JSON.stringify(todayReport.sections);
+  const next24Text = JSON.stringify(next24Report.sections);
+
+  assert.equal(todayReport.workflow, "prep-meetings");
+  assert.doesNotMatch(todayText, /Tomorrow workflow meeting/);
+  assert.match(next24Text, /Tomorrow workflow meeting/);
+});
+
 test("phase-25 status keeps one compact policy attention signal", async () => {
   const now = Date.now();
   const { service } = createFixture();

@@ -16,6 +16,7 @@ import type {
   SnapshotManifest,
   SnapshotSummary,
   TaskDetail,
+  WorkflowBundleReport,
   WorklistReport,
 } from "../types.js";
 
@@ -25,6 +26,7 @@ type BannerTone = "good" | "warn" | "critical";
 interface ConsolePayload {
   status: ServiceStatusReport;
   worklist: WorklistReport;
+  prepDayWorkflow: WorkflowBundleReport;
   doctor: DoctorReport;
   approvals: ApprovalRequest[];
   drafts: DraftArtifact[];
@@ -45,6 +47,10 @@ interface StatusResponse {
 
 interface WorklistResponse {
   worklist: WorklistReport;
+}
+
+interface WorkflowResponse {
+  workflow: WorkflowBundleReport;
 }
 
 interface DoctorResponse {
@@ -290,6 +296,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   const [
     statusResponse,
     worklistResponse,
+    workflowResponse,
     doctorResponse,
     approvalsResponse,
     draftsResponse,
@@ -301,6 +308,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   ] = await Promise.all([
     fetchJson<StatusResponse>("/v1/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
+    fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<DoctorResponse>("/v1/doctor"),
     fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
     fetchJson<DraftResponse>("/v1/mail/drafts"),
@@ -314,6 +322,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   return {
     status: statusResponse.status,
     worklist: worklistResponse.worklist,
+    prepDayWorkflow: workflowResponse.workflow,
     doctor: doctorResponse.doctor,
     approvals: approvalsResponse.approval_requests,
     drafts: draftsResponse.drafts,
@@ -382,6 +391,54 @@ function commandAction(command: string, label = "Copy command"): string {
 function commandStack(commands: string[]): string {
   return commands
     .map((command) => `<div class="command-line">${commandAction(command, "Copy")}</div>`)
+    .join("");
+}
+
+function workflowActionButton(action: WorkflowBundleReport["actions"][number], index: number): string {
+  return `
+    <div class="command-line">
+      <div>
+        <p class="eyebrow">${escapeHtml(action.label)}</p>
+        <code class="code">${escapeHtml(action.command)}</code>
+      </div>
+      <div class="list-item__actions">
+        <button class="button" data-workflow-action="${escapeHtml(String(index))}" type="button">Open related detail</button>
+        <button class="copy-button" data-copy="${escapeHtml(action.command)}" type="button">Copy</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderWorkflowSections(report: WorkflowBundleReport): string {
+  return report.sections
+    .map(
+      (section) => `
+        <section class="panel">
+          <h3>${escapeHtml(section.title)}</h3>
+          ${
+            section.items.length === 0
+              ? `<div class="empty">Nothing notable right now.</div>`
+              : section.items
+                  .map(
+                    (item) => `
+                      <article class="list-item">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(item.label)}</h4>
+                        </div>
+                        <p>${escapeHtml(item.summary)}</p>
+                        ${
+                          item.command
+                            ? `<div class="list-item__actions">${commandAction(item.command, "Copy command")}</div>`
+                            : ""
+                        }
+                      </article>
+                    `,
+                  )
+                  .join("")
+          }
+        </section>
+      `,
+    )
     .join("");
 }
 
@@ -595,6 +652,7 @@ function renderOverview(payload: ConsolePayload): string {
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
   const topRecommendation = state.planningRecommendationDetail ?? payload.planningNext;
+  const workflow = payload.prepDayWorkflow;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -602,7 +660,7 @@ function renderOverview(payload: ConsolePayload): string {
         <h3>${escapeHtml(status.state === "ready" ? "Local control plane looks healthy." : "Local control plane needs attention.")}</h3>
         <span class="${status.state === "ready" ? "pill pill--good" : "pill pill--warn"}">${escapeHtml(status.state)}</span>
       </div>
-      <p>${escapeHtml(status.worklist_summary.top_item_summary ?? "No urgent operator work is currently at the top of the queue.")}</p>
+      <p>${escapeHtml(workflow.summary)}</p>
       <div class="hero__meta">
         <div>
           <p class="eyebrow">Machine</p>
@@ -631,6 +689,25 @@ function renderOverview(payload: ConsolePayload): string {
       ${metricCard("Planning", `${formatCount(status.planning_recommendations.active_count)} open`, status.planning_recommendations.top_group_summary ?? "No active planning summary")}
       ${metricCard("Approvals", `${formatCount(status.approval_queue.pending_count)} pending`, `${formatCount(status.approval_queue.total_count)} total requests`)}
       ${metricCard("Reviews", `${formatCount(status.review_queue.pending_count)} pending`, `${formatCount(status.review_queue.total_count)} total review items`)}
+    </section>
+    <section class="columns columns--wide-right">
+      <div class="detail-stack">
+        <section class="detail-card">
+          <h3>Day-start workflow</h3>
+          <p class="subtle subtle--body">Use this bundle when you want the shortest useful operator plan for right now.</p>
+          ${renderWorkflowSections(workflow)}
+        </section>
+      </div>
+      <div class="detail-stack">
+        <section class="detail-card">
+          <h3>Next commands</h3>
+          ${
+            workflow.actions.length === 0
+              ? `<div class="empty">No immediate commands are queued right now.</div>`
+              : workflow.actions.map((action, index) => workflowActionButton(action, index)).join("")
+          }
+        </section>
+      </div>
     </section>
     <section class="columns">
       <div class="panel">
@@ -1439,6 +1516,45 @@ async function selectWorklistItem(itemId: string): Promise<void> {
   }
 }
 
+async function openWorkflowAction(actionIndex: number): Promise<void> {
+  const payload = state.payload;
+  const action = payload?.prepDayWorkflow.actions[actionIndex];
+  if (!payload || !action) {
+    setFlash("That workflow action is no longer available. Refresh the console and try again.", "warn");
+    render();
+    return;
+  }
+
+  const matchingWorklistItem = payload.worklist.items.find(
+    (item) => item.target_type === action.target_type && item.target_id === action.target_id,
+  );
+  if (matchingWorklistItem) {
+    await selectWorklistItem(matchingWorklistItem.item_id);
+    return;
+  }
+
+  if (action.target_type === "planning_recommendation" && action.target_id) {
+    await selectPlanningRecommendation(action.target_id);
+    return;
+  }
+  if (action.target_type === "planning_recommendation_group" && action.target_id) {
+    await selectPlanningGroup(action.target_id);
+    return;
+  }
+  if (action.target_type === "snapshot" && action.target_id) {
+    await selectSnapshot(action.target_id);
+    return;
+  }
+  if (action.target_type === "approval_request" && action.target_id) {
+    await selectApproval(action.target_id);
+    return;
+  }
+
+  await navigator.clipboard.writeText(action.command);
+  setFlash("No in-console detail exists for that action yet. The CLI command has been copied instead.", "warn");
+  render();
+}
+
 function requireValue(selector: string, message: string): string {
   const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
   const value = input?.value.trim() ?? "";
@@ -1591,6 +1707,12 @@ document.addEventListener("click", async (event) => {
     await navigator.clipboard.writeText(copyButton.dataset.copy);
     setFlash("Command copied to the clipboard.", "good");
     render();
+    return;
+  }
+
+  const workflowAction = target.closest<HTMLButtonElement>("[data-workflow-action]");
+  if (workflowAction?.dataset.workflowAction) {
+    await openWorkflowAction(Number(workflowAction.dataset.workflowAction));
     return;
   }
 

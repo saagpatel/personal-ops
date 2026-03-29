@@ -11,6 +11,7 @@ import {
   formatHealthCheckReport,
   formatNowReport,
   formatStatusReport,
+  formatWorkflowBundleReport,
   formatWorklistReport,
 } from "../src/formatters.js";
 import { formatGoogleLoginError as formatCliGoogleLoginError } from "../src/cli/http-client.js";
@@ -286,6 +287,31 @@ test("Phase 4 formatters emphasize start-here guidance and the new now summary",
   assert.match(formattedNow, /Personal Ops Now:/);
   assert.match(formattedNow, /Next Steps/);
   assert.match(formattedNow, /personal-ops worklist/);
+});
+
+test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {
+  const { service } = createServiceFixture();
+  service.createTask(cliIdentity, {
+    title: "Reply to operator workflow email",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const report = await service.getPrepDayWorkflowReport({ httpReachable: true });
+  const formatted = formatWorkflowBundleReport(report);
+
+  assert.equal(report.workflow, "prep-day");
+  assert.match(formatted, /Overall State/);
+  assert.match(formatted, /Top Attention/);
+  assert.match(formatted, /Time-Sensitive Items/);
+  assert.match(formatted, /Next Commands/);
+  assert.ok(report.actions.length <= 3);
+  if (report.readiness !== "ready") {
+    assert.ok(report.first_repair_step);
+    assert.match(formatted, /First repair step:/);
+  }
 });
 
 test("Phase 4 version command reports the current release identity and upgrade path", () => {

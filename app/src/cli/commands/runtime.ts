@@ -7,6 +7,7 @@ import {
   formatSendWindowStatus,
   formatStatusReport,
   formatVersionReport,
+  formatWorkflowBundleReport,
   formatWorklistReport,
 } from "../../formatters.js";
 import { buildHealthCheckReport } from "../../health.js";
@@ -96,6 +97,43 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .action(async (options) => {
       const response = await context.requestJson<{ worklist: unknown }>("GET", "/v1/worklist");
       context.printOutput(response, (value) => formatWorklistReport(value.worklist), options.json);
+    });
+
+  const workflow = program.command("workflow").description("Compose the day-start operator flow into bounded workflow bundles.");
+  workflow
+    .command("prep-day")
+    .description("Show the preferred day-start bundle with top attention, time-sensitive items, and exact next commands.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ workflow: unknown }>("GET", "/v1/workflows/prep-day");
+      context.printOutput(response, (value) => formatWorkflowBundleReport(value.workflow), options.json);
+    });
+
+  workflow
+    .command("follow-up-block")
+    .description("Show the bounded follow-up bundle for reply pressure, stale nudges, and next commands.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ workflow: unknown }>("GET", "/v1/workflows/follow-up-block");
+      context.printOutput(response, (value) => formatWorkflowBundleReport(value.workflow), options.json);
+    });
+
+  workflow
+    .command("prep-meetings")
+    .description("Show the meeting-prep bundle for today or the next 24 hours.")
+    .option("--today", "Limit the bundle to meetings later today")
+    .option("--next-24h", "Limit the bundle to meetings in the next 24 hours")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      if (options.today && options.next24h) {
+        throw new Error("Choose either --today or --next-24h, not both.");
+      }
+      const scope = options.next24h ? "next_24h" : "today";
+      const response = await context.requestJson<{ workflow: unknown }>(
+        "GET",
+        `/v1/workflows/prep-meetings?scope=${encodeURIComponent(scope)}`,
+      );
+      context.printOutput(response, (value) => formatWorkflowBundleReport(value.workflow), options.json);
     });
 
   program
