@@ -22,6 +22,8 @@ After Phase 8, the active follow-on track is conservative hardening:
 - a documented release checklist and `release:check` ship path
 - a recurring-friendly `personal-ops health check` for install, runtime, and snapshot freshness
 
+After that hardening pass, the next roadmap is the post-launch track recorded in `docs/POST-LAUNCH-ROADMAP.md`.
+
 ## Phase Ledger
 
 | Phase | Title | Goal | Status | Primary Docs |
@@ -151,7 +153,7 @@ The current post-roadmap hardening track focuses on four audit-backed improvemen
 
 ### Current Goal
 
-Phase 8 is complete. The current follow-on work extends the hardening pass with CI maintenance, release-process polish, and recurring health checks.
+The original roadmap and the follow-on hardening pass are complete. The next recommended build track is the post-launch roadmap starting with Phase 1: Automation and Daily Briefings.
 
 ### Guardrails
 
@@ -165,6 +167,7 @@ Phase 8 is complete. The current follow-on work extends the hardening pass with 
 - use the Phase 3 verification commands and the later live sanity passes as the baseline confidence layer for later phases
 - keep the post-Phase-8 hardening work additive and local-first
 - keep recurring health checks read-only and safe for unattended local runs
+- keep the post-launch roadmap focused on operator leverage before broader expansion
 
 ### Current Assumptions
 
@@ -180,6 +183,7 @@ Phase 8 is complete. The current follow-on work extends the hardening pass with 
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
 - the current hardening track should resolve open runtime dependency alerts before adding new product features
 - the current hardening track should make CI and release paths easier to sustain without widening trust boundaries
+- the next roadmap should begin with recurring operator value, not a new trust-boundary expansion
 
 ### Required End-of-Phase Verification
 
@@ -205,6 +209,9 @@ Phase 8 is complete. The current follow-on work extends the hardening pass with 
 - Phase 7 completed the explicit single-primary-machine strategy and cross-machine restore guardrails
 - Phase 8 completed the first read-first operator console with local browser sessions and Playwright-backed verification
 - the follow-on hardening track now includes CI maintenance, a formal release checklist, and a recurring-friendly health check command
+- the post-launch roadmap is recorded in `docs/POST-LAUNCH-ROADMAP.md`
+- the next recommended phase is Post-Launch Phase 1: Automation and Daily Briefings
+- the next-phase handoff lives in `docs/POST-LAUNCH-PHASE-1-HANDOFF.md`
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule
