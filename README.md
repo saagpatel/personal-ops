@@ -1,12 +1,12 @@
 # personal-ops
 
-`personal-ops` is a private local control layer for your personal workflow.
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript)](#) [![Status](https://img.shields.io/badge/status-WIP-yellow?style=flat-square)](#)
 
-It gives you one shared system for inbox state, calendar context, tasks, planning recommendations, approvals, and assistant-safe operational reads so tools like Codex or Claude can help without directly taking over your accounts.
+> A private local control plane for personal workflow - shared source of truth for inbox, calendar, tasks, and assistant-safe operations.
 
-## What Exactly It Does
+personal-ops runs as a local daemon that gives AI assistants and operator tooling a shared, audited layer for Gmail and Google Calendar awareness, task tracking, draft/approval flows, and planning recommendations - without handing over unlimited account access.
 
-`personal-ops` runs as a local service on your machine and acts as the shared source of truth for:
+## Features
 
 - Gmail and Google Calendar awareness
 - tasks and task suggestions
@@ -23,7 +23,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - outbound autopilot groups that carry reviewed mail work through request-approval, approve, and send
 - machine-aware backups and restore guardrails
 
-In practice, that means it can:
+## Quick Start
 
 - sync recent mailbox and calendar context into one local system
 - track what needs attention
@@ -34,7 +34,7 @@ In practice, that means it can:
 - optionally wrap the same console in a local macOS desktop app without changing the control plane
 - support fresh-machine bootstrap, local install, and LaunchAgent setup from repo-managed commands
 
-## Main Features
+## Tech Stack
 
 - Local daemon plus local database for one shared operational state
 - Gmail-aware and Calendar-aware workflow context
@@ -49,16 +49,7 @@ In practice, that means it can:
 - Assistant-safe audit feed with categorized recent activity
 - Clear separation between safe reads and risky real-world actions
 
-## Exciting Features
-
-- Multiple assistants can use the same trusted workflow layer instead of each inventing their own Gmail or calendar logic
-- The system can turn inbox and calendar pressure into actual planning recommendations instead of just showing raw chaos
-- The operator can open a local browser console for status, worklist, approvals, drafts, planning, audit, and snapshots, with only narrow browser-safe actions enabled in the UI
-- New-machine setup, wrappers, LaunchAgent wiring, and full-stack verification are built into the repo instead of being left as ad hoc manual steps
-- Backup manifests now carry machine provenance, and cross-machine restore requires explicit operator intent instead of quietly acting like sync
-- Assistants get useful context without getting unlimited control over your accounts
-- You get a real audit trail of what the system did and why
-- The whole thing runs locally, so your workflow control plane lives on your machine
+> **Status: Work in Progress** - Core daemon, MCP tools, and approval flows are functional. Operator console UI in progress.
 
 ## Why You Would Want To Use It
 
@@ -116,3 +107,7 @@ Today, the repo includes:
 - New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
 - Full project summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
 - Deep system audit: [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)
+
+## License
+
+MIT
