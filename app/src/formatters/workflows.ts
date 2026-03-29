@@ -37,6 +37,13 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
         if (item.signals?.length) {
           rendered.push(`  signals: ${item.signals.join(", ")}`);
         }
+        if (item.related_docs?.length) {
+          rendered.push(
+            `  related docs: ${item.related_docs
+              .map((doc) => doc.title)
+              .join(", ")}`,
+          );
+        }
         if (item.command) {
           rendered.push(`  next: ${item.command}`);
         }

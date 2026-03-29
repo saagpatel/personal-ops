@@ -22,6 +22,8 @@ import {
   GoogleCalendarEventWriteInput,
   ClientIdentity,
   Config,
+  DriveDocRecord,
+  DriveFileRecord,
   DoctorCheck,
   GmailClientConfig,
   GithubAccount,
@@ -44,6 +46,16 @@ interface FixtureOptions {
     repositories: string[],
     viewerLogin: string,
   ) => Promise<{ repositories_scanned_count: number; pull_requests: GithubPullRequest[] }>;
+  driveEnabled?: boolean;
+  includedDriveFolders?: string[];
+  includedDriveFiles?: string[];
+  driveVerifyImpl?: (tokensJson: string, clientConfig: GmailClientConfig) => Promise<void>;
+  driveScopesImpl?: (tokensJson: string, clientConfig: GmailClientConfig) => Promise<string[]>;
+  driveSyncImpl?: (
+    tokensJson: string,
+    clientConfig: GmailClientConfig,
+    config: Config,
+  ) => Promise<{ files: DriveFileRecord[]; docs: DriveDocRecord[] }>;
   meetingPrepWarningMinutes?: number;
   sendImpl?: (providerDraftId: string) => Promise<{ provider_message_id: string; provider_thread_id?: string }>;
   updateImpl?: () => Promise<string>;
@@ -91,6 +103,8 @@ function createFixture(options: FixtureOptions = {}) {
 
   const accountEmail = options.accountEmail ?? "machine@example.com";
   const githubRepositories = options.includedGithubRepositories ?? [];
+  const driveFolders = options.includedDriveFolders ?? [];
+  const driveFiles = options.includedDriveFiles ?? [];
 
   fs.writeFileSync(
     paths.configFile,
@@ -110,6 +124,13 @@ enabled = ${options.githubEnabled ? "true" : "false"}
 included_repositories = [${githubRepositories.map((value) => `"${value}"`).join(", ")}]
 sync_interval_minutes = 10
 keychain_service = "personal-ops.github.test"
+
+[drive]
+enabled = ${options.driveEnabled ? "true" : "false"}
+included_folders = [${driveFolders.map((value) => `"${value}"`).join(", ")}]
+included_files = [${driveFiles.map((value) => `"${value}"`).join(", ")}]
+sync_interval_minutes = 30
+recent_docs_limit = 10
 
 [calendar]
 enabled = true
@@ -171,6 +192,11 @@ default_limit = 50
     includedGithubRepositories: githubRepositories,
     githubSyncIntervalMinutes: 10,
     githubKeychainService: "personal-ops.github.test",
+    driveEnabled: options.driveEnabled ?? false,
+    includedDriveFolders: driveFolders,
+    includedDriveFiles: driveFiles,
+    driveSyncIntervalMinutes: 30,
+    driveRecentDocsLimit: 10,
     calendarEnabled: true,
     calendarProvider: "google",
     includedCalendarIds: [],
@@ -234,6 +260,16 @@ default_limit = 50
         await options.verifyCalendarWriteImpl();
       }
     },
+    verifyGoogleDriveAccess: async (tokensJson, activeClientConfig) => {
+      if (options.driveVerifyImpl) {
+        await options.driveVerifyImpl(tokensJson, activeClientConfig);
+      }
+    },
+    verifyGoogleDriveScopes: async (tokensJson, activeClientConfig) =>
+      options.driveScopesImpl ? options.driveScopesImpl(tokensJson, activeClientConfig) : [],
+    syncDriveScope: async (tokensJson, activeClientConfig, activeConfig) =>
+      options.driveSyncImpl ? options.driveSyncImpl(tokensJson, activeClientConfig, activeConfig) : { files: [], docs: [] },
+    getGoogleDoc: async () => null,
     listGmailMessageRefsByLabel: async (_tokensJson, _clientConfig, labelId, pageToken) =>
       options.listRefsImpl ? options.listRefsImpl(labelId, pageToken) : { message_ids: [] },
     getGmailMessageMetadata: async (_tokensJson, _clientConfig, messageId) => {
@@ -6949,4 +6985,306 @@ test("phase-7 workflows rank github pull request work above governance noise in 
   assert.equal(nowNext.actions[0]?.target_type, "github_pull_request");
   assert.equal(nowNext.actions[0]?.target_id, "acme/api#18");
   assert.equal(prepDay.actions[0]?.target_type, "github_pull_request");
+});
+
+test("phase-8 drive sync feeds status and read-only routes", async () => {
+  const syncedAt = "2026-03-29T14:00:00.000Z";
+  const { service, config, policy } = createFixture({
+    driveEnabled: true,
+    includedDriveFolders: ["folder-123"],
+    includedDriveFiles: ["doc-123", "file-456"],
+    driveVerifyImpl: async () => {},
+    driveSyncImpl: async (_tokensJson, _clientConfig, activeConfig) => {
+      assert.deepEqual(activeConfig.includedDriveFolders, ["folder-123"]);
+      assert.deepEqual(activeConfig.includedDriveFiles, ["doc-123", "file-456"]);
+      return {
+        files: [
+          {
+            file_id: "doc-123",
+            name: "Operator prep doc",
+            mime_type: "application/vnd.google-apps.document",
+            web_view_link: "https://docs.google.com/document/d/doc-123/edit",
+            parents: [],
+            scope_source: "included_file",
+            drive_modified_time: syncedAt,
+            updated_at: syncedAt,
+            synced_at: syncedAt,
+          },
+          {
+            file_id: "file-456",
+            name: "Reference PDF",
+            mime_type: "application/pdf",
+            web_view_link: "https://drive.google.com/file/d/file-456/view",
+            parents: [],
+            scope_source: "included_file",
+            drive_modified_time: syncedAt,
+            updated_at: syncedAt,
+            synced_at: syncedAt,
+          },
+        ],
+        docs: [
+          {
+            file_id: "doc-123",
+            title: "Operator prep doc",
+            mime_type: "application/vnd.google-apps.document",
+            web_view_link: "https://docs.google.com/document/d/doc-123/edit",
+            text_content: "Agenda and prep notes",
+            snippet: "Agenda and prep notes",
+            updated_at: syncedAt,
+            synced_at: syncedAt,
+          },
+        ],
+      };
+    },
+  });
+
+  await service.syncDrive(cliIdentity);
+
+  const status = await service.getStatusReport({ httpReachable: true });
+  assert.equal(status.drive.enabled, true);
+  assert.equal(status.drive.sync_status, "ready");
+  assert.equal(status.drive.indexed_file_count, 2);
+  assert.equal(status.drive.indexed_doc_count, 1);
+
+  const server = createHttpServer(service, config, policy);
+  await new Promise<void>((resolve) => server.listen(0, config.serviceHost, () => resolve()));
+  try {
+    const address = server.address();
+    assert(address && typeof address === "object");
+    const baseUrl = `http://${config.serviceHost}:${address.port}`;
+
+    const statusResponse = await fetch(`${baseUrl}/v1/drive/status`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
+    });
+    assert.equal(statusResponse.status, 200);
+    const statusPayload = (await statusResponse.json()) as { drive: { indexed_doc_count: number } };
+    assert.equal(statusPayload.drive.indexed_doc_count, 1);
+
+    const filesResponse = await fetch(`${baseUrl}/v1/drive/files`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
+    });
+    assert.equal(filesResponse.status, 200);
+    const filesPayload = (await filesResponse.json()) as { files: Array<{ file_id: string }> };
+    assert.deepEqual(filesPayload.files.map((file) => file.file_id), ["doc-123", "file-456"]);
+
+    const docResponse = await fetch(`${baseUrl}/v1/drive/docs/doc-123`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
+    });
+    assert.equal(docResponse.status, 200);
+    const docPayload = (await docResponse.json()) as { doc: { file_id: string; snippet?: string } };
+    assert.equal(docPayload.doc.file_id, "doc-123");
+    assert.match(docPayload.doc.snippet ?? "", /Agenda/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("phase-8 related docs prefer explicit links and fall back to recent docs", async () => {
+  const syncedAt = "2026-03-29T15:00:00.000Z";
+  const { service, accountEmail } = createFixture({
+    driveEnabled: true,
+    includedDriveFiles: ["doc-calendar", "doc-task", "doc-draft", "doc-fallback"],
+  });
+
+  service.db.replaceDriveFiles([
+    {
+      file_id: "doc-calendar",
+      name: "Meeting doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-calendar/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: syncedAt,
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-task",
+      name: "Task doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-task/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: syncedAt,
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-draft",
+      name: "Draft doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-draft/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: syncedAt,
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-fallback",
+      name: "Fallback doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-fallback/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: "2026-03-29T16:00:00.000Z",
+      updated_at: "2026-03-29T16:00:00.000Z",
+      synced_at: "2026-03-29T16:00:00.000Z",
+    },
+  ]);
+  service.db.replaceDriveDocs([
+    {
+      file_id: "doc-calendar",
+      title: "Meeting doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-calendar/edit",
+      text_content: "Calendar-linked notes",
+      snippet: "Calendar-linked notes",
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-task",
+      title: "Task doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-task/edit",
+      text_content: "Task-linked notes",
+      snippet: "Task-linked notes",
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-draft",
+      title: "Draft doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-draft/edit",
+      text_content: "Draft-linked notes",
+      snippet: "Draft-linked notes",
+      updated_at: syncedAt,
+      synced_at: syncedAt,
+    },
+    {
+      file_id: "doc-fallback",
+      title: "Fallback doc",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-fallback/edit",
+      text_content: "Recent fallback notes",
+      snippet: "Recent fallback notes",
+      updated_at: "2026-03-29T16:00:00.000Z",
+      synced_at: "2026-03-29T16:00:00.000Z",
+    },
+  ]);
+
+  service.db.upsertCalendarEvent({
+    event_id: "event-drive",
+    provider_event_id: "event-drive",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Drive-linked meeting",
+    status: "confirmed",
+    start_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    end_at: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: syncedAt,
+    synced_at: syncedAt,
+    notes: "Agenda https://docs.google.com/document/d/doc-calendar/edit",
+  });
+  const task = service.createTask(cliIdentity, {
+    title: "Task with doc",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    notes: "See https://docs.google.com/document/d/doc-task/edit",
+  });
+  const draft = createDraft(service, accountEmail, {
+    body_text: "Text draft link https://docs.google.com/document/d/doc-draft/edit",
+  });
+
+  (service as unknown as { refreshDriveLinkProvenance(): void }).refreshDriveLinkProvenance();
+
+  const eventDocs = service.getRelatedDocsForTarget("calendar_event", "event-drive");
+  const taskDocs = service.getRelatedDocsForTarget("task", task.task_id);
+  const draftDocs = service.getRelatedDocsForTarget("draft_artifact", draft.artifact_id);
+  const fallbackDocs = service.getRelatedDocsForTarget("task", "missing-task", { allowFallback: true, fallbackLimit: 1 });
+
+  assert.equal(eventDocs[0]?.file_id, "doc-calendar");
+  assert.equal(eventDocs[0]?.match_type, "explicit_link");
+  assert.equal(taskDocs[0]?.file_id, "doc-task");
+  assert.equal(draftDocs[0]?.file_id, "doc-draft");
+  assert.deepEqual(fallbackDocs.map((doc) => doc.file_id), ["doc-fallback"]);
+  assert.equal(fallbackDocs[0]?.match_type, "recent_doc_fallback");
+});
+
+test("phase-8 prep-meetings attaches related docs without changing meeting ranking", async () => {
+  const { service, accountEmail } = createFixture({
+    driveEnabled: true,
+    includedDriveFiles: ["doc-meeting"],
+  });
+  const now = new Date().toISOString();
+  const soonStart = new Date(Date.now() + 60 * 60 * 1000);
+  service.db.replaceDriveFiles([
+    {
+      file_id: "doc-meeting",
+      name: "Meeting packet",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-meeting/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: now,
+      updated_at: now,
+      synced_at: now,
+    },
+  ]);
+  service.db.replaceDriveDocs([
+    {
+      file_id: "doc-meeting",
+      title: "Meeting packet",
+      mime_type: "application/vnd.google-apps.document",
+      web_view_link: "https://docs.google.com/document/d/doc-meeting/edit",
+      text_content: "Meeting prep packet",
+      snippet: "Meeting prep packet",
+      updated_at: now,
+      synced_at: now,
+    },
+  ]);
+  service.db.upsertCalendarEvent({
+    event_id: "primary:drive-phase8-meeting",
+    provider_event_id: "drive-phase8-meeting",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Drive enriched meeting",
+    status: "confirmed",
+    start_at: soonStart.toISOString(),
+    end_at: new Date(soonStart.getTime() + 30 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: now,
+    synced_at: now,
+    notes: "Packet https://docs.google.com/document/d/doc-meeting/edit",
+  });
+
+  (service as unknown as { refreshDriveLinkProvenance(): void }).refreshDriveLinkProvenance();
+  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "today" });
+  const text = JSON.stringify(report.sections);
+
+  assert.match(text, /Drive enriched meeting/);
+  assert.match(text, /Meeting packet/);
+});
+
+test("phase-8 mcp drive tools are assistant-safe read-only tools", () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), "src/mcp-server.ts"), "utf8");
+  assert.match(source, /name: "drive_status"/);
+  assert.match(source, /name: "drive_files"/);
+  assert.match(source, /name: "drive_doc_get"/);
+  assert.match(source, /requestJson\("GET", "\/v1\/drive\/status"\)/);
+  assert.match(source, /requestJson\("GET", "\/v1\/drive\/files"\)/);
+  assert.match(source, /requestJson\("GET", `\/v1\/drive\/docs\/\$\{encodeURIComponent\(String\(args\.file_id\)\)\}`\)/);
+  assert.doesNotMatch(source, /name: "drive_sync"/);
 });

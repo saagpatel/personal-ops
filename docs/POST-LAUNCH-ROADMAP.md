@@ -30,7 +30,8 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Completed |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Completed |
 | 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Completed |
-| 7 | Integrations and Context Expansion | Add the next external systems only where they make the operator loop meaningfully stronger | Planned |
+| 7 | GitHub PR and Review Context | Add narrow, read-first GitHub PR and review queue context | Completed |
+| 8 | Google Docs and Drive Metadata Context | Add read-first Google Docs text context plus narrow Drive metadata | Completed |
 
 ## Phase 1: Automation and Daily Briefings
 
@@ -195,18 +196,33 @@ Phase 7 is complete.
 - no new browser mutation scope
 - no new assistant mutation scope
 
-## Phase 8: Broader Context Expansion
+## Phase 8: Google Docs and Drive Metadata Context
 
-This phase should only happen if the GitHub integration proves high-signal without adding too much operator noise.
+Phase 8 is complete.
 
-Possible candidates:
+### Delivered
 
-- Slack
-- Notion
-- deeper Google Drive / Docs linkage
-- broader GitHub work tracking only if PR and review context proves worth extending
+- read-first Google Drive metadata context plus Google Docs text extraction
+- explicit opt-in Drive scope through `config.toml`
+- reused Google auth flow with Drive metadata and Docs readonly scopes
+- `personal-ops drive status`
+- `personal-ops drive sync now`
+- `personal-ops drive files`
+- `personal-ops drive doc <fileId>`
+- assistant-safe MCP Drive reads
+- additive Drive context in `status`, meeting prep, day-start workflows, and the console
+- explicit-links-first related-doc discovery from calendar event descriptions, task notes, and draft bodies
+- small recent-doc fallback from the synced in-scope Docs set
 
-Each integration should justify its trust boundary, operator value, and maintenance cost before it lands.
+### Guardrails kept
+
+- Google Docs plus Drive metadata only
+- read-first only
+- no Sheets or Slides support
+- no Shared Drives support
+- no Google write actions
+- no new browser mutation scope
+- no standalone Drive worklist queue
 
 ## Recommended Order
 
@@ -219,7 +235,7 @@ Build the post-launch roadmap in this order:
 5. Phase 5: Workflow Actions and Bundles
 6. Phase 6: Intelligence Layer
 7. Phase 7: GitHub PR and Review Context
-8. Phase 8: Broader Context Expansion
+8. Phase 8: Google Docs and Drive Metadata Context
 
 This order keeps the next work close to the strongest current foundation:
 
@@ -234,7 +250,8 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 8: Broader Context Expansion, but only if GitHub context proves meaningfully useful without adding operator noise
+- the broader-context track now includes completed GitHub and Google Docs/Drive read-first integrations
+- future context expansion should stay narrow, explicit, and trust-safe instead of turning `personal-ops` into a broad provider browser
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

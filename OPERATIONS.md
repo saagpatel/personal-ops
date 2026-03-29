@@ -8,6 +8,7 @@ Use this document for:
 - auth and local runtime setup
 - local secret handling and re-auth recovery
 - optional GitHub PR and review context setup
+- optional Google Docs and Drive metadata context setup
 - machine ownership and intentional migration
 - operator console access and narrow browser-safe actions
 - operator automations
@@ -153,6 +154,39 @@ Important GitHub rules:
 - no GitHub write actions are added in this phase
 - issue ingestion and broader repo browsing are intentionally deferred
 
+### Optional Google Docs and Drive metadata context
+
+Phase 8 adds narrow Google Docs text context plus Drive file metadata.
+
+Enable it in `~/.config/personal-ops/config.toml`:
+
+```toml
+[drive]
+enabled = true
+included_folders = ["folder-id-or-url"]
+included_files = ["file-id-or-url"]
+sync_interval_minutes = 30
+recent_docs_limit = 10
+```
+
+Then rerun Google auth if these scopes have not been granted yet:
+
+```bash
+personal-ops auth google login
+personal-ops drive sync now
+personal-ops drive status
+```
+
+Important Drive and Docs rules:
+
+- Google Docs plus Drive metadata only in this phase
+- explicit scope only through `included_folders` and `included_files`
+- URLs and raw Google IDs are both accepted in config
+- explicit stored links are used first from calendar descriptions, task notes, and draft bodies
+- recent-doc fallback stays small and never outranks concrete operator work on its own
+- no Google write actions are added in this phase
+- Sheets, Slides, and Shared Drives are intentionally deferred
+
 ### Safe re-auth path
 
 If auth is missing, stale, or attached to the wrong mailbox:
@@ -213,6 +247,12 @@ Other common commands:
   Lists the open authored PR attention queue from the included repositories.
 - `personal-ops github pr <owner/repo#number>`
   Shows one cached PR detail with check and review state.
+- `personal-ops drive status`
+  Shows whether the optional Drive and Docs context is connected and how much in-scope context is indexed.
+- `personal-ops drive files`
+  Lists the currently indexed in-scope Drive files.
+- `personal-ops drive doc <fileId>`
+  Shows one cached Google Doc text context entry.
 - `personal-ops backup create`
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup prune --dry-run`
@@ -249,6 +289,8 @@ Use [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md) as the source of truth for:
 - pause, update, and recreate steps
 
 The daily briefing layer now centers on `personal-ops workflow prep-day`, while `personal-ops workflow now-next` answers the narrower “what should I do right now?” question. Morning Brief now uses both workflow bundles as its automation source of truth.
+
+When Drive is configured, meeting prep and day-start workflows can also attach linked Google Docs context. Those related docs come from explicit stored links first, with only a small recent-doc fallback when no explicit link is available.
 
 ## Operator console
 

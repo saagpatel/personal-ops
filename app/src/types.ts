@@ -30,6 +30,11 @@ export interface Config {
   includedGithubRepositories: string[];
   githubSyncIntervalMinutes: number;
   githubKeychainService: string;
+  driveEnabled: boolean;
+  includedDriveFolders: string[];
+  includedDriveFiles: string[];
+  driveSyncIntervalMinutes: number;
+  driveRecentDocsLimit: number;
   calendarEnabled: boolean;
   calendarProvider: CalendarProvider;
   includedCalendarIds: string[];
@@ -123,6 +128,7 @@ export type PlanningRecommendationFollowThroughState =
 export type CalendarProvider = "google";
 export type CalendarSyncStatus = "idle" | "syncing" | "ready" | "degraded";
 export type GithubSyncStatus = "idle" | "syncing" | "ready" | "degraded";
+export type DriveSyncStatus = "idle" | "syncing" | "ready" | "degraded";
 export type GithubAttentionKind =
   | "github_review_requested"
   | "github_pr_checks_failing"
@@ -185,6 +191,79 @@ export interface GithubStatusReport {
   included_repository_count: number;
   review_requested_count: number;
   authored_pr_attention_count: number;
+  top_item_summary: string | null;
+}
+
+export interface DriveSyncState {
+  provider: "google_drive";
+  status: DriveSyncStatus;
+  last_synced_at?: string | undefined;
+  last_error_code?: string | undefined;
+  last_error_message?: string | undefined;
+  last_sync_duration_ms?: number | undefined;
+  files_indexed_count?: number | undefined;
+  docs_indexed_count?: number | undefined;
+  updated_at: string;
+}
+
+export type DriveFileScopeSource = "included_file" | "included_folder_descendant";
+export type DriveLinkSourceType = "calendar_event" | "task" | "draft";
+export type DriveLinkMatchType = "explicit_link" | "recent_doc_fallback";
+
+export interface DriveFileRecord {
+  file_id: string;
+  name: string;
+  mime_type: string;
+  web_view_link?: string | undefined;
+  icon_link?: string | undefined;
+  parents: string[];
+  scope_source: DriveFileScopeSource;
+  drive_modified_time?: string | undefined;
+  created_time?: string | undefined;
+  updated_at: string;
+  synced_at: string;
+}
+
+export interface DriveDocRecord {
+  file_id: string;
+  title: string;
+  mime_type: string;
+  web_view_link?: string | undefined;
+  snippet?: string | undefined;
+  text_content: string;
+  updated_at: string;
+  synced_at: string;
+}
+
+export interface DriveLinkProvenance {
+  source_type: DriveLinkSourceType;
+  source_id: string;
+  file_id: string;
+  match_type: DriveLinkMatchType;
+  matched_url?: string | undefined;
+  discovered_at: string;
+}
+
+export interface RelatedDriveDoc {
+  file_id: string;
+  title: string;
+  web_view_link?: string | undefined;
+  snippet?: string | undefined;
+  mime_type: string;
+  match_type: DriveLinkMatchType;
+  source_type?: DriveLinkSourceType | undefined;
+  source_id?: string | undefined;
+}
+
+export interface DriveStatusReport {
+  enabled: boolean;
+  authenticated: boolean;
+  sync_status: DriveSyncStatus | "not_configured";
+  last_synced_at: string | null;
+  included_folder_count: number;
+  included_file_count: number;
+  indexed_file_count: number;
+  indexed_doc_count: number;
   top_item_summary: string | null;
 }
 
@@ -1118,6 +1197,7 @@ export interface WorkflowBundleSectionItem {
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
+  related_docs?: RelatedDriveDoc[] | undefined;
 }
 
 export interface WorkflowBundleSection {
@@ -1136,6 +1216,7 @@ export interface WorkflowBundleAction {
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
+  related_docs?: RelatedDriveDoc[] | undefined;
 }
 
 export interface WorkflowBundleReport {
@@ -1517,6 +1598,7 @@ export interface ServiceStatusReport {
     top_scheduling_item_summary: string | null;
   };
   github: GithubStatusReport;
+  drive: DriveStatusReport;
 }
 
 export interface DoctorReport {

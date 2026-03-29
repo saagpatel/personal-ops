@@ -431,9 +431,23 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/drive/status") {
+        sendJson(response, 200, {
+          drive: service.getDriveStatusReport(),
+        });
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/github/sync") {
         sendJson(response, 200, {
           github: await service.syncGithub(extractIdentity(request, auth?.role ?? "operator")),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/drive/sync") {
+        sendJson(response, 200, {
+          drive: await service.syncDrive(extractIdentity(request, auth?.role ?? "operator")),
         });
         return;
       }
@@ -457,6 +471,23 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         if (prKey) {
           sendJson(response, 200, {
             pull_request: service.getGithubPull(prKey),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/drive/files") {
+        sendJson(response, 200, {
+          files: service.listDriveFiles(),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/v1/drive/docs/")) {
+        const fileId = decodeURIComponent(url.pathname.slice("/v1/drive/docs/".length));
+        if (fileId) {
+          sendJson(response, 200, {
+            doc: service.getDriveDoc(fileId),
           });
           return;
         }

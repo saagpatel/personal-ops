@@ -73,7 +73,7 @@ export function registerAuthAndMailCommands(program: Command, context: CliContex
   auth
     .command("google")
     .command("login")
-    .description("Run the installed-app Google OAuth login flow for the shared mailbox and calendar scopes.")
+    .description("Run the installed-app Google OAuth login flow for the shared mailbox, calendar, Drive, and Docs scopes.")
     .action(async () => {
       await runGoogleLogin(context.requestJson, "/v1/auth/google");
     });

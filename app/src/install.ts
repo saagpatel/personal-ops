@@ -249,6 +249,9 @@ function readAuthConfigSummary(paths: Paths): {
   githubEnabled: boolean;
   githubIncludedRepositories: string[];
   githubKeychainService: string;
+  driveEnabled: boolean;
+  includedDriveFolders: string[];
+  includedDriveFiles: string[];
 } {
   try {
     const raw = fs.readFileSync(paths.configFile, "utf8");
@@ -262,6 +265,13 @@ function readAuthConfigSummary(paths: Paths): {
         ? parsed.github.included_repositories.map((value: unknown) => String(value).trim()).filter(Boolean)
         : [],
       githubKeychainService: String(parsed.github?.keychain_service ?? "personal-ops.github").trim(),
+      driveEnabled: Boolean(parsed.drive?.enabled ?? false),
+      includedDriveFolders: Array.isArray(parsed.drive?.included_folders)
+        ? parsed.drive.included_folders.map((value: unknown) => String(value).trim()).filter(Boolean)
+        : [],
+      includedDriveFiles: Array.isArray(parsed.drive?.included_files)
+        ? parsed.drive.included_files.map((value: unknown) => String(value).trim()).filter(Boolean)
+        : [],
     };
   } catch {
     return {
@@ -271,6 +281,9 @@ function readAuthConfigSummary(paths: Paths): {
       githubEnabled: false,
       githubIncludedRepositories: [],
       githubKeychainService: "personal-ops.github",
+      driveEnabled: false,
+      includedDriveFolders: [],
+      includedDriveFiles: [],
     };
   }
 }
@@ -452,6 +465,11 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     githubAccount && authConfig.githubKeychainService
       ? getKeychainSecret(authConfig.githubKeychainService, githubAccount.keychain_account)
       : null;
+  const driveSync = githubDb?.getDriveSyncState() ?? null;
+  const driveToken =
+    authConfig.driveEnabled && authConfig.mailbox && authConfig.keychainService
+      ? getKeychainSecret(authConfig.keychainService, authConfig.mailbox)
+      : null;
   const oauthValidation = validateOAuthClientFile(paths.oauthClientFile);
   const oauthPermissions = validateSecretFilePermissions(paths.oauthClientFile, "OAuth client file");
   const localApiToken = validateSecretTextFile(paths.apiTokenFile, "Local API token");
@@ -596,6 +614,69 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
               "github_sync_fresh",
               "GitHub sync freshness",
               "GitHub has not synced yet. Run `personal-ops github sync now` after login.",
+              "integration",
+            ),
+  );
+  checks.push(
+    authConfig.driveEnabled
+      ? passCheck("drive_enabled", "Drive integration", "Drive integration is enabled.", "integration")
+      : passCheck("drive_enabled", "Drive integration", "Drive integration is disabled.", "integration"),
+  );
+  checks.push(
+    !authConfig.driveEnabled
+      ? passCheck(
+          "drive_scope_configured",
+          "Drive scope",
+          "Drive scope is not required while the integration is disabled.",
+          "integration",
+        )
+      : authConfig.includedDriveFolders.length + authConfig.includedDriveFiles.length > 0
+        ? passCheck(
+            "drive_scope_configured",
+            "Drive scope",
+            `${authConfig.includedDriveFolders.length} folder scope item(s) and ${authConfig.includedDriveFiles.length} file scope item(s) are configured.`,
+            "integration",
+          )
+        : warnCheck(
+            "drive_scope_configured",
+            "Drive scope",
+            "Drive is enabled, but drive.included_folders and drive.included_files are both empty in config.toml.",
+            "integration",
+          ),
+  );
+  checks.push(
+    !authConfig.driveEnabled
+      ? passCheck("drive_token_present", "Drive token", "Drive token is not required while the integration is disabled.", "integration")
+      : driveToken
+        ? passCheck("drive_token_present", "Drive token", "Google token is present for Drive and Docs reads.", "integration")
+        : warnCheck(
+            "drive_token_present",
+            "Drive token",
+            "Drive is enabled, but no Google token was found. Run `personal-ops auth google login`.",
+            "integration",
+          ),
+  );
+  checks.push(
+    !authConfig.driveEnabled
+      ? passCheck("drive_sync_fresh", "Drive sync freshness", "Drive sync is not required while the integration is disabled.", "integration")
+      : driveSync?.status === "degraded"
+        ? warnCheck(
+            "drive_sync_fresh",
+            "Drive sync freshness",
+            driveSync.last_error_message ?? "Drive sync is degraded. Run `personal-ops drive sync now`.",
+            "integration",
+          )
+        : driveSync?.last_synced_at
+          ? passCheck(
+              "drive_sync_fresh",
+              "Drive sync freshness",
+              `Drive sync is fresh as of ${driveSync.last_synced_at}.`,
+              "integration",
+            )
+          : warnCheck(
+              "drive_sync_fresh",
+              "Drive sync freshness",
+              "Drive has not synced yet. Run `personal-ops drive sync now` after login.",
               "integration",
             ),
   );
