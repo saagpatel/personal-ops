@@ -83,9 +83,10 @@ Live health summary after install refresh:
 ## Git Closeout
 
 - branch name: `codex/phase-7-multi-machine-strategy`
-- commit hashes: to be filled after commit
-- pushed remote branch: to be filled after push
-- draft PR link: to be filled after PR creation
+- implementation commit: `45604de`
+- pushed remote branch: `origin/codex/phase-7-multi-machine-strategy`
+- draft PR link: `https://github.com/saagpatel/personal-ops/pull/4`
+- PR base branch: `codex/phase-6-secrets-safety-ops`
 
 ## Notes
 
