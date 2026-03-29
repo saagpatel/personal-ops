@@ -13,7 +13,7 @@ This document is the durable source of truth for the post-launch track. If futur
 - productized bootstrap, wrappers, LaunchAgent install, and restore flow
 - a stable CLI, local HTTP API, and MCP bridge
 - end-to-end verification for smoke, full-stack, console, and LaunchAgent flows
-- a read-first local operator console
+- a lightly interactive local operator console with narrow browser-safe actions
 - explicit secret-safety, machine-ownership, and recovery guardrails
 - a release gate and CI baseline
 - a recurring-friendly `personal-ops health check`
@@ -25,7 +25,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | Phase | Title | Goal | Status |
 | --- | --- | --- | --- |
 | 1 | Automation and Daily Briefings | Make the system proactively useful through recurring checks, summaries, and operator nudges | Completed |
-| 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Next |
+| 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Completed |
 | 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Planned |
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Planned |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Planned |
@@ -77,22 +77,28 @@ Delivered in this phase:
 
 ## Phase 2: Console Phase 2
 
-The first console is intentionally read-first. Phase 2 should add a small number of safe, high-value actions and richer views without turning the browser into a second full-power control plane.
+Phase 2 is complete.
 
-Good candidates:
+### Goal
 
-- create snapshot from the console
-- refresh specific views
-- inspect richer item detail for tasks, threads, recommendations, and snapshots
-- apply or snooze selected planning actions only if the trust model stays clear
-- surface exact CLI commands for deferred high-trust actions
+Turn the read-first console into a lightly interactive operator workspace without widening the trust model too far.
 
-Still avoid for now:
+### Delivered
 
-- restore
-- auth login
-- send
-- broad admin actions
+- snapshot creation from the console
+- planning recommendation apply, snooze, and reject from the console
+- planning recommendation group snooze and reject from the console
+- richer detail views inside Worklist, Planning, Overview, Approvals, and Backups
+- explicit CLI handoff for high-trust actions that remain browser-blocked
+
+### Guardrails kept
+
+- approvals remain CLI-only
+- tasks remain CLI-only
+- restore remains CLI-only
+- auth remains CLI-only
+- send and other broader admin actions remain CLI-only
+- browser-session auth stays route-based and explicit
 
 ## Phase 3: Reliability and Recovery Automation
 
@@ -181,7 +187,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 2: Console Phase 2
+- the recommended next build is Phase 3: Reliability and Recovery Automation
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

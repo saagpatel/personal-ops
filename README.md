@@ -14,7 +14,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - drafts, approvals, and review flows
 - assistant-safe audit history
 - shared status and worklist views for humans and assistants
-- a read-first local operator console
+- a local operator console with narrow browser-safe actions
 - machine-aware backups and restore guardrails
 
 In practice, that means it can:
@@ -33,7 +33,7 @@ In practice, that means it can:
 - Gmail-aware and Calendar-aware workflow context
 - Task tracking, task suggestions, and planning recommendations
 - Shared CLI, HTTP, and MCP access for both humans and assistants
-- Read-first local operator console served by the daemon
+- Local operator console served by the daemon with narrow browser-safe actions
 - One-command bootstrap plus repo-managed wrapper and LaunchAgent install
 - Explicit secret-permission repair with `personal-ops install fix-permissions`
 - Backup, inspect, and machine-aware restore flows with rescue snapshots
@@ -45,7 +45,7 @@ In practice, that means it can:
 
 - Multiple assistants can use the same trusted workflow layer instead of each inventing their own Gmail or calendar logic
 - The system can turn inbox and calendar pressure into actual planning recommendations instead of just showing raw chaos
-- The operator can open a local browser console for status, worklist, approvals, drafts, planning, audit, and snapshot visibility without exposing high-trust actions to the UI
+- The operator can open a local browser console for status, worklist, approvals, drafts, planning, audit, and snapshots, with only narrow browser-safe actions enabled in the UI
 - New-machine setup, wrappers, LaunchAgent wiring, and full-stack verification are built into the repo instead of being left as ad hoc manual steps
 - Backup manifests now carry machine provenance, and cross-machine restore requires explicit operator intent instead of quietly acting like sync
 - Assistants get useful context without getting unlimited control over your accounts
@@ -77,7 +77,7 @@ Today, the repo includes:
 - `./bootstrap` for fresh-machine setup
 - local install commands for wrappers, LaunchAgent setup, and install checks
 - CLI, local HTTP API, and MCP bridge access
-- a read-first local operator console opened with `personal-ops console`
+- a local operator console opened with `personal-ops console`
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

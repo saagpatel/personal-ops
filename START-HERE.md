@@ -38,7 +38,7 @@ Use this path if you want to:
 
 - install or move the system to another Mac
 - understand the single-primary-machine model before using backups to migrate state
-- use the local operator console for read-first daily visibility
+- use the local operator console for daily visibility plus narrow browser-safe actions
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands

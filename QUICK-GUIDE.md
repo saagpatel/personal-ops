@@ -33,7 +33,7 @@ Keep these pieces separate:
 ### Daily commands
 
 - `personal-ops console`
-  Opens the local read-first operator console in the browser.
+  Opens the local operator console with narrow browser-safe actions for planning and snapshots.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -54,6 +54,8 @@ The first post-launch automation phase adds three weekday briefings:
 - End-of-Day Wrap-Up
 
 They are read-first and built on the same CLI surfaces you would use manually.
+
+The console now complements that loop by letting you create snapshots and run narrow planning actions in the browser while keeping higher-trust flows in the CLI.
 
 Read next:
 

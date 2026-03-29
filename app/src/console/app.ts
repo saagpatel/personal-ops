@@ -1,37 +1,38 @@
 import type {
   ApprovalDetail,
   ApprovalRequest,
+  AttentionItem,
   AuditEvent,
   AuditEventCategory,
   DoctorReport,
   DraftArtifact,
-  PlanningRecommendation,
+  MailThreadDetail,
+  PlanningRecommendationDetail,
   PlanningRecommendationGroup,
+  PlanningRecommendationGroupDetail,
+  PlanningRecommendationSummaryReport,
   ServiceStatusReport,
   SnapshotInspection,
+  SnapshotManifest,
   SnapshotSummary,
+  TaskDetail,
   WorklistReport,
 } from "../types.js";
 
 type SectionId = "overview" | "worklist" | "approvals" | "drafts" | "planning" | "audit" | "backups";
+type BannerTone = "good" | "warn" | "critical";
 
 interface ConsolePayload {
   status: ServiceStatusReport;
   worklist: WorklistReport;
   doctor: DoctorReport;
   approvals: ApprovalRequest[];
-  approvalDetail: ApprovalDetail | null;
   drafts: DraftArtifact[];
-  planningSummary: ServiceStatusReport["planning_recommendations"];
+  planningSummary: PlanningRecommendationSummaryReport;
   planningGroups: PlanningRecommendationGroup[];
-  planningNext: PlanningRecommendationDetailEnvelope | null;
+  planningNext: PlanningRecommendationDetail | null;
   audit: AuditEvent[];
   snapshots: SnapshotSummary[];
-  snapshotInspection: SnapshotInspection | null;
-}
-
-interface PlanningRecommendationDetailEnvelope {
-  planning_recommendation: PlanningRecommendation | null;
 }
 
 interface AuditResponse {
@@ -63,15 +64,19 @@ interface DraftResponse {
 }
 
 interface PlanningSummaryResponse {
-  planning_recommendation_summary: ServiceStatusReport["planning_recommendations"];
+  planning_recommendation_summary: PlanningRecommendationSummaryReport;
 }
 
 interface PlanningGroupsResponse {
   planning_recommendation_groups: PlanningRecommendationGroup[];
 }
 
-interface PlanningNextResponse {
-  planning_recommendation: PlanningRecommendation | null;
+interface PlanningRecommendationDetailResponse {
+  planning_recommendation: PlanningRecommendationDetail | null;
+}
+
+interface PlanningRecommendationGroupDetailResponse {
+  planning_recommendation_group: PlanningRecommendationGroupDetail;
 }
 
 interface SnapshotListResponse {
@@ -80,6 +85,46 @@ interface SnapshotListResponse {
 
 interface SnapshotInspectResponse {
   snapshot: SnapshotInspection;
+}
+
+interface SnapshotCreateResponse {
+  snapshot: SnapshotManifest;
+}
+
+interface TaskDetailResponse {
+  task: TaskDetail;
+}
+
+interface ThreadDetailResponse {
+  thread: MailThreadDetail;
+}
+
+type WorklistDetail =
+  | { kind: "task"; item: AttentionItem; detail: TaskDetail }
+  | { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
+  | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
+  | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
+  | { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
+  | { kind: "snapshot"; item: AttentionItem; detail: SnapshotInspection }
+  | { kind: "unsupported"; item: AttentionItem; message: string };
+
+interface ConsoleState {
+  section: SectionId;
+  payload: ConsolePayload | null;
+  auditLimit: number;
+  auditCategory: AuditEventCategory | "";
+  lockedHint: boolean;
+  flash: { message: string; tone: BannerTone } | null;
+  selectedApprovalId: string | null;
+  selectedSnapshotId: string | null;
+  selectedPlanningRecommendationId: string | null;
+  selectedPlanningGroupKey: string | null;
+  selectedWorklistItemId: string | null;
+  approvalDetail: ApprovalDetail | null;
+  snapshotInspection: SnapshotInspection | null;
+  planningRecommendationDetail: PlanningRecommendationDetail | null;
+  planningGroupDetail: PlanningRecommendationGroupDetail | null;
+  worklistDetail: WorklistDetail | null;
 }
 
 class SessionLockedError extends Error {}
@@ -94,12 +139,23 @@ const SECTIONS: Record<SectionId, string> = {
   backups: "Backups",
 };
 
-const state = {
+const state: ConsoleState = {
   section: (location.hash.replace(/^#/, "") as SectionId) || "overview",
-  payload: null as ConsolePayload | null,
+  payload: null,
   auditLimit: 20,
-  auditCategory: "" as AuditEventCategory | "",
+  auditCategory: "",
   lockedHint: new URLSearchParams(location.search).get("locked") === "1",
+  flash: null,
+  selectedApprovalId: null,
+  selectedSnapshotId: null,
+  selectedPlanningRecommendationId: null,
+  selectedPlanningGroupKey: null,
+  selectedWorklistItemId: null,
+  approvalDetail: null,
+  snapshotInspection: null,
+  planningRecommendationDetail: null,
+  planningGroupDetail: null,
+  worklistDetail: null,
 };
 
 const content = document.querySelector<HTMLElement>("#content");
@@ -142,6 +198,48 @@ function formatSeverity(severity: "pass" | "warn" | "fail"): string {
   return "pill pill--critical";
 }
 
+function formatDurationHours(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) {
+    return "not recorded";
+  }
+  if (hours < 1) {
+    return `${Math.max(1, Math.round(hours * 60))}m`;
+  }
+  return `${hours.toFixed(hours >= 10 ? 0 : 1)}h`;
+}
+
+function recommendationCliPrefix(recommendationId: string): string {
+  return `personal-ops recommendation`;
+}
+
+function recommendationShowCommand(recommendationId: string): string {
+  return `${recommendationCliPrefix(recommendationId)} show ${recommendationId}`;
+}
+
+function recommendationApplyCommand(recommendationId: string): string {
+  return `${recommendationCliPrefix(recommendationId)} apply ${recommendationId} --note "<reason>"`;
+}
+
+function recommendationSnoozeCommand(recommendationId: string): string {
+  return `${recommendationCliPrefix(recommendationId)} snooze ${recommendationId} --preset tomorrow-morning --note "<reason>"`;
+}
+
+function recommendationRejectCommand(recommendationId: string): string {
+  return `${recommendationCliPrefix(recommendationId)} reject ${recommendationId} --reason handled_elsewhere --note "<reason>"`;
+}
+
+function recommendationGroupShowCommand(groupKey: string): string {
+  return `personal-ops recommendation group show ${groupKey}`;
+}
+
+function recommendationGroupSnoozeCommand(groupKey: string): string {
+  return `personal-ops recommendation group snooze ${groupKey} --preset tomorrow-morning --note "<reason>"`;
+}
+
+function recommendationGroupRejectCommand(groupKey: string): string {
+  return `personal-ops recommendation group reject ${groupKey} --reason handled_elsewhere --note "<reason>"`;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -157,6 +255,35 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(payload.error ?? `Request failed for ${url}`);
   }
   return payload as T;
+}
+
+async function postJson<T>(url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new SessionLockedError("Run personal-ops console");
+  }
+  const payload = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Request failed for ${url}`);
+  }
+  return payload as T;
+}
+
+async function fetchAudit(limit: number, category: AuditEventCategory | ""): Promise<AuditResponse> {
+  const query = new URLSearchParams();
+  query.set("limit", String(limit));
+  if (category) {
+    query.set("category", category);
+  }
+  return fetchJson<AuditResponse>(`/v1/audit/events?${query.toString()}`);
 }
 
 async function loadPayload(): Promise<ConsolePayload> {
@@ -179,39 +306,22 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<DraftResponse>("/v1/mail/drafts"),
     fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
-    fetchJson<PlanningNextResponse>("/v1/planning-recommendations/next"),
+    fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
     fetchAudit(state.auditLimit, state.auditCategory),
     fetchJson<SnapshotListResponse>("/v1/snapshots"),
-  ]);
-
-  const approvals = approvalsResponse.approval_requests;
-  const snapshots = snapshotListResponse.snapshots;
-  const [approvalDetail, snapshotInspection] = await Promise.all([
-    approvals[0]
-      ? fetchJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(approvals[0].approval_id)}`).then(
-          (response) => response.approval,
-        )
-      : Promise.resolve(null),
-    snapshots[0]
-      ? fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(snapshots[0].snapshot_id)}`).then(
-          (response) => response.snapshot,
-        )
-      : Promise.resolve(null),
   ]);
 
   return {
     status: statusResponse.status,
     worklist: worklistResponse.worklist,
     doctor: doctorResponse.doctor,
-    approvals,
-    approvalDetail,
+    approvals: approvalsResponse.approval_requests,
     drafts: draftsResponse.drafts,
     planningSummary: planningSummaryResponse.planning_recommendation_summary,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
-    planningNext: planningNextResponse,
+    planningNext: planningNextResponse.planning_recommendation,
     audit: auditResponse.events,
-    snapshots,
-    snapshotInspection,
+    snapshots: snapshotListResponse.snapshots,
   };
 }
 
@@ -219,20 +329,34 @@ function topWorklistCommand(worklist: WorklistReport): string {
   return worklist.items[0]?.suggested_command ?? "personal-ops worklist";
 }
 
-function renderBanner(message: string | null, tone: "warn" | "critical" = "warn"): void {
-  if (!message) {
+function setFlash(message: string, tone: BannerTone = "good"): void {
+  state.flash = { message, tone };
+}
+
+function renderBannerCards(cards: Array<{ message: string; tone: BannerTone }>): void {
+  if (cards.length === 0) {
     requiredBanner.innerHTML = "";
     return;
   }
-  requiredBanner.innerHTML = `<div class="banner__card banner__card--${tone}"><p>${escapeHtml(message)}</p></div>`;
+  requiredBanner.innerHTML = cards
+    .map(
+      (card) =>
+        `<div class="banner__card banner__card--${escapeHtml(card.tone)}"><p>${escapeHtml(card.message)}</p></div>`,
+    )
+    .join("");
 }
 
 function renderLocked(): void {
-  renderBanner("Console session is missing or expired. Run `personal-ops console` to reopen the operator console.", "critical");
+  renderBannerCards([
+    {
+      message: "Console session is missing or expired. Run `personal-ops console` to reopen the operator console.",
+      tone: "critical",
+    },
+  ]);
   requiredContent.innerHTML = `
     <section class="hero">
       <p class="eyebrow">Console locked</p>
-      <h3>Local browser access is read-only and session-based.</h3>
+      <h3>Local browser access uses a short-lived operator session.</h3>
       <p>Use <span class="code">personal-ops console</span> from the terminal to mint a fresh local session and reopen this page.</p>
     </section>
   `;
@@ -243,15 +367,234 @@ function metricCard(label: string, value: string, detail: string): string {
     <div class="metric">
       <p class="eyebrow">${escapeHtml(label)}</p>
       <p class="metric__value">${escapeHtml(value)}</p>
-      <p class="subtle">${escapeHtml(detail)}</p>
+      <p class="subtle subtle--body">${escapeHtml(detail)}</p>
     </div>
   `;
+}
+
+function commandAction(command: string, label = "Copy command"): string {
+  return `
+    <code class="code">${escapeHtml(command)}</code>
+    <button class="copy-button" data-copy="${escapeHtml(command)}" type="button">${escapeHtml(label)}</button>
+  `;
+}
+
+function commandStack(commands: string[]): string {
+  return commands
+    .map((command) => `<div class="command-line">${commandAction(command, "Copy")}</div>`)
+    .join("");
+}
+
+function selectedClass(selected: boolean): string {
+  return selected ? " is-selected" : "";
+}
+
+function maybe(value: string | null | undefined, fallback = "not recorded"): string {
+  return value?.trim() ? value : fallback;
+}
+
+function truncateId(value: string | null | undefined): string {
+  if (!value) {
+    return "n/a";
+  }
+  return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function getCurrentPayload(): ConsolePayload {
+  if (!state.payload) {
+    throw new Error("Console payload is not loaded yet.");
+  }
+  return state.payload;
+}
+
+function findSelectedWorklistItem(payload: ConsolePayload): AttentionItem | null {
+  return payload.worklist.items.find((item) => item.item_id === state.selectedWorklistItemId) ?? null;
+}
+
+function nextRecommendationId(payload: ConsolePayload): string | null {
+  return payload.planningNext?.recommendation.recommendation_id ?? payload.planningGroups[0]?.top_recommendation_id ?? null;
+}
+
+function resolveSelections(payload: ConsolePayload): void {
+  const approvalIds = new Set(payload.approvals.map((approval) => approval.approval_id));
+  if (!state.selectedApprovalId || !approvalIds.has(state.selectedApprovalId)) {
+    state.selectedApprovalId = payload.approvals[0]?.approval_id ?? null;
+  }
+
+  const snapshotIds = new Set(payload.snapshots.map((snapshot) => snapshot.snapshot_id));
+  if (!state.selectedSnapshotId || !snapshotIds.has(state.selectedSnapshotId)) {
+    state.selectedSnapshotId = payload.snapshots[0]?.snapshot_id ?? null;
+  }
+
+  const worklistIds = new Set(payload.worklist.items.map((item) => item.item_id));
+  if (!state.selectedWorklistItemId || !worklistIds.has(state.selectedWorklistItemId)) {
+    state.selectedWorklistItemId = payload.worklist.items[0]?.item_id ?? null;
+  }
+
+  if (!state.selectedPlanningRecommendationId) {
+    state.selectedPlanningRecommendationId = nextRecommendationId(payload);
+  }
+
+  if (!state.selectedPlanningGroupKey) {
+    state.selectedPlanningGroupKey =
+      payload.planningGroups.find((group) => group.recommendation_ids.includes(state.selectedPlanningRecommendationId ?? ""))?.group_key ??
+      payload.planningGroups[0]?.group_key ??
+      null;
+  }
+}
+
+async function loadSelectedApprovalDetail(): Promise<void> {
+  if (!state.selectedApprovalId) {
+    state.approvalDetail = null;
+    return;
+  }
+  try {
+    const response = await fetchJson<ApprovalDetailResponse>(
+      `/v1/approval-queue/${encodeURIComponent(state.selectedApprovalId)}`,
+    );
+    state.approvalDetail = response.approval;
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.approvalDetail = null;
+  }
+}
+
+async function loadSelectedSnapshotInspection(): Promise<void> {
+  if (!state.selectedSnapshotId) {
+    state.snapshotInspection = null;
+    return;
+  }
+  try {
+    const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(state.selectedSnapshotId)}`);
+    state.snapshotInspection = response.snapshot;
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.snapshotInspection = null;
+  }
+}
+
+async function loadSelectedPlanningRecommendationDetail(): Promise<void> {
+  if (!state.selectedPlanningRecommendationId) {
+    state.planningRecommendationDetail = state.payload?.planningNext ?? null;
+    return;
+  }
+  try {
+    const response = await fetchJson<PlanningRecommendationDetailResponse>(
+      `/v1/planning-recommendations/${encodeURIComponent(state.selectedPlanningRecommendationId)}`,
+    );
+    state.planningRecommendationDetail = response.planning_recommendation;
+    if (state.planningRecommendationDetail?.recommendation.group_key) {
+      state.selectedPlanningGroupKey = state.planningRecommendationDetail.recommendation.group_key;
+    }
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.planningRecommendationDetail = null;
+  }
+}
+
+async function loadSelectedPlanningGroupDetail(): Promise<void> {
+  if (!state.selectedPlanningGroupKey) {
+    state.planningGroupDetail = null;
+    return;
+  }
+  try {
+    const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
+      `/v1/planning-recommendation-groups/${encodeURIComponent(state.selectedPlanningGroupKey)}`,
+    );
+    state.planningGroupDetail = response.planning_recommendation_group;
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.planningGroupDetail = null;
+  }
+}
+
+async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail> {
+  if (item.target_type === "task") {
+    const response = await fetchJson<TaskDetailResponse>(`/v1/tasks/${encodeURIComponent(item.target_id)}`);
+    return { kind: "task", item, detail: response.task };
+  }
+  if (item.target_type === "mail_thread") {
+    const response = await fetchJson<ThreadDetailResponse>(`/v1/inbox/threads/${encodeURIComponent(item.target_id)}`);
+    return { kind: "mail_thread", item, detail: response.thread };
+  }
+  if (item.target_type === "planning_recommendation") {
+    const response = await fetchJson<PlanningRecommendationDetailResponse>(
+      `/v1/planning-recommendations/${encodeURIComponent(item.target_id)}`,
+    );
+    if (!response.planning_recommendation) {
+      return {
+        kind: "unsupported",
+        item,
+        message: "This worklist item points to a planning recommendation that is no longer available.",
+      };
+    }
+    return { kind: "planning_recommendation", item, detail: response.planning_recommendation };
+  }
+  if (item.target_type === "planning_recommendation_group") {
+    const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
+      `/v1/planning-recommendation-groups/${encodeURIComponent(item.target_id)}`,
+    );
+    return { kind: "planning_recommendation_group", item, detail: response.planning_recommendation_group };
+  }
+  if (item.target_type === "approval_request") {
+    const response = await fetchJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(item.target_id)}`);
+    return { kind: "approval_request", item, detail: response.approval };
+  }
+  if (item.target_type === "snapshot") {
+    const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(item.target_id)}`);
+    return { kind: "snapshot", item, detail: response.snapshot };
+  }
+  return {
+    kind: "unsupported",
+    item,
+    message: `No in-console detail view exists for ${item.target_type}. Use the suggested CLI command below.`,
+  };
+}
+
+async function loadSelectedWorklistDetail(): Promise<void> {
+  const payload = state.payload;
+  const item = payload ? findSelectedWorklistItem(payload) : null;
+  if (!item) {
+    state.worklistDetail = null;
+    return;
+  }
+  try {
+    state.worklistDetail = await buildWorklistDetail(item);
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.worklistDetail = {
+      kind: "unsupported",
+      item,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function loadSelectedDetails(): Promise<void> {
+  await Promise.all([
+    loadSelectedApprovalDetail(),
+    loadSelectedSnapshotInspection(),
+    loadSelectedPlanningRecommendationDetail(),
+    loadSelectedPlanningGroupDetail(),
+    loadSelectedWorklistDetail(),
+  ]);
 }
 
 function renderOverview(payload: ConsolePayload): string {
   const status = payload.status;
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
+  const topRecommendation = state.planningRecommendationDetail ?? payload.planningNext;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -263,7 +606,7 @@ function renderOverview(payload: ConsolePayload): string {
       <div class="hero__meta">
         <div>
           <p class="eyebrow">Machine</p>
-          <p>${escapeHtml(machine.machine_label ?? "not initialized")} (${escapeHtml(machine.machine_id?.slice(0, 8) ?? "n/a")})</p>
+          <p>${escapeHtml(machine.machine_label ?? "not initialized")} (${escapeHtml(truncateId(machine.machine_id))})</p>
         </div>
         <div>
           <p class="eyebrow">State origin</p>
@@ -285,38 +628,216 @@ function renderOverview(payload: ConsolePayload): string {
       ${metricCard("Approvals", `${formatCount(status.approval_queue.pending_count)} pending`, `${formatCount(status.approval_queue.total_count)} total requests`)}
       ${metricCard("Reviews", `${formatCount(status.review_queue.pending_count)} pending`, `${formatCount(status.review_queue.total_count)} total review items`)}
     </section>
+    <section class="columns">
+      <div class="panel">
+        <h3>Top recommendation</h3>
+        ${
+          topRecommendation
+            ? `
+              <p>${escapeHtml(topRecommendation.recommendation.reason_summary)}</p>
+              <div class="detail-list detail-list--spaced">
+                <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(maybe(topRecommendation.recommendation.proposed_title, "untitled"))}</dd></div>
+                <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(topRecommendation.recommendation.status)}</dd></div>
+                <div class="detail-row"><dt>Window</dt><dd>${escapeHtml(`${formatTime(topRecommendation.recommendation.proposed_start_at)} to ${formatTime(topRecommendation.recommendation.proposed_end_at)}`)}</dd></div>
+              </div>
+              <div class="list-item__actions">
+                <button class="button button--primary" data-open-planning="${escapeHtml(topRecommendation.recommendation.recommendation_id)}" type="button">Open in Planning</button>
+                <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(topRecommendation.recommendation.recommendation_id))}" type="button">Copy CLI command</button>
+              </div>
+            `
+            : `<div class="empty">No current planning recommendation is available.</div>`
+        }
+      </div>
+      <div class="panel">
+        <h3>Backup action</h3>
+        <p>Create snapshots in the browser when you want a quick recovery point. Restore stays in the CLI.</p>
+        <div class="detail-list detail-list--spaced">
+          <div class="detail-row"><dt>Latest snapshot</dt><dd>${escapeHtml(latestSnapshot?.snapshot_id ?? "none yet")}</dd></div>
+          <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(latestSnapshot?.created_at ?? null))}</dd></div>
+        </div>
+        <div class="list-item__actions">
+          <button class="button button--primary" data-section-link="backups" type="button">Open Backups</button>
+          ${
+            latestSnapshot
+              ? `<button class="button" data-open-snapshot="${escapeHtml(latestSnapshot.snapshot_id)}" type="button">Inspect latest snapshot</button>`
+              : ""
+          }
+        </div>
+      </div>
+    </section>
     <section class="panel">
-      <h3>Next CLI action</h3>
-      <p>Mutating work stays in the CLI in Phase 8.</p>
-      <div class="list-item__actions">
-        <code class="code">${escapeHtml(topWorklistCommand(payload.worklist))}</code>
-        <button class="copy-button" data-copy="${escapeHtml(topWorklistCommand(payload.worklist))}" type="button">Copy command</button>
+      <h3>CLI handoff</h3>
+      <p>Approvals, tasks, restore, auth, send, and other high-trust work still stay in the CLI.</p>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandAction(topWorklistCommand(payload.worklist))}
       </div>
     </section>
   `;
 }
 
-function worklistItem(item: WorklistReport["items"][number]): string {
-  return `
-    <article class="list-item">
-      <div class="list-item__top">
-        <h4>${escapeHtml(item.title)}</h4>
-        <span class="pill ${item.severity === "critical" ? "pill--critical" : item.severity === "warn" ? "pill--warn" : "pill--good"}">${escapeHtml(item.severity)}</span>
+function renderWorklistList(payload: ConsolePayload): string {
+  if (payload.worklist.items.length === 0) {
+    return `<div class="empty">No current worklist items. Run <span class="code">personal-ops status</span> for the fuller readiness summary.</div>`;
+  }
+  return payload.worklist.items
+    .map(
+      (item) => `
+        <article class="list-item${selectedClass(item.item_id === state.selectedWorklistItemId)}">
+          <div class="list-item__top">
+            <h4>${escapeHtml(item.title)}</h4>
+            <span class="pill ${item.severity === "critical" ? "pill--critical" : item.severity === "warn" ? "pill--warn" : "pill--good"}">${escapeHtml(item.severity)}</span>
+          </div>
+          <p>${escapeHtml(item.summary)}</p>
+          <div class="list-item__actions">
+            <button class="button" data-worklist-item="${escapeHtml(item.item_id)}" type="button">Inspect related detail</button>
+            <button class="copy-button" data-copy="${escapeHtml(item.suggested_command)}" type="button">Copy command</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderWorklistDetail(detail: WorklistDetail | null): string {
+  if (!detail) {
+    return `<div class="empty">Choose a worklist item to inspect the related task, thread, recommendation, approval, or snapshot.</div>`;
+  }
+
+  if (detail.kind === "task") {
+    const task = detail.detail.task;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Task</dt><dd>${escapeHtml(task.title)}</dd></div>
+        <div class="detail-row"><dt>State</dt><dd>${escapeHtml(task.state)}</dd></div>
+        <div class="detail-row"><dt>Priority</dt><dd>${escapeHtml(task.priority)}</dd></div>
+        <div class="detail-row"><dt>Due</dt><dd>${escapeHtml(formatTime(task.due_at))}</dd></div>
       </div>
-      <p>${escapeHtml(item.summary)}</p>
+      <p class="subtle subtle--body">${escapeHtml(maybe(task.notes, "No task notes recorded."))}</p>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([`personal-ops task show ${task.task_id}`])}
+      </div>
+    `;
+  }
+
+  if (detail.kind === "mail_thread") {
+    const thread = detail.detail;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Thread</dt><dd>${escapeHtml(truncateId(thread.thread.thread_id))}</dd></div>
+        <div class="detail-row"><dt>Kind</dt><dd>${escapeHtml(thread.derived_kind)}</dd></div>
+        <div class="detail-row"><dt>Direction</dt><dd>${escapeHtml(thread.last_direction)}</dd></div>
+        <div class="detail-row"><dt>Messages</dt><dd>${escapeHtml(String(thread.messages.length))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(thread.messages[0]?.subject ?? "No message preview available.")}</p>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([thread.suggested_next_command])}
+      </div>
+    `;
+  }
+
+  if (detail.kind === "planning_recommendation") {
+    const recommendation = detail.detail.recommendation;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(recommendation.status)}</dd></div>
+        <div class="detail-row"><dt>Priority</dt><dd>${escapeHtml(recommendation.priority)}</dd></div>
+        <div class="detail-row"><dt>Window</dt><dd>${escapeHtml(`${formatTime(recommendation.proposed_start_at)} to ${formatTime(recommendation.proposed_end_at)}`)}</dd></div>
+        <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(maybe(recommendation.group_summary, "not grouped"))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(recommendation.reason_summary)}</p>
       <div class="list-item__actions">
-        <code class="code">${escapeHtml(item.suggested_command)}</code>
-        <button class="copy-button" data-copy="${escapeHtml(item.suggested_command)}" type="button">Copy command</button>
+        <button class="button button--primary" data-open-planning="${escapeHtml(recommendation.recommendation_id)}" type="button">Open in Planning</button>
+        <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(recommendation.recommendation_id))}" type="button">Copy CLI command</button>
       </div>
-    </article>
+    `;
+  }
+
+  if (detail.kind === "planning_recommendation_group") {
+    const group = detail.detail;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(group.group_summary)}</dd></div>
+        <div class="detail-row"><dt>Open</dt><dd>${escapeHtml(String(group.counts_by_status.pending ?? 0))}</dd></div>
+        <div class="detail-row"><dt>Stale pending</dt><dd>${escapeHtml(String(group.stale_pending_count))}</dd></div>
+        <div class="detail-row"><dt>Median open age</dt><dd>${escapeHtml(formatDurationHours(group.median_open_age_hours))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(group.closure_meaning_summary ?? "Use the Planning section for the current next action and group-wide controls.")}</p>
+      <div class="list-item__actions">
+        <button class="button button--primary" data-open-planning-group="${escapeHtml(group.group_key)}" type="button">Open in Planning</button>
+        <button class="copy-button" data-copy="${escapeHtml(recommendationGroupShowCommand(group.group_key))}" type="button">Copy CLI command</button>
+      </div>
+    `;
+  }
+
+  if (detail.kind === "approval_request") {
+    const approval = detail.detail.approval_request;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Approval</dt><dd>${escapeHtml(approval.approval_id)}</dd></div>
+        <div class="detail-row"><dt>State</dt><dd>${escapeHtml(approval.state)}</dd></div>
+        <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(approval.requested_at))}</dd></div>
+        <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(approval.expires_at))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">Approvals stay CLI-only in Phase 2.</p>
+      <div class="list-item__actions">
+        <button class="button" data-open-approval="${escapeHtml(approval.approval_id)}" type="button">Open in Approvals</button>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([
+          `personal-ops approval show ${approval.approval_id}`,
+          `personal-ops approval approve ${approval.approval_id} --note "<reason>"`,
+          `personal-ops approval reject ${approval.approval_id} --note "<reason>"`,
+          `personal-ops approval send ${approval.approval_id} --note "<reason>"`,
+        ])}
+      </div>
+    `;
+  }
+
+  if (detail.kind === "snapshot") {
+    const snapshot = detail.detail;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Snapshot</dt><dd>${escapeHtml(snapshot.manifest.snapshot_id)}</dd></div>
+        <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(snapshot.manifest.created_at))}</dd></div>
+        <div class="detail-row"><dt>Schema</dt><dd>${escapeHtml(String(snapshot.manifest.schema_version ?? "legacy"))}</dd></div>
+        <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(snapshot.manifest.source_machine ? `${snapshot.manifest.source_machine.machine_label} (${truncateId(snapshot.manifest.source_machine.machine_id)})` : "legacy snapshot")}</dd></div>
+      </div>
+      <p class="subtle subtle--body">Restore stays CLI-only and does not merge state.</p>
+      <div class="list-item__actions">
+        <button class="button button--primary" data-open-snapshot="${escapeHtml(snapshot.manifest.snapshot_id)}" type="button">Open in Backups</button>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([
+          `personal-ops backup inspect ${snapshot.manifest.snapshot_id}`,
+          `personal-ops backup restore ${snapshot.manifest.snapshot_id} --yes`,
+        ])}
+      </div>
+    `;
+  }
+
+  return `
+    <p>${escapeHtml(detail.message)}</p>
+    <div class="list-item__actions list-item__actions--stack">
+      ${commandStack([detail.item.suggested_command])}
+    </div>
   `;
 }
 
 function renderWorklist(payload: ConsolePayload): string {
-  if (payload.worklist.items.length === 0) {
-    return `<section class="empty">No current worklist items. Run <span class="code">personal-ops status</span> for the fuller readiness summary.</section>`;
-  }
-  return `<section class="list">${payload.worklist.items.map(worklistItem).join("")}</section>`;
+  return `
+    <section class="columns">
+      <div class="list-card">
+        <h3>Attention queue</h3>
+        <div class="list">
+          ${renderWorklistList(payload)}
+        </div>
+      </div>
+      <div class="detail-card">
+        <h3>Related detail</h3>
+        ${renderWorklistDetail(state.worklistDetail)}
+      </div>
+    </section>
+  `;
 }
 
 function renderApprovals(payload: ConsolePayload): string {
@@ -326,36 +847,42 @@ function renderApprovals(payload: ConsolePayload): string {
       : payload.approvals
           .map(
             (approval) => `
-          <article class="list-item">
-            <div class="list-item__top">
-              <h4>${escapeHtml(approval.approval_id)}</h4>
-              <span class="pill ${approval.state === "pending" ? "pill--warn" : "pill--good"}">${escapeHtml(approval.state)}</span>
-            </div>
-            <p>Artifact ${escapeHtml(approval.artifact_id)} · requested ${escapeHtml(formatTime(approval.requested_at))}</p>
-            <div class="list-item__actions">
-              <code class="code">${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}</code>
-              <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}" type="button">Copy command</button>
-            </div>
-          </article>`,
+              <article class="list-item${selectedClass(approval.approval_id === state.selectedApprovalId)}">
+                <div class="list-item__top">
+                  <h4>${escapeHtml(approval.approval_id)}</h4>
+                  <span class="pill ${approval.state === "pending" ? "pill--warn" : "pill--good"}">${escapeHtml(approval.state)}</span>
+                </div>
+                <p>Artifact ${escapeHtml(approval.artifact_id)} · requested ${escapeHtml(formatTime(approval.requested_at))}</p>
+                <div class="list-item__actions">
+                  <button class="button" data-approval="${escapeHtml(approval.approval_id)}" type="button">Inspect</button>
+                  <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}" type="button">Copy show command</button>
+                </div>
+              </article>
+            `,
           )
           .join("");
 
-  const detail = payload.approvalDetail;
+  const detail = state.approvalDetail;
   const detailHtml = !detail
-    ? `<div class="empty">Select an approval by using its CLI command for full action flow.</div>`
+    ? `<div class="empty">Choose an approval to inspect it. Approvals, approval decisions, and send stay in the CLI.</div>`
     : `
-      <div class="detail-list">
-        <div class="detail-row"><dt>State</dt><dd>${escapeHtml(detail.approval_request.state)}</dd></div>
-        <div class="detail-row"><dt>Subject</dt><dd>${escapeHtml(detail.draft.subject)}</dd></div>
-        <div class="detail-row"><dt>To</dt><dd>${escapeHtml(detail.draft.to.join(", ") || "none")}</dd></div>
-        <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(detail.approval_request.requested_at))}</dd></div>
-        <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(detail.approval_request.expires_at))}</dd></div>
-      </div>
-      <div class="list-item__actions" style="margin-top: 14px;">
-        <code class="code">${escapeHtml(`personal-ops approval show ${detail.approval_request.approval_id}`)}</code>
-        <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${detail.approval_request.approval_id}`)}" type="button">Copy command</button>
-      </div>
-    `;
+        <div class="detail-list">
+          <div class="detail-row"><dt>State</dt><dd>${escapeHtml(detail.approval_request.state)}</dd></div>
+          <div class="detail-row"><dt>Subject</dt><dd>${escapeHtml(detail.draft.subject)}</dd></div>
+          <div class="detail-row"><dt>To</dt><dd>${escapeHtml(detail.draft.to.join(", ") || "none")}</dd></div>
+          <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(detail.approval_request.requested_at))}</dd></div>
+          <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(detail.approval_request.expires_at))}</dd></div>
+        </div>
+        <p class="subtle subtle--body">This section is intentionally read-only. Use the exact CLI command you need below.</p>
+        <div class="list-item__actions list-item__actions--stack">
+          ${commandStack([
+            `personal-ops approval show ${detail.approval_request.approval_id}`,
+            `personal-ops approval approve ${detail.approval_request.approval_id} --note "<reason>"`,
+            `personal-ops approval reject ${detail.approval_request.approval_id} --note "<reason>"`,
+            `personal-ops approval send ${detail.approval_request.approval_id} --note "<reason>"`,
+          ])}
+        </div>
+      `;
 
   return `
     <section class="columns">
@@ -380,71 +907,235 @@ function renderDrafts(payload: ConsolePayload): string {
       ${payload.drafts
         .map(
           (draft) => `
-        <article class="list-item">
-          <div class="list-item__top">
-            <h4>${escapeHtml(draft.subject)}</h4>
-            <span class="pill ${draft.status === "draft" ? "" : "pill--warn"}">${escapeHtml(draft.status)}</span>
-          </div>
-          <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")} · review ${escapeHtml(draft.review_state)}</p>
-          <div class="list-item__actions">
-            <code class="code">${escapeHtml(`personal-ops mail list`)}</code>
-            <button class="copy-button" data-copy="personal-ops mail list" type="button">Copy command</button>
-          </div>
-        </article>`,
+            <article class="list-item">
+              <div class="list-item__top">
+                <h4>${escapeHtml(draft.subject)}</h4>
+                <span class="pill ${draft.status === "draft" ? "" : "pill--warn"}">${escapeHtml(draft.status)}</span>
+              </div>
+              <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")} · review ${escapeHtml(draft.review_state)}</p>
+              <div class="list-item__actions">
+                ${commandAction("personal-ops mail list")}
+              </div>
+            </article>
+          `,
         )
         .join("")}
     </section>
   `;
 }
 
+function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail | null): string {
+  if (!detail) {
+    return `<div class="empty">Pick the next recommendation or inspect a group to review the current browser-safe planning actions.</div>`;
+  }
+  const recommendation = detail.recommendation;
+  const canAct = recommendation.status === "pending" || recommendation.status === "snoozed";
+  return `
+    <div class="detail-list">
+      <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(maybe(recommendation.proposed_title, "untitled"))}</dd></div>
+      <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(recommendation.status)}</dd></div>
+      <div class="detail-row"><dt>Priority</dt><dd>${escapeHtml(recommendation.priority)}</dd></div>
+      <div class="detail-row"><dt>Window</dt><dd>${escapeHtml(`${formatTime(recommendation.proposed_start_at)} to ${formatTime(recommendation.proposed_end_at)}`)}</dd></div>
+      <div class="detail-row"><dt>Reason</dt><dd>${escapeHtml(recommendation.reason_summary)}</dd></div>
+    </div>
+    <p class="subtle subtle--body">${escapeHtml(maybe(recommendation.rank_reason, recommendation.group_summary ?? "No extra ranking note recorded."))}</p>
+    <div class="list-item__actions list-item__actions--stack">
+      ${commandStack([
+        recommendationShowCommand(recommendation.recommendation_id),
+        recommendationApplyCommand(recommendation.recommendation_id),
+        recommendationSnoozeCommand(recommendation.recommendation_id),
+        recommendationRejectCommand(recommendation.recommendation_id),
+      ])}
+    </div>
+    ${
+      canAct
+        ? `
+          <div class="action-grid">
+            <section class="action-card">
+              <h4>Apply now</h4>
+              <p>Use this when the recommendation is ready to become real work.</p>
+              <label class="field">
+                <span class="eyebrow">Note</span>
+                <textarea id="planning-apply-note" rows="3" placeholder="Why you are applying this now."></textarea>
+              </label>
+              <button class="button button--primary" data-planning-action="apply" type="button">Apply recommendation</button>
+            </section>
+            <section class="action-card">
+              <h4>Snooze</h4>
+              <p>Push this forward without losing the recommendation.</p>
+              <label class="field">
+                <span class="eyebrow">Preset</span>
+                <select id="planning-snooze-preset">
+                  <option value="end-of-day">end-of-day</option>
+                  <option value="tomorrow-morning" selected>tomorrow-morning</option>
+                  <option value="next-business-day">next-business-day</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="eyebrow">Note</span>
+                <textarea id="planning-snooze-note" rows="3" placeholder="Why this can wait."></textarea>
+              </label>
+              <button class="button" data-planning-action="snooze" type="button">Snooze recommendation</button>
+            </section>
+            <section class="action-card">
+              <h4>Reject</h4>
+              <p>Use a short reason when this should not stay active.</p>
+              <label class="field">
+                <span class="eyebrow">Reason</span>
+                <select id="planning-reject-reason">
+                  <option value="">optional</option>
+                  <option value="handled_elsewhere">handled_elsewhere</option>
+                  <option value="not_useful">not_useful</option>
+                  <option value="wrong_priority">wrong_priority</option>
+                  <option value="bad_timing">bad_timing</option>
+                  <option value="duplicate">duplicate</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="eyebrow">Note</span>
+                <textarea id="planning-reject-note" rows="3" placeholder="Why this recommendation should close."></textarea>
+              </label>
+              <button class="button" data-planning-action="reject" type="button">Reject recommendation</button>
+            </section>
+          </div>
+        `
+        : `
+          <div class="empty">This recommendation is currently ${escapeHtml(recommendation.status)}. Use the CLI if you need a different recovery path.</div>
+        `
+    }
+  `;
+}
+
+function renderPlanningGroupDetail(detail: PlanningRecommendationGroupDetail | null): string {
+  if (!detail) {
+    return `<div class="empty">Choose a planning group to see its backlog and group-wide actions.</div>`;
+  }
+  const pendingCount = detail.counts_by_status.pending ?? 0;
+  return `
+    <div class="detail-list">
+      <div class="detail-row"><dt>Summary</dt><dd>${escapeHtml(detail.group_summary)}</dd></div>
+      <div class="detail-row"><dt>Open</dt><dd>${escapeHtml(String(pendingCount))}</dd></div>
+      <div class="detail-row"><dt>Manual scheduling</dt><dd>${escapeHtml(detail.has_manual_scheduling_members ? "yes" : "no")}</dd></div>
+      <div class="detail-row"><dt>Stale pending</dt><dd>${escapeHtml(String(detail.stale_pending_count))}</dd></div>
+      <div class="detail-row"><dt>Next actionable</dt><dd>${escapeHtml(detail.next_actionable_recommendation?.recommendation_id ?? "none")}</dd></div>
+    </div>
+    <p class="subtle subtle--body">${escapeHtml(detail.closure_meaning_summary ?? "Group actions affect all pending recommendations in this group.")}</p>
+    <div class="list-item__actions list-item__actions--stack">
+      ${commandStack([
+        recommendationGroupShowCommand(detail.group_key),
+        recommendationGroupSnoozeCommand(detail.group_key),
+        recommendationGroupRejectCommand(detail.group_key),
+      ])}
+    </div>
+    ${
+      pendingCount > 0
+        ? `
+          <div class="action-grid action-grid--compact">
+            <section class="action-card">
+              <h4>Group snooze</h4>
+              <label class="field">
+                <span class="eyebrow">Preset</span>
+                <select id="planning-group-snooze-preset">
+                  <option value="end-of-day">end-of-day</option>
+                  <option value="tomorrow-morning" selected>tomorrow-morning</option>
+                  <option value="next-business-day">next-business-day</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="eyebrow">Note</span>
+                <textarea id="planning-group-snooze-note" rows="3" placeholder="Why this whole group can wait."></textarea>
+              </label>
+              <button class="button" data-planning-group-action="snooze" type="button">Snooze group</button>
+            </section>
+            <section class="action-card">
+              <h4>Group reject</h4>
+              <label class="field">
+                <span class="eyebrow">Reason</span>
+                <select id="planning-group-reject-reason">
+                  <option value="handled_elsewhere" selected>handled_elsewhere</option>
+                  <option value="duplicate">duplicate</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="eyebrow">Note</span>
+                <textarea id="planning-group-reject-note" rows="3" placeholder="Why this whole group should close."></textarea>
+              </label>
+              <button class="button" data-planning-group-action="reject" type="button">Reject group</button>
+            </section>
+          </div>
+        `
+        : `<div class="empty">This group has no pending recommendations left for browser-safe actions.</div>`
+    }
+  `;
+}
+
 function renderPlanning(payload: ConsolePayload): string {
-  const next = payload.planningNext?.planning_recommendation ?? null;
+  const next = payload.planningNext?.recommendation ?? null;
+  const topBacklogSummary =
+    payload.planningSummary.most_backlogged_group?.summary ?? "No active planning groups";
+  const topReviewNeededSummary =
+    payload.planningSummary.top_review_needed_candidate?.summary ?? "No hygiene review needed";
+  const topClosureSummary =
+    payload.planningSummary.most_completed_group?.summary ?? "No recent closure summary";
   return `
     <section class="stats-grid">
-      ${metricCard("Open recommendations", `${formatCount(payload.planningSummary.active_count)}`, payload.planningSummary.top_group_summary ?? "No active planning groups")}
-      ${metricCard("Review needed", `${formatCount(payload.planningSummary.review_needed_count)}`, payload.planningSummary.top_review_needed_summary ?? "No hygiene review needed")}
-      ${metricCard("Closed in 30d", `${formatCount(payload.planningSummary.closed_last_30d)}`, payload.planningSummary.top_closure_summary ?? "No recent closure summary")}
+      ${metricCard("Open recommendations", `${formatCount(payload.planningSummary.open_count)}`, topBacklogSummary)}
+      ${metricCard("Review needed", `${formatCount(payload.planningSummary.review_needed_count)}`, topReviewNeededSummary)}
+      ${metricCard("Closed in 30d", `${formatCount(payload.planningSummary.closed_last_30d)}`, topClosureSummary)}
     </section>
-    <section class="columns">
+    <section class="columns columns--wide-right">
       <div class="list-card">
-        <h3>Planning groups</h3>
+        <h3>Next action and groups</h3>
         <div class="list">
-          ${payload.planningGroups.length === 0 ? `<div class="empty">No planning groups are currently open.</div>` : payload.planningGroups
-            .map(
-              (group) => `
-              <article class="list-item">
-                <div class="list-item__top">
-                  <h4>${escapeHtml(group.group_summary)}</h4>
-                  <span class="pill">${escapeHtml(String(group.pending_count))} open</span>
-                </div>
-                <p>${escapeHtml(group.top_rank_reason)}</p>
-                <div class="list-item__actions">
-                  <code class="code">${escapeHtml(`personal-ops recommendation group ${group.group_key}`)}</code>
-                  <button class="copy-button" data-copy="${escapeHtml(`personal-ops recommendation group ${group.group_key}`)}" type="button">Copy command</button>
-                </div>
-              </article>`,
-            )
-            .join("")}
+          ${
+            next
+              ? `
+                <article class="list-item${selectedClass(next.recommendation_id === state.selectedPlanningRecommendationId)}">
+                  <div class="list-item__top">
+                    <h4>${escapeHtml(maybe(next.proposed_title, "untitled"))}</h4>
+                    <span class="pill">${escapeHtml(next.status)}</span>
+                  </div>
+                  <p>${escapeHtml(next.reason_summary)}</p>
+                  <div class="list-item__actions">
+                    <button class="button button--primary" data-planning-recommendation="${escapeHtml(next.recommendation_id)}" type="button">Inspect recommendation</button>
+                    <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(next.recommendation_id))}" type="button">Copy CLI command</button>
+                  </div>
+                </article>
+              `
+              : `<div class="empty">No next planning recommendation is currently available.</div>`
+          }
+          ${
+            payload.planningGroups.length === 0
+              ? `<div class="empty">No planning groups are currently open.</div>`
+              : payload.planningGroups
+                  .map(
+                    (group) => `
+                      <article class="list-item${selectedClass(group.group_key === state.selectedPlanningGroupKey)}">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(group.group_summary)}</h4>
+                          <span class="pill">${escapeHtml(String(group.pending_count))} open</span>
+                        </div>
+                        <p>${escapeHtml(group.top_rank_reason ?? "Open the group for details and group-wide actions.")}</p>
+                        <div class="list-item__actions">
+                          <button class="button" data-planning-group="${escapeHtml(group.group_key)}" type="button">Inspect group</button>
+                          <button class="copy-button" data-copy="${escapeHtml(recommendationGroupShowCommand(group.group_key))}" type="button">Copy CLI command</button>
+                        </div>
+                      </article>
+                    `,
+                  )
+                  .join("")
+          }
         </div>
       </div>
-      <div class="detail-card">
-        <h3>Next recommended action</h3>
-        ${
-          !next
-            ? `<div class="empty">No next planning recommendation is currently available.</div>`
-            : `
-              <p>${escapeHtml(next.reason_summary)}</p>
-              <div class="detail-list" style="margin-top: 14px;">
-                <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(next.proposed_title ?? "untitled")}</dd></div>
-                <div class="detail-row"><dt>Window</dt><dd>${escapeHtml(`${formatTime(next.proposed_start_at)} to ${formatTime(next.proposed_end_at)}`)}</dd></div>
-                <div class="detail-row"><dt>Priority</dt><dd>${escapeHtml(next.priority)}</dd></div>
-              </div>
-              <div class="list-item__actions" style="margin-top: 14px;">
-                <code class="code">${escapeHtml(`personal-ops recommendation next`)}</code>
-                <button class="copy-button" data-copy="personal-ops recommendation next" type="button">Copy command</button>
-              </div>
-            `
-        }
+      <div class="detail-stack">
+        <section class="detail-card">
+          <h3>Selected recommendation</h3>
+          ${renderPlanningRecommendationDetail(state.planningRecommendationDetail)}
+        </section>
+        <section class="detail-card">
+          <h3>Selected group</h3>
+          ${renderPlanningGroupDetail(state.planningGroupDetail)}
+        </section>
       </div>
     </section>
   `;
@@ -454,7 +1145,7 @@ function renderAudit(payload: ConsolePayload): string {
   return `
     <section class="panel">
       <div class="filter-row">
-        <label>
+        <label class="field field--compact">
           <span class="eyebrow">Category</span>
           <select id="audit-category">
             <option value="">All supported categories</option>
@@ -464,7 +1155,7 @@ function renderAudit(payload: ConsolePayload): string {
             <option value="planning" ${state.auditCategory === "planning" ? "selected" : ""}>planning</option>
           </select>
         </label>
-        <label>
+        <label class="field field--compact">
           <span class="eyebrow">Limit</span>
           <input id="audit-limit" type="number" min="1" max="200" value="${escapeHtml(String(state.auditLimit))}" />
         </label>
@@ -478,14 +1169,15 @@ function renderAudit(payload: ConsolePayload): string {
           : payload.audit
               .map(
                 (event) => `
-            <article class="list-item">
-              <div class="list-item__top">
-                <h4>${escapeHtml(event.action)}</h4>
-                <span class="${formatSeverity(event.metadata_redacted ? "warn" : "pass")}">${escapeHtml(event.assistant_safe_category ?? "operator")}</span>
-              </div>
-              <p>${escapeHtml(event.summary ?? `${event.target_type} ${event.target_id}`)}</p>
-              <p class="subtle">${escapeHtml(formatTime(event.timestamp))}</p>
-            </article>`,
+                  <article class="list-item">
+                    <div class="list-item__top">
+                      <h4>${escapeHtml(event.action)}</h4>
+                      <span class="${formatSeverity(event.metadata_redacted ? "warn" : "pass")}">${escapeHtml(event.assistant_safe_category ?? "operator")}</span>
+                    </div>
+                    <p>${escapeHtml(event.summary ?? `${event.target_type} ${event.target_id}`)}</p>
+                    <p class="subtle subtle--body">${escapeHtml(formatTime(event.timestamp))}</p>
+                  </article>
+                `,
               )
               .join("")
       }
@@ -494,11 +1186,17 @@ function renderAudit(payload: ConsolePayload): string {
 }
 
 function renderBackups(payload: ConsolePayload): string {
-  const detail = payload.snapshotInspection;
+  const detail = state.snapshotInspection;
   return `
     <section class="columns">
       <div class="list-card">
-        <h3>Snapshots</h3>
+        <div class="card-toolbar">
+          <div>
+            <h3>Snapshots</h3>
+            <p class="subtle subtle--body">Create a fresh recovery point here. Restore stays CLI-only.</p>
+          </div>
+          <button class="button button--primary" data-create-snapshot="1" type="button">Create snapshot</button>
+        </div>
         <div class="list">
           ${
             payload.snapshots.length === 0
@@ -506,17 +1204,18 @@ function renderBackups(payload: ConsolePayload): string {
               : payload.snapshots
                   .map(
                     (snapshot) => `
-                  <article class="list-item">
-                    <div class="list-item__top">
-                      <h4>${escapeHtml(snapshot.snapshot_id)}</h4>
-                      <span class="pill">${escapeHtml(snapshot.daemon_state)}</span>
-                    </div>
-                    <p>${escapeHtml(formatTime(snapshot.created_at))}</p>
-                    <div class="list-item__actions">
-                      <button class="button" data-snapshot="${escapeHtml(snapshot.snapshot_id)}" type="button">Inspect</button>
-                      <button class="copy-button" data-copy="${escapeHtml(`personal-ops backup inspect ${snapshot.snapshot_id}`)}" type="button">Copy inspect command</button>
-                    </div>
-                  </article>`,
+                      <article class="list-item${selectedClass(snapshot.snapshot_id === state.selectedSnapshotId)}">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(snapshot.snapshot_id)}</h4>
+                          <span class="pill">${escapeHtml(snapshot.daemon_state)}</span>
+                        </div>
+                        <p>${escapeHtml(formatTime(snapshot.created_at))}</p>
+                        <div class="list-item__actions">
+                          <button class="button" data-snapshot="${escapeHtml(snapshot.snapshot_id)}" type="button">Inspect</button>
+                          <button class="copy-button" data-copy="${escapeHtml(`personal-ops backup inspect ${snapshot.snapshot_id}`)}" type="button">Copy inspect command</button>
+                        </div>
+                      </article>
+                    `,
                   )
                   .join("")
           }
@@ -526,18 +1225,20 @@ function renderBackups(payload: ConsolePayload): string {
         <h3>Selected snapshot</h3>
         ${
           !detail
-            ? `<div class="empty">Choose a snapshot to inspect its provenance and recovery guidance.</div>`
+            ? `<div class="empty">Choose a snapshot to inspect its provenance and CLI restore guidance.</div>`
             : `
               <div class="detail-list">
                 <div class="detail-row"><dt>Snapshot id</dt><dd>${escapeHtml(detail.manifest.snapshot_id)}</dd></div>
                 <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(detail.manifest.created_at))}</dd></div>
                 <div class="detail-row"><dt>Schema</dt><dd>${escapeHtml(String(detail.manifest.schema_version ?? "legacy"))}</dd></div>
-                <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(detail.manifest.source_machine ? `${detail.manifest.source_machine.machine_label} (${detail.manifest.source_machine.machine_id.slice(0, 8)})` : "legacy snapshot with unknown provenance")}</dd></div>
+                <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(detail.manifest.source_machine ? `${detail.manifest.source_machine.machine_label} (${truncateId(detail.manifest.source_machine.machine_id)})` : "legacy snapshot with unknown provenance")}</dd></div>
               </div>
-              <p style="margin-top: 14px;">Restore stays in the CLI. Cross-machine restore requires <span class="code">--allow-cross-machine</span> and does not merge state.</p>
-              <div class="list-item__actions" style="margin-top: 14px;">
-                <code class="code">${escapeHtml(`personal-ops backup inspect ${detail.manifest.snapshot_id}`)}</code>
-                <button class="copy-button" data-copy="${escapeHtml(`personal-ops backup inspect ${detail.manifest.snapshot_id}`)}" type="button">Copy command</button>
+              <p class="subtle subtle--body">Restore stays in the CLI. Cross-machine restore requires <span class="code">--allow-cross-machine</span> and does not merge state.</p>
+              <div class="list-item__actions list-item__actions--stack">
+                ${commandStack([
+                  `personal-ops backup inspect ${detail.manifest.snapshot_id}`,
+                  `personal-ops backup restore ${detail.manifest.snapshot_id} --yes`,
+                ])}
               </div>
             `
         }
@@ -581,23 +1282,30 @@ function render(): void {
     return;
   }
   const payload = state.payload;
-  const warning =
-    payload.status.machine.state_origin === "restored_cross_machine"
-      ? "This machine is operating on state restored from a different machine. Re-run local auth checks before trusting live provider access."
-      : payload.status.machine.state_origin === "unknown_legacy_restore"
-        ? "This state came from a legacy snapshot without machine provenance. Treat restore history as unknown until revalidated locally."
-        : null;
-  renderBanner(warning ?? (state.lockedHint ? "This page can show a locked state after an expired launch link. Re-run `personal-ops console` if needed." : null));
-  requiredContent.innerHTML = renderCurrentSection(payload);
-}
-
-async function fetchAudit(limit: number, category: AuditEventCategory | ""): Promise<AuditResponse> {
-  const query = new URLSearchParams();
-  query.set("limit", String(limit));
-  if (category) {
-    query.set("category", category);
+  const cards: Array<{ message: string; tone: BannerTone }> = [];
+  if (state.flash) {
+    cards.push(state.flash);
   }
-  return fetchJson<AuditResponse>(`/v1/audit/events?${query.toString()}`);
+  if (payload.status.machine.state_origin === "restored_cross_machine") {
+    cards.push({
+      message:
+        "This machine is operating on state restored from a different machine. Re-run local auth checks before trusting live provider access.",
+      tone: "warn",
+    });
+  } else if (payload.status.machine.state_origin === "unknown_legacy_restore") {
+    cards.push({
+      message:
+        "This state came from a legacy snapshot without machine provenance. Treat restore history as unknown until revalidated locally.",
+      tone: "warn",
+    });
+  } else if (state.lockedHint) {
+    cards.push({
+      message: "This page can show a locked state after an expired launch link. Re-run `personal-ops console` if needed.",
+      tone: "warn",
+    });
+  }
+  renderBannerCards(cards);
+  requiredContent.innerHTML = renderCurrentSection(payload);
 }
 
 async function refreshAll(): Promise<void> {
@@ -605,13 +1313,17 @@ async function refreshAll(): Promise<void> {
   render();
   try {
     state.payload = await loadPayload();
+    resolveSelections(state.payload);
+    await loadSelectedDetails();
     render();
   } catch (error) {
     if (error instanceof SessionLockedError) {
       renderLocked();
       return;
     }
-    renderBanner(error instanceof Error ? error.message : String(error), "critical");
+    renderBannerCards([
+      { message: error instanceof Error ? error.message : String(error), tone: "critical" },
+    ]);
     requiredContent.innerHTML = `<section class="empty">The console could not load local data. Run <span class="code">personal-ops doctor</span> and refresh this page.</section>`;
   }
 }
@@ -629,25 +1341,231 @@ async function refreshAuditOnly(): Promise<void> {
       renderLocked();
       return;
     }
-    renderBanner(error instanceof Error ? error.message : String(error), "critical");
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
   }
 }
 
-async function loadSnapshotInspection(snapshotId: string): Promise<void> {
-  if (!state.payload) {
-    return;
-  }
+async function selectSnapshot(snapshotId: string): Promise<void> {
+  state.selectedSnapshotId = snapshotId;
+  state.section = "backups";
   try {
-    const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(snapshotId)}`);
-    state.payload.snapshotInspection = response.snapshot;
-    state.section = "backups";
+    await loadSelectedSnapshotInspection();
     render();
   } catch (error) {
     if (error instanceof SessionLockedError) {
       renderLocked();
       return;
     }
-    renderBanner(error instanceof Error ? error.message : String(error), "critical");
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+async function selectApproval(approvalId: string): Promise<void> {
+  state.selectedApprovalId = approvalId;
+  state.section = "approvals";
+  try {
+    await loadSelectedApprovalDetail();
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+async function selectPlanningRecommendation(recommendationId: string): Promise<void> {
+  state.selectedPlanningRecommendationId = recommendationId;
+  state.section = "planning";
+  try {
+    await loadSelectedPlanningRecommendationDetail();
+    if (state.planningRecommendationDetail?.recommendation.group_key) {
+      state.selectedPlanningGroupKey = state.planningRecommendationDetail.recommendation.group_key;
+      await loadSelectedPlanningGroupDetail();
+    }
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+async function selectPlanningGroup(groupKey: string): Promise<void> {
+  state.selectedPlanningGroupKey = groupKey;
+  state.section = "planning";
+  try {
+    await loadSelectedPlanningGroupDetail();
+    const nextRecommendationId = state.planningGroupDetail?.next_actionable_recommendation?.recommendation_id;
+    if (nextRecommendationId) {
+      state.selectedPlanningRecommendationId = nextRecommendationId;
+      await loadSelectedPlanningRecommendationDetail();
+    }
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+async function selectWorklistItem(itemId: string): Promise<void> {
+  state.selectedWorklistItemId = itemId;
+  state.section = "worklist";
+  try {
+    await loadSelectedWorklistDetail();
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+function requireValue(selector: string, message: string): string {
+  const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
+  const value = input?.value.trim() ?? "";
+  if (!value) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+async function createSnapshotFromConsole(): Promise<void> {
+  if (!confirm("Create a fresh recovery snapshot now? Restore still stays in the CLI.")) {
+    return;
+  }
+  try {
+    const response = await postJson<SnapshotCreateResponse>("/v1/snapshots", {});
+    state.selectedSnapshotId = response.snapshot.snapshot_id;
+    state.section = "backups";
+    setFlash(`Created snapshot ${response.snapshot.snapshot_id}.`, "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run personal-ops backup create if you need to retry from the CLI.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function performPlanningAction(action: "apply" | "snooze" | "reject"): Promise<void> {
+  const recommendationId = state.selectedPlanningRecommendationId;
+  if (!recommendationId) {
+    setFlash("Choose a recommendation before running a planning action.", "warn");
+    render();
+    return;
+  }
+  try {
+    let requestPath = "";
+    let body: Record<string, string> = {};
+    let confirmation = "";
+    if (action === "apply") {
+      body = { note: requireValue("#planning-apply-note", "Add a note before applying this recommendation.") };
+      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/apply`;
+      confirmation = "Apply this recommendation now? This will create the underlying work.";
+    } else if (action === "snooze") {
+      body = {
+        preset: requireValue("#planning-snooze-preset", "Choose a snooze preset."),
+        note: requireValue("#planning-snooze-note", "Add a note before snoozing this recommendation."),
+      };
+      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/snooze`;
+      confirmation = "Snooze this recommendation using the selected preset?";
+    } else {
+      const reason = document.querySelector<HTMLSelectElement>("#planning-reject-reason")?.value.trim() ?? "";
+      body = { note: requireValue("#planning-reject-note", "Add a note before rejecting this recommendation.") };
+      if (reason) {
+        body.reason_code = reason;
+      }
+      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/reject`;
+      confirmation = "Reject this recommendation? This will close it from the active queue.";
+    }
+    if (!confirm(confirmation)) {
+      return;
+    }
+    await postJson<PlanningRecommendationDetailResponse>(requestPath, body);
+    setFlash(
+      action === "apply"
+        ? "Recommendation applied."
+        : action === "snooze"
+          ? "Recommendation snoozed."
+          : "Recommendation rejected.",
+      "good",
+    );
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run ${recommendationShowCommand(recommendationId)} for the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function performPlanningGroupAction(action: "snooze" | "reject"): Promise<void> {
+  const groupKey = state.selectedPlanningGroupKey;
+  if (!groupKey) {
+    setFlash("Choose a planning group before running a group action.", "warn");
+    render();
+    return;
+  }
+  try {
+    let requestPath = "";
+    let body: Record<string, string> = {};
+    let confirmation = "";
+    if (action === "snooze") {
+      body = {
+        preset: requireValue("#planning-group-snooze-preset", "Choose a group snooze preset."),
+        note: requireValue("#planning-group-snooze-note", "Add a note before snoozing this group."),
+      };
+      requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/snooze`;
+      confirmation = "Snooze every pending recommendation in this group?";
+    } else {
+      body = {
+        reason_code: requireValue("#planning-group-reject-reason", "Choose a group reject reason."),
+        note: requireValue("#planning-group-reject-note", "Add a note before rejecting this group."),
+      };
+      requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/reject`;
+      confirmation = "Reject every pending recommendation in this group?";
+    }
+    if (!confirm(confirmation)) {
+      return;
+    }
+    await postJson<PlanningRecommendationGroupDetailResponse>(requestPath, body);
+    setFlash(action === "snooze" ? "Planning group snoozed." : "Planning group rejected.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run ${recommendationGroupShowCommand(groupKey)} for the CLI path.`,
+      "critical",
+    );
+    render();
   }
 }
 
@@ -663,17 +1581,107 @@ document.addEventListener("click", async (event) => {
     render();
     return;
   }
+
   const copyButton = target.closest<HTMLButtonElement>("[data-copy]");
   if (copyButton?.dataset.copy) {
     await navigator.clipboard.writeText(copyButton.dataset.copy);
-    renderBanner("Command copied to the clipboard.");
+    setFlash("Command copied to the clipboard.", "good");
+    render();
     return;
   }
+
+  const sectionButton = target.closest<HTMLButtonElement>("[data-section-link]");
+  if (sectionButton?.dataset.sectionLink) {
+    state.section = sectionButton.dataset.sectionLink as SectionId;
+    location.hash = state.section;
+    render();
+    return;
+  }
+
   const snapshotButton = target.closest<HTMLButtonElement>("[data-snapshot]");
   if (snapshotButton?.dataset.snapshot) {
-    await loadSnapshotInspection(snapshotButton.dataset.snapshot);
+    await selectSnapshot(snapshotButton.dataset.snapshot);
     return;
   }
+
+  const approvalButton = target.closest<HTMLButtonElement>("[data-approval]");
+  if (approvalButton?.dataset.approval) {
+    await selectApproval(approvalButton.dataset.approval);
+    return;
+  }
+
+  const planningButton = target.closest<HTMLButtonElement>("[data-planning-recommendation]");
+  if (planningButton?.dataset.planningRecommendation) {
+    await selectPlanningRecommendation(planningButton.dataset.planningRecommendation);
+    return;
+  }
+
+  const planningGroupButton = target.closest<HTMLButtonElement>("[data-planning-group]");
+  if (planningGroupButton?.dataset.planningGroup) {
+    await selectPlanningGroup(planningGroupButton.dataset.planningGroup);
+    return;
+  }
+
+  const worklistButton = target.closest<HTMLButtonElement>("[data-worklist-item]");
+  if (worklistButton?.dataset.worklistItem) {
+    await selectWorklistItem(worklistButton.dataset.worklistItem);
+    return;
+  }
+
+  const openPlanningButton = target.closest<HTMLButtonElement>("[data-open-planning]");
+  if (openPlanningButton?.dataset.openPlanning) {
+    await selectPlanningRecommendation(openPlanningButton.dataset.openPlanning);
+    return;
+  }
+
+  const openPlanningGroupButton = target.closest<HTMLButtonElement>("[data-open-planning-group]");
+  if (openPlanningGroupButton?.dataset.openPlanningGroup) {
+    await selectPlanningGroup(openPlanningGroupButton.dataset.openPlanningGroup);
+    return;
+  }
+
+  const openApprovalButton = target.closest<HTMLButtonElement>("[data-open-approval]");
+  if (openApprovalButton?.dataset.openApproval) {
+    await selectApproval(openApprovalButton.dataset.openApproval);
+    return;
+  }
+
+  const openSnapshotButton = target.closest<HTMLButtonElement>("[data-open-snapshot]");
+  if (openSnapshotButton?.dataset.openSnapshot) {
+    await selectSnapshot(openSnapshotButton.dataset.openSnapshot);
+    return;
+  }
+
+  const createSnapshotButton = target.closest<HTMLButtonElement>("[data-create-snapshot]");
+  if (createSnapshotButton) {
+    await createSnapshotFromConsole();
+    return;
+  }
+
+  const planningActionButton = target.closest<HTMLButtonElement>("[data-planning-action]");
+  if (planningActionButton?.dataset.planningAction === "apply") {
+    await performPlanningAction("apply");
+    return;
+  }
+  if (planningActionButton?.dataset.planningAction === "snooze") {
+    await performPlanningAction("snooze");
+    return;
+  }
+  if (planningActionButton?.dataset.planningAction === "reject") {
+    await performPlanningAction("reject");
+    return;
+  }
+
+  const planningGroupActionButton = target.closest<HTMLButtonElement>("[data-planning-group-action]");
+  if (planningGroupActionButton?.dataset.planningGroupAction === "snooze") {
+    await performPlanningGroupAction("snooze");
+    return;
+  }
+  if (planningGroupActionButton?.dataset.planningGroupAction === "reject") {
+    await performPlanningGroupAction("reject");
+    return;
+  }
+
   if (target.id === "audit-refresh") {
     const category = document.querySelector<HTMLSelectElement>("#audit-category");
     const limit = document.querySelector<HTMLInputElement>("#audit-limit");

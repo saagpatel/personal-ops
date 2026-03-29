@@ -758,8 +758,16 @@ export async function runConsoleVerification(): Promise<void> {
       await verifyLaunchAgentLoaded(env);
       await stopLaunchAgentIfPresent(env);
     }
-    seedFixtureState(env.paths);
     daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "console daemon wrapper");
+    const requestJson = createHttpClient(env.config);
+    await requestJson("POST", "/v1/tasks", {
+      title: "Console verification task",
+      kind: "human_reminder",
+      priority: "high",
+      owner: "operator",
+      due_at: new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString(),
+    });
+    await requestJson("POST", "/v1/planning-recommendations/refresh", {});
     await createSnapshotViaHttp(env);
 
     const consoleCommand = await runCommand("console print url", wrapperPaths(env).cli, ["console", "--print-url"], {
@@ -771,38 +779,95 @@ export async function runConsoleVerification(): Promise<void> {
 
     const browser = await chromium.launch();
     try {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      await page.goto(launchUrl, { waitUntil: "networkidle" });
-      await page.waitForSelector("text=Local read-first console");
-      await page.waitForSelector("text=Top-level readiness");
-      await page.waitForFunction(() => {
+      const snapshotContext = await browser.newContext();
+      const snapshotPage = await snapshotContext.newPage();
+      snapshotPage.on("dialog", async (dialog) => {
+        await dialog.accept();
+      });
+      await snapshotPage.goto(launchUrl, { waitUntil: "networkidle" });
+      await snapshotPage.waitForSelector("text=Local operator console");
+      await snapshotPage.waitForSelector("text=Top-level readiness");
+      await snapshotPage.waitForFunction(() => {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
       });
       for (const sectionName of ["Worklist", "Approvals", "Drafts", "Planning", "Audit", "Backups", "Overview"]) {
-        await page.getByRole("button", { name: sectionName }).click();
-        await page.waitForFunction(
+        await snapshotPage.locator(".nav").getByRole("button", { name: sectionName, exact: true }).click();
+        await snapshotPage.waitForFunction(
           (expected) => document.querySelector("#section-title")?.textContent === expected,
           sectionName,
         );
       }
-      await page.getByRole("button", { name: "Backups" }).click();
-      await page.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Backups");
-      await page.waitForSelector(`text=${new Date().getUTCFullYear()}`);
-      await page.waitForSelector("text=Source machine");
+      await snapshotPage.locator(".nav").getByRole("button", { name: "Backups", exact: true }).click();
+      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Backups");
+      await snapshotPage.waitForSelector(`text=${new Date().getUTCFullYear()}`);
+      await snapshotPage.waitForSelector("text=Source machine");
+      await snapshotPage.getByRole("button", { name: "Create snapshot" }).click();
+      await snapshotPage.waitForSelector("text=Created snapshot");
+      await snapshotContext.close();
+
+      const planningConsoleCommand = await runCommand(
+        "console print url planning",
+        wrapperPaths(env).cli,
+        ["console", "--print-url"],
+        {
+          cwd: env.repoRoot,
+          env: env.env,
+        },
+      );
+      const planningLaunchUrl = planningConsoleCommand.stdout.trim();
+      assert.match(planningLaunchUrl, /^http:\/\/127\.0\.0\.1:\d+\/console\/session\//);
+
+      const planningContext = await browser.newContext();
+      const planningPage = await planningContext.newPage();
+      planningPage.on("dialog", async (dialog) => {
+        await dialog.accept();
+      });
+      await planningPage.goto(planningLaunchUrl, { waitUntil: "networkidle" });
+      await planningPage.locator(".nav").getByRole("button", { name: "Planning", exact: true }).click();
+      await planningPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Planning");
+      await planningPage.waitForFunction(() => {
+        const bodyText = document.body.textContent ?? "";
+        return bodyText.includes("Open recommendations") && !bodyText.includes("NaN");
+      });
+      await planningPage.waitForSelector("#planning-snooze-note");
+      await planningPage.evaluate(() => {
+        const note = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note");
+        if (!note) {
+          throw new Error("planning snooze note field is missing.");
+        }
+        note.value = "Console verification snooze";
+        note.dispatchEvent(new Event("input", { bubbles: true }));
+        note.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await planningPage.getByRole("button", { name: "Snooze recommendation", exact: true }).click();
+      await planningPage.waitForTimeout(1_500);
+      const planningBody = await planningPage.locator("body").innerText();
+      assert.match(
+        planningBody,
+        /Recommendation snoozed\.|Status\s+snoozed/,
+        "console planning action should update the visible planning state.",
+      );
+
+      await planningPage.locator(".nav").getByRole("button", { name: "Approvals", exact: true }).click();
+      await planningPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Approvals");
+      await planningPage.waitForFunction(() => {
+        const bodyText = document.body.textContent ?? "";
+        return (
+          (bodyText.includes("This section is intentionally read-only.") && bodyText.includes("personal-ops approval approve")) ||
+          bodyText.includes("Approvals, approval decisions, and send stay in the CLI.")
+        );
+      });
+      await planningContext.close();
 
       const lockedContext = await browser.newContext();
       const lockedPage = await lockedContext.newPage();
       await lockedPage.goto(`http://${env.config.serviceHost}:${env.config.servicePort}/console`, {
         waitUntil: "networkidle",
       });
-      await lockedPage.waitForFunction(() => {
-        const bodyText = document.body.textContent ?? "";
-        return bodyText.includes("Console locked") && bodyText.includes("personal-ops console");
-      });
+      await lockedPage.waitForSelector("text=Console locked");
+      await lockedPage.waitForSelector("text=personal-ops console");
       await lockedContext.close();
-      await context.close();
     } finally {
       await browser.close();
     }

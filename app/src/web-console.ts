@@ -75,23 +75,38 @@ export class WebConsoleSessionStore {
 }
 
 export function isConsoleBrowserRoute(method: string, pathname: string): boolean {
-  if (method !== "GET") {
-    return false;
+  if (method === "GET") {
+    return (
+      pathname === "/v1/status" ||
+      pathname === "/v1/worklist" ||
+      pathname === "/v1/doctor" ||
+      pathname === "/v1/approval-queue" ||
+      pathname.startsWith("/v1/approval-queue/") ||
+      pathname === "/v1/mail/drafts" ||
+      pathname === "/v1/planning-recommendations/summary" ||
+      pathname === "/v1/planning-recommendations/next" ||
+      pathname.startsWith("/v1/planning-recommendations/") ||
+      pathname === "/v1/planning-recommendation-groups" ||
+      pathname.startsWith("/v1/planning-recommendation-groups/") ||
+      pathname.startsWith("/v1/tasks/") ||
+      pathname.startsWith("/v1/inbox/threads/") ||
+      pathname === "/v1/audit/events" ||
+      pathname === "/v1/snapshots" ||
+      pathname.startsWith("/v1/snapshots/")
+    );
   }
-  return (
-    pathname === "/v1/status" ||
-    pathname === "/v1/worklist" ||
-    pathname === "/v1/doctor" ||
-    pathname === "/v1/approval-queue" ||
-    pathname.startsWith("/v1/approval-queue/") ||
-    pathname === "/v1/mail/drafts" ||
-    pathname === "/v1/planning-recommendations/summary" ||
-    pathname === "/v1/planning-recommendations/next" ||
-    pathname === "/v1/planning-recommendation-groups" ||
-    pathname === "/v1/audit/events" ||
-    pathname === "/v1/snapshots" ||
-    pathname.startsWith("/v1/snapshots/")
-  );
+
+  if (method === "POST") {
+    return (
+      pathname === "/v1/snapshots" ||
+      (/^\/v1\/planning-recommendations\/[^/]+\/(apply|snooze|reject)$/.test(pathname) &&
+        !pathname.includes("/hygiene/") &&
+        !pathname.includes("/policy/")) ||
+      /^\/v1\/planning-recommendation-groups\/[^/]+\/(snooze|reject)$/.test(pathname)
+    );
+  }
+
+  return false;
 }
 
 function candidateAppDirs(): string[] {
