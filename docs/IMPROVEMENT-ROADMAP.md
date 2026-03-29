@@ -10,7 +10,7 @@
 - supported audit categories of `sync`, `task`, `task_suggestion`, and `planning`
 - operator-controlled trust boundaries for risky or external mutation flows
 
-The current roadmap starts after that completed program. It focuses on productization, maintainability, confidence, operator experience, documentation layering, secrets resilience, multi-machine strategy, and a future operator console.
+The current roadmap starts after that completed program. It focuses on productization, maintainability, confidence, operator experience, documentation layering, secrets resilience, multi-machine strategy, and the local operator console.
 
 ## Phase Ledger
 
@@ -23,7 +23,7 @@ The current roadmap starts after that completed program. It focuses on productiz
 | 5 | Create Better Documentation Layers | Add stronger onboarding, operations, and architecture docs | Completed | `docs/PHASE-5-PLAN.md`, `docs/PHASE-5-ROLLOUT.md` |
 | 6 | Strengthen Secrets and Safety Operations | Improve secret bootstrap, validation, recovery, and rotation guidance | Completed | `docs/PHASE-6-PLAN.md`, `docs/PHASE-6-ROLLOUT.md` |
 | 7 | Decide the Multi-Machine Strategy | Make machine ownership and portability intentional instead of accidental | Completed | `docs/PHASE-7-PLAN.md`, `docs/PHASE-7-ROLLOUT.md` |
-| 8 | Build a Lightweight Operator Console | Add a local web console on top of the stable backend surfaces | Planned | `docs/PHASE-8-PLAN.md` |
+| 8 | Build a Lightweight Operator Console | Add a local web console on top of the stable backend surfaces | Completed | `docs/PHASE-8-PLAN.md`, `docs/PHASE-8-ROLLOUT.md` |
 
 ## Phase 1
 
@@ -116,7 +116,7 @@ Phase 7 completed the machine-ownership decision:
 
 ## Phase 8
 
-Phase 8 should add a lightweight operator console backed by the existing local HTTP API:
+Phase 8 completed the first local operator console backed by the existing local HTTP API:
 
 - status
 - worklist
@@ -125,12 +125,14 @@ Phase 8 should add a lightweight operator console backed by the existing local H
 - audit
 - planning
 - backup and restore
+- local browser session access via `personal-ops console`
+- read-first browser behavior that keeps CLI as the high-trust mutation path
 
 ## Current Working Memory
 
 ### Current Goal
 
-Phase 7 is complete. The repo now has an explicit machine-ownership model on top of the verified baseline, and the next improvement target is Phase 8 operator console work.
+Phase 8 is complete. The repo now has a read-first local operator console on top of the Phase 1 to 7 foundation.
 
 ### Guardrails
 
@@ -153,6 +155,7 @@ Phase 7 is complete. The repo now has an explicit machine-ownership model on top
 - Phase 5 added the new primary onboarding and reference docs without changing behavior contracts
 - Phase 6 improved secret bootstrap, validation, Keychain diagnostics, and auth recovery guidance without widening permissions
 - Phase 7 made the machine model explicit: single primary machine, backup-based portability, and explicit cross-machine restore guardrails
+- Phase 8 added a same-origin local operator console with a read-only browser session model and browser-aware verification
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
 
 ### Required End-of-Phase Verification
@@ -161,6 +164,7 @@ Phase 7 is complete. The repo now has an explicit machine-ownership model on top
 - `npm test`
 - `npm run verify:smoke`
 - `npm run verify:full`
+- `npm run verify:console`
 - real-machine sanity pass over install check, status, worklist, doctor, and backup create when the phase touches operator-facing stack behavior
 
 ### Preserve Across Compaction
@@ -176,6 +180,7 @@ Phase 7 is complete. The repo now has an explicit machine-ownership model on top
 - Phase 6 completed the conservative secrets-and-safety hardening pass with stronger auth diagnostics and docs
 - Phase 6 also made snapshot ids collision-safe after a closeout-discovered restore edge
 - Phase 7 completed the explicit single-primary-machine strategy and cross-machine restore guardrails
+- Phase 8 completed the first read-first operator console with local browser sessions and Playwright-backed verification
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule

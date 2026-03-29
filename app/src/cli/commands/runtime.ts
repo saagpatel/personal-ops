@@ -10,6 +10,18 @@ import {
 import type { Logger } from "../../logger.js";
 import type { CliContext } from "../shared.js";
 
+function openUrl(url: string): void {
+  if (process.platform === "darwin") {
+    execFileSync("open", [url]);
+    return;
+  }
+  if (process.platform === "win32") {
+    execFileSync("cmd", ["/c", "start", "", url]);
+    return;
+  }
+  execFileSync("xdg-open", [url]);
+}
+
 export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger) {
   program
     .command("notify")
@@ -23,6 +35,22 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
       ]);
       logger.info("notify_test");
       process.stdout.write("Notification sent.\n");
+    });
+
+  program
+    .command("console")
+    .description("Open the local read-first operator console in the default browser.")
+    .option("--print-url", "Print the console launch URL instead of opening the browser")
+    .action(async (options) => {
+      const response = await context.requestJson<{ console_session: { launch_url: string } }>("POST", "/v1/web/session-grants");
+      const launchUrl = response.console_session.launch_url;
+      if (options.printUrl) {
+        process.stdout.write(`${launchUrl}\n`);
+        return;
+      }
+      openUrl(launchUrl);
+      logger.info("console_opened", { launch_url: launchUrl });
+      process.stdout.write(`Opened operator console: ${launchUrl}\n`);
     });
 
   program

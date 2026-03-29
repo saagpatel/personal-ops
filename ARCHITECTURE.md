@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-This document describes the current `personal-ops` system shape after Phases 1 to 7.
+This document describes the current `personal-ops` system shape after Phases 1 to 8.
 
 ## Purpose
 
@@ -22,6 +22,7 @@ Main runtime pieces:
 - local SQLite database
 - local config and policy files
 - operator CLI
+- local operator console
 - local HTTP API
 - MCP bridge for assistants
 - generated wrappers
@@ -32,8 +33,10 @@ Main runtime pieces:
 ```mermaid
 flowchart LR
   operator["Operator"] --> cli["CLI / wrappers"]
+  operator --> console["Browser console"]
   assistants["Assistants (Codex, Claude)"] --> mcp["MCP bridge"]
   cli --> service["personal-ops daemon"]
+  console --> service
   mcp --> service
   service --> db["Local SQLite state"]
   service --> config["Local config / policy / tokens / logs"]
@@ -91,13 +94,28 @@ Recent operator-focused entrypoints:
 
 ### Local HTTP API
 
-The local HTTP API is the stable machine-readable surface used by the CLI and other local clients.
+The local HTTP API is the stable machine-readable surface used by the CLI, the local browser console, and other local clients.
 
 It remains:
 
 - local-only
 - token-gated
 - intentionally narrow for audit and governance
+
+Phase 8 adds a same-origin browser session for the console, but it stays read-only and daemon-local.
+
+### Operator console
+
+The operator console is a same-origin local web UI served by the daemon.
+
+It is intentionally read-first in Phase 8:
+
+- status and worklist visibility
+- approvals and drafts inspection
+- planning and audit inspection
+- backup list and provenance inspection
+
+It does not replace the CLI for high-trust or mutating actions.
 
 ### MCP bridge
 
@@ -172,7 +190,7 @@ Use these rules for future changes:
 - architecture or subsystem shape changes
   update `ARCHITECTURE.md` and the active phase docs
 - future operator console work
-  treat the existing local HTTP API as the primary backend surface and document any UI-driven backend changes here
+  keep the existing local HTTP API as the primary backend surface and keep browser-session additions narrow and read-first unless a later track explicitly expands mutation support
 
 ## Related docs
 

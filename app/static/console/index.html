@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Ops Console</title>
+    <link rel="stylesheet" href="/console/assets/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <p class="eyebrow">Personal Ops</p>
+          <h1>Operator Console</h1>
+          <p class="sidebar__copy">A read-first local view of the control plane.</p>
+        </div>
+        <nav class="nav">
+          <button class="nav__item" data-section="overview">Overview</button>
+          <button class="nav__item" data-section="worklist">Worklist</button>
+          <button class="nav__item" data-section="approvals">Approvals</button>
+          <button class="nav__item" data-section="drafts">Drafts</button>
+          <button class="nav__item" data-section="planning">Planning</button>
+          <button class="nav__item" data-section="audit">Audit</button>
+          <button class="nav__item" data-section="backups">Backups</button>
+        </nav>
+        <div class="sidebar__footer">
+          <p>High-trust actions stay in the CLI in Phase 8.</p>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local read-first console</p>
+            <h2 id="section-title">Overview</h2>
+          </div>
+          <div class="topbar__actions">
+            <button id="refresh-button" class="button button--primary" type="button">Refresh</button>
+          </div>
+        </header>
+        <div id="banner" class="banner" aria-live="polite"></div>
+        <section id="content" class="content" aria-live="polite"></section>
+      </main>
+    </div>
+    <script type="module" src="/console/assets/app.js"></script>
+  </body>
+</html>

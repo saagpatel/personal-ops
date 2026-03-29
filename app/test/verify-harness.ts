@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { chromium } from "playwright";
 import { createRequestJson } from "../src/cli/http-client.js";
 import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
@@ -737,6 +738,77 @@ export async function runFullVerification(): Promise<void> {
   } catch (error) {
     throw new Error(
       `Full verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
+    );
+  } finally {
+    await stopDaemonProcess(daemon);
+    if (process.platform === "darwin") {
+      await stopLaunchAgentIfPresent(env);
+    }
+    cleanupEnvironment(env);
+  }
+}
+
+export async function runConsoleVerification(): Promise<void> {
+  const env = await createVerificationEnvironment("console");
+  let daemon: DaemonHandle | null = null;
+  try {
+    await runBootstrap(env);
+    assertBootstrapArtifacts(env);
+    if (process.platform === "darwin") {
+      await verifyLaunchAgentLoaded(env);
+      await stopLaunchAgentIfPresent(env);
+    }
+    seedFixtureState(env.paths);
+    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "console daemon wrapper");
+    await createSnapshotViaHttp(env);
+
+    const consoleCommand = await runCommand("console print url", wrapperPaths(env).cli, ["console", "--print-url"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    const launchUrl = consoleCommand.stdout.trim();
+    assert.match(launchUrl, /^http:\/\/127\.0\.0\.1:\d+\/console\/session\//);
+
+    const browser = await chromium.launch();
+    try {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(launchUrl, { waitUntil: "networkidle" });
+      await page.waitForSelector("text=Local read-first console");
+      await page.waitForSelector("text=Top-level readiness");
+      await page.waitForFunction(() => {
+        const bodyText = document.body.textContent ?? "";
+        return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
+      });
+      for (const sectionName of ["Worklist", "Approvals", "Drafts", "Planning", "Audit", "Backups", "Overview"]) {
+        await page.getByRole("button", { name: sectionName }).click();
+        await page.waitForFunction(
+          (expected) => document.querySelector("#section-title")?.textContent === expected,
+          sectionName,
+        );
+      }
+      await page.getByRole("button", { name: "Backups" }).click();
+      await page.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Backups");
+      await page.waitForSelector(`text=${new Date().getUTCFullYear()}`);
+      await page.waitForSelector("text=Source machine");
+
+      const lockedContext = await browser.newContext();
+      const lockedPage = await lockedContext.newPage();
+      await lockedPage.goto(`http://${env.config.serviceHost}:${env.config.servicePort}/console`, {
+        waitUntil: "networkidle",
+      });
+      await lockedPage.waitForFunction(() => {
+        const bodyText = document.body.textContent ?? "";
+        return bodyText.includes("Console locked") && bodyText.includes("personal-ops console");
+      });
+      await lockedContext.close();
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  } catch (error) {
+    throw new Error(
+      `Console verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
     );
   } finally {
     await stopDaemonProcess(daemon);

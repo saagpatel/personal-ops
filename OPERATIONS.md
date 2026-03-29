@@ -1,6 +1,6 @@
 # OPERATIONS
 
-This is the practical runbook for operating `personal-ops` after Phases 1 to 7.
+This is the practical runbook for operating `personal-ops` after Phases 1 to 8.
 
 Use this document for:
 
@@ -8,6 +8,7 @@ Use this document for:
 - auth and local runtime setup
 - local secret handling and re-auth recovery
 - machine ownership and intentional migration
+- read-first operator console access
 - daily commands
 - backup and restore
 - verification and troubleshooting
@@ -18,6 +19,7 @@ Use this document for:
 
 - a local daemon
 - a local SQLite-backed state directory
+- a same-origin local operator console
 - generated local wrappers for CLI, daemon, and MCP usage
 - a LaunchAgent-managed background runtime on macOS
 
@@ -128,6 +130,8 @@ Use the same mailbox for both login flows. If the signed-in Google account does 
 
 These are the main operator commands after setup:
 
+- `personal-ops console`
+  Opens the local read-first operator console in the browser.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -147,6 +151,42 @@ Other common commands:
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup inspect <snapshotId>`
   Inspects snapshot contents and warnings.
+
+## Operator console
+
+Phase 8 adds a local read-first operator console served by the daemon.
+
+Open it with:
+
+```bash
+personal-ops console
+```
+
+Or print the one-time launch URL without opening the browser:
+
+```bash
+personal-ops console --print-url
+```
+
+Console rules:
+
+- browser access uses a local browser session, not the raw operator API token
+- the session is local-only, daemon-local, and read-only
+- daemon restart clears browser sessions
+- if the browser session expires, rerun `personal-ops console`
+- CLI remains the path for high-trust and mutating actions
+
+Current console sections:
+
+- Overview
+- Worklist
+- Approvals
+- Drafts
+- Planning
+- Audit
+- Backups
+
+The console can inspect state and copy the exact CLI commands for deferred mutation flows, but it does not approve, send, restore, sync, or re-auth in Phase 8.
 
 ## Wrappers and LaunchAgent
 
@@ -246,11 +286,13 @@ npm run typecheck
 npm test
 npm run verify:smoke
 npm run verify:full
+npm run verify:console
 ```
 
 ### Live operator sanity path
 
 ```bash
+personal-ops console --print-url
 personal-ops --help
 personal-ops now
 personal-ops status

@@ -15,8 +15,36 @@ import {
   Policy,
   TaskPriority,
 } from "./types.js";
+import {
+  CONSOLE_SESSION_COOKIE,
+  type ConsoleSessionGrant,
+  WebConsoleSessionStore,
+  isConsoleBrowserRoute,
+  readConsoleAsset,
+  readConsoleShell,
+} from "./web-console.js";
 
 type AuthRole = "operator" | "assistant";
+
+class HttpError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+type RequestAuth =
+  | {
+      role: AuthRole;
+      source: "bearer";
+    }
+  | {
+      role: "operator";
+      source: "browser_session";
+      sessionId: string;
+    };
 
 function isLocalRequest(remoteAddress: string | undefined): boolean {
   return Boolean(
@@ -33,6 +61,24 @@ function sendJson(response: http.ServerResponse, statusCode: number, payload: un
   response.end(JSON.stringify(payload));
 }
 
+function sendText(response: http.ServerResponse, statusCode: number, payload: string, contentType: string) {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", contentType);
+  response.end(payload);
+}
+
+function sendBuffer(response: http.ServerResponse, statusCode: number, payload: Buffer, contentType: string) {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", contentType);
+  response.end(payload);
+}
+
+function redirect(response: http.ServerResponse, location: string) {
+  response.statusCode = 302;
+  response.setHeader("location", location);
+  response.end();
+}
+
 async function readJsonBody(request: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -45,6 +91,16 @@ async function readJsonBody(request: http.IncomingMessage): Promise<any> {
 }
 
 function extractIdentity(request: http.IncomingMessage, authRole: AuthRole): ClientIdentity {
+  const browserSessionId = (request as http.IncomingMessage & { browserSessionId?: string }).browserSessionId;
+  if (browserSessionId) {
+    return {
+      client_id: "operator-console",
+      session_id: browserSessionId,
+      origin: "operator-console",
+      requested_by: "console",
+      auth_role: "operator",
+    };
+  }
   return {
     client_id: String(request.headers["x-personal-ops-client"] ?? "unknown-client"),
     session_id: request.headers["x-personal-ops-session"] ? String(request.headers["x-personal-ops-session"]) : undefined,
@@ -66,20 +122,61 @@ function assertOriginAllowed(request: http.IncomingMessage, config: Config) {
   if (!origin) {
     return;
   }
+  const daemonOrigin = `http://${config.serviceHost}:${config.servicePort}`;
+  if (origin === daemonOrigin) {
+    return;
+  }
   if (!config.allowedOrigins.includes(origin)) {
-    throw new Error(`Origin ${origin} is not allowed.`);
+    throw new HttpError(403, `Origin ${origin} is not allowed.`);
   }
 }
 
-function assertAuthorized(request: http.IncomingMessage, config: Config): AuthRole {
+function parseCookies(rawCookie: string | undefined): Record<string, string> {
+  if (!rawCookie) {
+    return {};
+  }
+  return Object.fromEntries(
+    rawCookie
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const splitIndex = part.indexOf("=");
+        if (splitIndex === -1) {
+          return [part, ""];
+        }
+        return [part.slice(0, splitIndex), decodeURIComponent(part.slice(splitIndex + 1))];
+      }),
+  );
+}
+
+function assertAuthorized(
+  request: http.IncomingMessage,
+  config: Config,
+  sessionStore: WebConsoleSessionStore,
+  method: string,
+  pathname: string,
+): RequestAuth {
   const authorization = request.headers.authorization ?? "";
   if (authorization === `Bearer ${config.apiToken}`) {
-    return "operator";
+    return { role: "operator", source: "bearer" };
   }
   if (authorization === `Bearer ${config.assistantApiToken}`) {
-    return "assistant";
+    return { role: "assistant", source: "bearer" };
   }
-  throw new Error("Missing or invalid bearer token.");
+  const sessionId = parseCookies(request.headers.cookie)[CONSOLE_SESSION_COOKIE];
+  if (!sessionId) {
+    throw new HttpError(401, "Missing or invalid bearer token.");
+  }
+  const session = sessionStore.getSession(sessionId);
+  if (!session) {
+    throw new HttpError(401, "Console session expired. Run `personal-ops console` to reopen the operator console.");
+  }
+  if (!isConsoleBrowserRoute(method, pathname)) {
+    throw new HttpError(403, "Console sessions are read-only in Phase 8. Run the matching CLI command for this action.");
+  }
+  (request as http.IncomingMessage & { browserSessionId?: string }).browserSessionId = session.sessionId;
+  return { role: "operator", source: "browser_session", sessionId: session.sessionId };
 }
 
 function draftInputFromBody(body: any): DraftInput {
@@ -216,21 +313,68 @@ function assertAllowedQueryParams(url: URL, allowedParams: string[]) {
 }
 
 export function createHttpServer(service: PersonalOpsService, config: Config, policy: Policy) {
+  const sessionStore = new WebConsoleSessionStore();
   return http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", `http://${config.serviceHost}:${config.servicePort}`);
-      let authRole: AuthRole | undefined;
+      let auth: RequestAuth | undefined;
       if (!isLocalRequest(request.socket.remoteAddress)) {
         sendJson(response, 403, { error: "Only localhost requests are allowed." });
         return;
       }
+      if (request.method === "GET" && url.pathname === "/console") {
+        sendText(response, 200, readConsoleShell(), "text/html; charset=utf-8");
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/favicon.ico") {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/console/assets/")) {
+        const asset = readConsoleAsset(url.pathname.slice("/console/assets/".length));
+        if (!asset) {
+          sendJson(response, 404, { error: "Not found." });
+          return;
+        }
+        sendBuffer(response, 200, asset.body, asset.contentType);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/console/session/")) {
+        const grant = decodeURIComponent(url.pathname.slice("/console/session/".length));
+        const session = grant && !grant.includes("/") ? sessionStore.consumeGrant(grant) : null;
+        if (!session) {
+          redirect(response, "/console?locked=1");
+          return;
+        }
+        response.setHeader(
+          "set-cookie",
+          `${CONSOLE_SESSION_COOKIE}=${encodeURIComponent(session.sessionId)}; HttpOnly; Path=/; SameSite=Strict; Max-Age=28800`,
+        );
+        redirect(response, "/console");
+        return;
+      }
+
       if (url.pathname !== "/health") {
         assertOriginAllowed(request, config);
-        authRole = assertAuthorized(request, config);
+        auth = assertAuthorized(request, config, sessionStore, request.method ?? "GET", url.pathname);
       }
 
       if (request.method === "GET" && url.pathname === "/health") {
         sendJson(response, 200, service.health());
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/web/session-grants") {
+        if (!auth || auth.source !== "bearer" || auth.role !== "operator") {
+          throw new HttpError(403, "Console session grants require the operator bearer token.");
+        }
+        const baseUrl = `http://${config.serviceHost}:${config.servicePort}`;
+        const grant: ConsoleSessionGrant = sessionStore.createGrant(baseUrl);
+        sendJson(response, 200, { console_session: grant });
         return;
       }
 
@@ -264,7 +408,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/calendar/sync") {
         sendJson(response, 200, {
-          calendar: await service.syncCalendarMetadata(extractIdentity(request, authRole ?? "operator")),
+          calendar: await service.syncCalendarMetadata(extractIdentity(request, auth?.role ?? "operator")),
         });
         return;
       }
@@ -337,7 +481,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/calendar/events") {
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          event: await service.createCalendarEvent(extractIdentity(request, authRole ?? "operator"), calendarEventInputFromBody(body)),
+          event: await service.createCalendarEvent(extractIdentity(request, auth?.role ?? "operator"), calendarEventInputFromBody(body)),
         });
         return;
       }
@@ -348,7 +492,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           const body = await readJsonBody(request);
           sendJson(response, 200, {
             event: await service.updateCalendarEvent(
-              extractIdentity(request, authRole ?? "operator"),
+              extractIdentity(request, auth?.role ?? "operator"),
               decodeURIComponent(suffix),
               calendarEventInputFromBody(body),
             ),
@@ -363,7 +507,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           const body = await readJsonBody(request);
           sendJson(response, 200, {
             event: await service.cancelCalendarEvent(
-              extractIdentity(request, authRole ?? "operator"),
+              extractIdentity(request, auth?.role ?? "operator"),
               eventId,
               String(body.note ?? ""),
             ),
@@ -378,7 +522,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           const body = await readJsonBody(request);
           sendJson(response, 200, {
             scheduled: await service.scheduleTaskOnCalendar(
-              extractIdentity(request, authRole ?? "operator"),
+              extractIdentity(request, auth?.role ?? "operator"),
               taskId,
               calendarEventInputFromBody(body),
             ),
@@ -393,7 +537,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           const body = await readJsonBody(request);
           sendJson(response, 200, {
             scheduled: await service.unscheduleTaskFromCalendar(
-              extractIdentity(request, authRole ?? "operator"),
+              extractIdentity(request, auth?.role ?? "operator"),
               taskId,
               String(body.note ?? ""),
             ),
@@ -404,7 +548,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/inbox/sync") {
         sendJson(response, 200, {
-          inbox: await service.syncMailboxMetadata(extractIdentity(request, authRole ?? "operator")),
+          inbox: await service.syncMailboxMetadata(extractIdentity(request, auth?.role ?? "operator")),
         });
         return;
       }
@@ -457,7 +601,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/send-window/enable") {
         const body = await readJsonBody(request);
         service.enableSendWindow(
-          extractIdentity(request, authRole ?? "operator"),
+          extractIdentity(request, auth?.role ?? "operator"),
           body.minutes === undefined ? 15 : Number(body.minutes),
           String(body.reason ?? ""),
         );
@@ -470,7 +614,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/send-window/disable") {
         const body = await readJsonBody(request);
         service.disableSendWindow(
-          extractIdentity(request, authRole ?? "operator"),
+          extractIdentity(request, auth?.role ?? "operator"),
           String(body.reason ?? ""),
         );
         sendJson(response, 200, {
@@ -529,7 +673,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/mail/drafts") {
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          draft: await service.createDraft(extractIdentity(request, authRole ?? "operator"), draftInputFromBody(body)),
+          draft: await service.createDraft(extractIdentity(request, auth?.role ?? "operator"), draftInputFromBody(body)),
         });
         return;
       }
@@ -538,7 +682,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const artifactId = decodeURIComponent(url.pathname.slice("/v1/mail/drafts/".length));
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          draft: await service.updateDraft(extractIdentity(request, authRole ?? "operator"), artifactId, draftInputFromBody(body)),
+          draft: await service.updateDraft(extractIdentity(request, auth?.role ?? "operator"), artifactId, draftInputFromBody(body)),
         });
         return;
       }
@@ -550,7 +694,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval_request: service.requestApproval(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             artifactId,
             body.note ? String(body.note) : undefined,
           ),
@@ -578,7 +722,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname.startsWith("/v1/review-queue/") && url.pathname.endsWith("/open")) {
         const reviewId = decodeURIComponent(url.pathname.replace("/v1/review-queue/", "").replace("/open", ""));
-        sendJson(response, 200, service.openReview(extractIdentity(request, authRole ?? "operator"), reviewId));
+        sendJson(response, 200, service.openReview(extractIdentity(request, auth?.role ?? "operator"), reviewId));
         return;
       }
 
@@ -587,7 +731,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           review_item: service.resolveReview(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             reviewId,
             String(body.note ?? ""),
           ),
@@ -613,7 +757,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/tasks") {
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          task: service.createTask(extractIdentity(request, authRole ?? "operator"), {
+          task: service.createTask(extractIdentity(request, auth?.role ?? "operator"), {
             title: String(body.title ?? ""),
             notes: body.notes ? String(body.notes) : undefined,
             kind: String(body.kind ?? "human_reminder") as "human_reminder" | "assistant_work",
@@ -648,7 +792,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           result: service.pruneTaskHistory(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             Number(body.older_than_days ?? 30),
             Array.isArray(body.states)
               ? body.states.map((value: unknown) => String(value) as "completed" | "canceled")
@@ -662,7 +806,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const taskId = decodeURIComponent(url.pathname.slice("/v1/tasks/".length));
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          task: service.updateTask(extractIdentity(request, authRole ?? "operator"), taskId, {
+          task: service.updateTask(extractIdentity(request, auth?.role ?? "operator"), taskId, {
             title: body.title === undefined ? undefined : String(body.title),
             notes: body.notes === undefined ? undefined : body.notes ? String(body.notes) : "",
             kind: body.kind === undefined ? undefined : (String(body.kind) as "human_reminder" | "assistant_work"),
@@ -677,7 +821,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname.startsWith("/v1/tasks/") && url.pathname.endsWith("/start")) {
         const taskId = decodeURIComponent(url.pathname.replace("/v1/tasks/", "").replace("/start", ""));
-        sendJson(response, 200, { task: service.startTask(extractIdentity(request, authRole ?? "operator"), taskId) });
+        sendJson(response, 200, { task: service.startTask(extractIdentity(request, auth?.role ?? "operator"), taskId) });
         return;
       }
 
@@ -685,7 +829,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const taskId = decodeURIComponent(url.pathname.replace("/v1/tasks/", "").replace("/complete", ""));
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          task: service.completeTask(extractIdentity(request, authRole ?? "operator"), taskId, String(body.note ?? "")),
+          task: service.completeTask(extractIdentity(request, auth?.role ?? "operator"), taskId, String(body.note ?? "")),
         });
         return;
       }
@@ -694,7 +838,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const taskId = decodeURIComponent(url.pathname.replace("/v1/tasks/", "").replace("/cancel", ""));
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          task: service.cancelTask(extractIdentity(request, authRole ?? "operator"), taskId, String(body.note ?? "")),
+          task: service.cancelTask(extractIdentity(request, auth?.role ?? "operator"), taskId, String(body.note ?? "")),
         });
         return;
       }
@@ -704,7 +848,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           task: service.snoozeTask(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             taskId,
             String(body.until ?? ""),
             String(body.note ?? ""),
@@ -726,7 +870,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/task-suggestions") {
         const body = await readJsonBody(request);
         sendJson(response, 200, {
-          task_suggestion: service.createTaskSuggestion(extractIdentity(request, authRole ?? "operator"), {
+          task_suggestion: service.createTaskSuggestion(extractIdentity(request, auth?.role ?? "operator"), {
             title: String(body.title ?? ""),
             notes: body.notes ? String(body.notes) : undefined,
             kind: String(body.kind ?? "assistant_work") as "human_reminder" | "assistant_work",
@@ -751,7 +895,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           task_suggestion: service.acceptTaskSuggestion(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             suggestionId,
             String(body.note ?? ""),
           ),
@@ -764,7 +908,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           task_suggestion: service.rejectTaskSuggestion(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             suggestionId,
             String(body.note ?? ""),
           ),
@@ -776,7 +920,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           result: service.pruneTaskSuggestionHistory(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             Number(body.older_than_days ?? 30),
             Array.isArray(body.statuses)
               ? body.statuses.map((value: unknown) => String(value) as "accepted" | "rejected")
@@ -788,7 +932,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/planning-recommendations/refresh") {
         sendJson(response, 200, {
-          result: service.refreshPlanningRecommendations(extractIdentity(request, authRole ?? "operator")),
+          result: service.refreshPlanningRecommendations(extractIdentity(request, auth?.role ?? "operator")),
         });
         return;
       }
@@ -822,7 +966,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "GET" && url.pathname === "/v1/planning-recommendations/tuning") {
         sendJson(response, 200, {
           planning_recommendation_tuning: service.getPlanningRecommendationTuningReport({
-            assistant_safe: authRole === "assistant",
+            assistant_safe: auth?.role === "assistant",
           }),
         });
         return;
@@ -831,7 +975,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "GET" && url.pathname === "/v1/planning-recommendations/policy") {
         sendJson(response, 200, {
           planning_recommendation_policy: service.getPlanningRecommendationPolicyReport(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
           ),
         });
         return;
@@ -877,7 +1021,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
             source: (url.searchParams.get("source") ?? undefined) as any,
             candidate_only: parseBooleanQuery(url.searchParams.get("candidate_only")),
             review_needed_only: parseBooleanQuery(url.searchParams.get("review_needed_only")),
-          }, { assistant_safe: authRole === "assistant" }),
+          }, { assistant_safe: auth?.role === "assistant" }),
         });
         return;
       }
@@ -886,7 +1030,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation_hygiene_family: service.reviewPlanningRecommendationHygiene(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             planningHygieneReviewInputFromBody(body),
           ),
         });
@@ -897,7 +1041,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation_hygiene_family: service.recordPlanningRecommendationHygieneProposal(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             planningHygieneProposalInputFromBody(body),
           ),
         });
@@ -908,7 +1052,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation_hygiene_family: service.dismissPlanningRecommendationHygieneProposal(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             planningHygieneProposalInputFromBody(body),
           ),
         });
@@ -917,7 +1061,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/planning-recommendations/policy/archive") {
         const body = await readJsonBody(request);
-        const identity = extractIdentity(request, authRole ?? "operator");
+        const identity = extractIdentity(request, auth?.role ?? "operator");
         const historyItem = service.archivePlanningRecommendationPolicy(identity, planningPolicyGovernanceInputFromBody(body));
         sendJson(response, 200, {
           planning_recommendation_policy_history_item: historyItem,
@@ -928,7 +1072,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/planning-recommendations/policy/supersede") {
         const body = await readJsonBody(request);
-        const identity = extractIdentity(request, authRole ?? "operator");
+        const identity = extractIdentity(request, auth?.role ?? "operator");
         const historyItem = service.supersedePlanningRecommendationPolicy(identity, planningPolicyGovernanceInputFromBody(body));
         sendJson(response, 200, {
           planning_recommendation_policy_history_item: historyItem,
@@ -939,7 +1083,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "POST" && url.pathname === "/v1/planning-recommendations/policy/prune") {
         const body = await readJsonBody(request);
-        const identity = extractIdentity(request, authRole ?? "operator");
+        const identity = extractIdentity(request, auth?.role ?? "operator");
         sendJson(response, 200, {
           planning_recommendation_policy_prune: service.prunePlanningRecommendationPolicyHistory(
             identity,
@@ -972,7 +1116,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation_group: service.snoozePlanningRecommendationGroup(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             groupKey,
             body.until !== undefined ? String(body.until) : undefined,
             String(body.note ?? ""),
@@ -993,7 +1137,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation_group: service.rejectPlanningRecommendationGroup(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             groupKey,
             String(body.note ?? ""),
             String(body.reason_code ?? ""),
@@ -1016,7 +1160,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const groupKey = url.searchParams.get("group") ?? undefined;
         sendJson(response, 200, {
           planning_recommendation: service.getNextPlanningRecommendationDetail(groupKey ?? undefined, {
-            assistant_safe: authRole === "assistant",
+            assistant_safe: auth?.role === "assistant",
           }),
         });
         return;
@@ -1026,7 +1170,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation: service.createPlanningRecommendation(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             planningRecommendationInputFromBody(body),
           ),
         });
@@ -1044,7 +1188,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation: service.replanPlanningRecommendation(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             recommendationId,
             String(body.note ?? ""),
           ),
@@ -1063,7 +1207,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation: await service.applyPlanningRecommendation(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             recommendationId,
             String(body.note ?? ""),
           ),
@@ -1082,7 +1226,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation: service.rejectPlanningRecommendation(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             recommendationId,
             String(body.note ?? ""),
             body.reason_code !== undefined ? String(body.reason_code) : undefined,
@@ -1102,7 +1246,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           planning_recommendation: service.snoozePlanningRecommendation(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             recommendationId,
             body.until !== undefined ? String(body.until) : undefined,
             String(body.note ?? ""),
@@ -1117,7 +1261,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         if (recommendationId && !recommendationId.includes("/")) {
           sendJson(response, 200, {
             planning_recommendation: service.getPlanningRecommendationDetail(recommendationId, {
-              assistant_safe: authRole === "assistant",
+              assistant_safe: auth?.role === "assistant",
             }),
           });
           return;
@@ -1130,7 +1274,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           limit: Number(url.searchParams.get("limit") ?? policy.auditDefaultLimit),
           category: parseAuditCategoryQuery(url.searchParams.get("category")),
         };
-        sendJson(response, 200, { events: service.listAuditEvents(filter, { assistant_safe: authRole === "assistant" }) });
+        sendJson(response, 200, { events: service.listAuditEvents(filter, { assistant_safe: auth?.role === "assistant" }) });
         return;
       }
 
@@ -1163,7 +1307,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           confirmation: service.confirmApprovalAction(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             parseApprovalAction(body.action),
           ),
@@ -1176,7 +1320,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval: service.approveRequest(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             String(body.note ?? ""),
             body.confirmation_token ? String(body.confirmation_token) : undefined,
@@ -1190,7 +1334,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval: service.rejectRequest(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             String(body.note ?? ""),
           ),
@@ -1203,7 +1347,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval: service.reopenApproval(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             String(body.note ?? ""),
           ),
@@ -1216,7 +1360,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval: service.cancelApproval(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             String(body.note ?? ""),
           ),
@@ -1229,7 +1373,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         const body = await readJsonBody(request);
         sendJson(response, 200, {
           approval: await service.sendApprovedDraft(
-            extractIdentity(request, authRole ?? "operator"),
+            extractIdentity(request, auth?.role ?? "operator"),
             approvalId,
             String(body.note ?? ""),
             body.confirmation_token ? String(body.confirmation_token) : undefined,
@@ -1260,7 +1404,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       sendJson(response, 404, { error: "Not found." });
     } catch (error) {
-      sendJson(response, 400, {
+      sendJson(response, error instanceof HttpError ? error.statusCode : 400, {
         error: error instanceof Error ? error.message : "Unknown server error",
       });
     }
