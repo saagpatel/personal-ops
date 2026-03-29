@@ -95,7 +95,7 @@ Branch:
 Commit hashes:
 
 - `da0df95` `feat(console): add read-first operator console`
-- closeout commit to be filled after final metadata update
+- `a3ee6d7` `docs(roadmap): record phase 8 closeout`
 
 Pushed remote branch:
 
