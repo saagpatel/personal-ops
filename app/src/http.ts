@@ -424,6 +424,44 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/github/status") {
+        sendJson(response, 200, {
+          github: service.getGithubStatusReport(),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/github/sync") {
+        sendJson(response, 200, {
+          github: await service.syncGithub(extractIdentity(request, auth?.role ?? "operator")),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/github/reviews") {
+        sendJson(response, 200, {
+          pull_requests: service.listGithubReviews(),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/github/pulls") {
+        sendJson(response, 200, {
+          pull_requests: service.listGithubPulls(),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/v1/github/pulls/")) {
+        const prKey = decodeURIComponent(url.pathname.slice("/v1/github/pulls/".length));
+        if (prKey) {
+          sendJson(response, 200, {
+            pull_request: service.getGithubPull(prKey),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/inbox/status") {
         sendJson(response, 200, {
           inbox: service.getInboxStatusReport(),
@@ -694,6 +732,22 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "POST" && url.pathname === "/v1/auth/google/callback/complete") {
         const body = await readJsonBody(request);
         sendJson(response, 200, await service.completeGoogleAuth(String(body.state ?? ""), String(body.code ?? "")));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/auth/github/login") {
+        const body = await readJsonBody(request);
+        const token = String(body.token ?? "");
+        sendJson(response, 200, {
+          github_account: await service.loginGithubPat(extractIdentity(request, auth?.role ?? "operator"), token),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/auth/github/logout") {
+        sendJson(response, 200, {
+          github_logout: service.logoutGithub(extractIdentity(request, auth?.role ?? "operator")),
+        });
         return;
       }
 

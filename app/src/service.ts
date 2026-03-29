@@ -34,6 +34,7 @@ import {
   updateGmailDraft,
   verifyGmailMetadataAccess,
 } from "./gmail.js";
+import { syncGithubPullRequests, verifyGithubToken } from "./github.js";
 import {
   getLatestSnapshotSummary as getLatestSnapshotSummaryFromPaths,
   pruneSnapshots,
@@ -47,6 +48,11 @@ import {
 import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
+import {
+  deleteKeychainSecret,
+  getKeychainSecret,
+  setKeychainSecret,
+} from "./keychain.js";
 import {
   explainGoogleGrantFailure,
   probeKeychainSecret,
@@ -98,6 +104,9 @@ import {
   GoogleCalendarEventsPage,
   GoogleCalendarEventMetadata,
   GoogleCalendarEventWriteInput,
+  GithubAccount,
+  GithubPullRequest,
+  GithubStatusReport,
   GoogleCalendarListPage,
   GmailHistoryPage,
   GmailMessageMetadata,
@@ -220,6 +229,11 @@ interface PersonalOpsDependencies {
   createGoogleCalendarEvent: typeof createGoogleCalendarEvent;
   patchGoogleCalendarEvent: typeof patchGoogleCalendarEvent;
   cancelGoogleCalendarEvent: typeof cancelGoogleCalendarEvent;
+  verifyGithubToken: typeof verifyGithubToken;
+  syncGithubPullRequests: typeof syncGithubPullRequests;
+  setKeychainSecret: typeof setKeychainSecret;
+  getKeychainSecret: typeof getKeychainSecret;
+  deleteKeychainSecret: typeof deleteKeychainSecret;
   openExternalUrl: (url: string) => void;
   inspectLaunchAgent: typeof inspectInstalledLaunchAgent;
 }
@@ -501,6 +515,11 @@ const defaultDependencies: PersonalOpsDependencies = {
   createGoogleCalendarEvent,
   patchGoogleCalendarEvent,
   cancelGoogleCalendarEvent,
+  verifyGithubToken,
+  syncGithubPullRequests,
+  setKeychainSecret,
+  getKeychainSecret,
+  deleteKeychainSecret,
   openExternalUrl: (url) => {
     execFileSync("open", [url]);
   },
@@ -512,6 +531,7 @@ export class PersonalOpsService {
   private readonly dependencies: PersonalOpsDependencies;
   private mailboxSyncInFlight: Promise<InboxStatusReport> | null = null;
   private calendarSyncInFlight: Promise<CalendarStatusReport> | null = null;
+  private githubSyncInFlight: Promise<GithubStatusReport> | null = null;
 
   constructor(
     private readonly paths: Paths,
@@ -565,6 +585,7 @@ export class PersonalOpsService {
           ? this.db.getCalendarSyncState(this.config.gmailAccountEmail)?.status ?? "idle"
           : "idle",
       },
+      github: this.getGithubStatusReport(),
       send_window: activeSendWindow
         ? {
             active: true,
@@ -647,6 +668,115 @@ export class PersonalOpsService {
       next_upcoming_event: upcoming,
       conflict_count_next_24h: conflicts.length,
     };
+  }
+
+  getGithubStatusReport(): GithubStatusReport {
+    const account = this.db.getGithubAccount();
+    const sync = this.db.getGithubSyncState();
+    const pulls = this.db.listGithubPullRequests({ attention_only: true });
+    const reviewRequestedCount = pulls.filter((pull) => pull.attention_kind === "github_review_requested").length;
+    const authoredAttentionCount = pulls.filter(
+      (pull) =>
+        pull.attention_kind === "github_pr_checks_failing" ||
+        pull.attention_kind === "github_pr_changes_requested" ||
+        pull.attention_kind === "github_pr_merge_ready",
+    ).length;
+    return {
+      enabled: this.config.githubEnabled,
+      connected_login: account?.login ?? null,
+      authenticated: Boolean(
+        account && this.dependencies.getKeychainSecret(this.config.githubKeychainService, account.keychain_account),
+      ),
+      sync_status: this.config.githubEnabled ? sync?.status ?? "not_configured" : "not_configured",
+      last_synced_at: sync?.last_synced_at ?? null,
+      included_repository_count: this.config.includedGithubRepositories.length,
+      review_requested_count: reviewRequestedCount,
+      authored_pr_attention_count: authoredAttentionCount,
+      top_item_summary: pulls[0]?.attention_summary ?? null,
+    };
+  }
+
+  listGithubReviews(): GithubPullRequest[] {
+    return this.db.listGithubPullRequests({ attention_kind: "github_review_requested" });
+  }
+
+  listGithubPulls(): GithubPullRequest[] {
+    return this.db.listGithubPullRequests({ attention_only: true });
+  }
+
+  getGithubPull(prKey: string): GithubPullRequest {
+    const pullRequest = this.db.getGithubPullRequest(prKey);
+    if (!pullRequest) {
+      throw new Error(`GitHub pull request ${prKey} was not found.`);
+    }
+    return pullRequest;
+  }
+
+  async loginGithubPat(identity: ClientIdentity, token: string): Promise<GithubAccount> {
+    this.assertOperatorOnly(identity, "connect GitHub");
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      throw new Error("GitHub token is required.");
+    }
+    const account = await this.dependencies.verifyGithubToken(normalizedToken, this.config.githubKeychainService);
+    const previous = this.db.getGithubAccount();
+    this.dependencies.setKeychainSecret(this.config.githubKeychainService, account.keychain_account, normalizedToken);
+    this.db.upsertGithubAccount(account);
+    if (previous && previous.keychain_account !== account.keychain_account) {
+      this.dependencies.deleteKeychainSecret(previous.keychain_service, previous.keychain_account);
+    }
+    this.db.recordAuditEvent({
+      client_id: identity.client_id,
+      action: "github_auth_login",
+      target_type: "github_account",
+      target_id: account.login,
+      outcome: "success",
+      metadata: { login: account.login },
+    });
+    return account;
+  }
+
+  logoutGithub(identity: ClientIdentity): { cleared: boolean; login: string | null } {
+    this.assertOperatorOnly(identity, "disconnect GitHub");
+    const account = this.db.getGithubAccount();
+    if (account) {
+      this.dependencies.deleteKeychainSecret(account.keychain_service, account.keychain_account);
+      this.db.recordAuditEvent({
+        client_id: identity.client_id,
+        action: "github_auth_logout",
+        target_type: "github_account",
+        target_id: account.login,
+        outcome: "success",
+        metadata: { login: account.login },
+      });
+    }
+    this.db.clearGithubAccount();
+    this.db.replaceGithubPullRequests([]);
+    this.db.upsertGithubSyncState({
+      status: "idle",
+      last_synced_at: null,
+      last_error_code: null,
+      last_error_message: null,
+      last_sync_duration_ms: null,
+      repositories_scanned_count: 0,
+      pull_requests_refreshed_count: 0,
+    });
+    return { cleared: Boolean(account), login: account?.login ?? null };
+  }
+
+  async syncGithub(identity: ClientIdentity): Promise<GithubStatusReport> {
+    if (this.githubSyncInFlight) {
+      return await this.githubSyncInFlight;
+    }
+    const run = this.performGithubSync(identity);
+    this.githubSyncInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (this.githubSyncInFlight === run) {
+        this.githubSyncInFlight = null;
+      }
+    }
   }
 
   async syncMailboxMetadata(identity: ClientIdentity): Promise<InboxStatusReport> {
@@ -1190,6 +1320,82 @@ export class PersonalOpsService {
         outcome: "failure",
         metadata: {
           account: stored.email,
+          error_message: message,
+        },
+      });
+      throw error;
+    }
+  }
+
+  private async performGithubSync(identity: ClientIdentity): Promise<GithubStatusReport> {
+    this.assertOperatorOnly(identity, "sync GitHub pull request context");
+    if (!this.config.githubEnabled) {
+      return this.getGithubStatusReport();
+    }
+    this.db.registerClient(identity);
+    const account = this.db.getGithubAccount();
+    if (!account) {
+      throw new Error("GitHub is enabled, but no connected GitHub login is recorded. Run `personal-ops auth github login`.");
+    }
+    if (this.config.includedGithubRepositories.length === 0) {
+      throw new Error("GitHub is enabled, but github.included_repositories is empty in config.toml.");
+    }
+    const token = this.dependencies.getKeychainSecret(this.config.githubKeychainService, account.keychain_account);
+    if (!token) {
+      throw new Error("GitHub is enabled, but no Keychain token was found. Run `personal-ops auth github login`.");
+    }
+    const syncStartedAt = Date.now();
+    this.db.upsertGithubSyncState({
+      status: "syncing",
+      last_error_code: null,
+      last_error_message: null,
+    });
+    try {
+      const synced = await this.dependencies.syncGithubPullRequests(
+        token,
+        this.config.includedGithubRepositories,
+        account.login,
+      );
+      const syncedAt = new Date().toISOString();
+      this.db.replaceGithubPullRequests(synced.pull_requests);
+      this.db.upsertGithubSyncState({
+        status: "ready",
+        last_synced_at: syncedAt,
+        last_error_code: null,
+        last_error_message: null,
+        last_sync_duration_ms: Date.now() - syncStartedAt,
+        repositories_scanned_count: synced.repositories_scanned_count,
+        pull_requests_refreshed_count: synced.pull_requests.length,
+      });
+      this.db.recordAuditEvent({
+        client_id: identity.client_id,
+        action: "github_sync",
+        target_type: "github_sync_state",
+        target_id: "github",
+        outcome: "success",
+        metadata: {
+          login: account.login,
+          repositories_scanned_count: synced.repositories_scanned_count,
+          pull_requests_refreshed_count: synced.pull_requests.length,
+        },
+      });
+      return this.getGithubStatusReport();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "GitHub sync failed.";
+      this.db.upsertGithubSyncState({
+        status: "degraded",
+        last_error_code: "github_sync_error",
+        last_error_message: message,
+        last_sync_duration_ms: Date.now() - syncStartedAt,
+      });
+      this.db.recordAuditEvent({
+        client_id: identity.client_id,
+        action: "github_sync",
+        target_type: "github_sync_state",
+        target_id: "github",
+        outcome: "failure",
+        metadata: {
+          login: account.login,
           error_message: message,
         },
       });
@@ -3196,6 +3402,11 @@ export class PersonalOpsService {
     const assistantApiTokenPermissions = validateSecretFilePermissions(this.paths.assistantApiTokenFile, "Assistant API token");
     const machineIdentity = readMachineIdentity(this.paths);
     const restoreProvenance = readRestoreProvenance(this.paths);
+    const githubAccount = this.db.getGithubAccount();
+    const githubSync = this.db.getGithubSyncState();
+    const githubToken = githubAccount
+      ? this.dependencies.getKeychainSecret(this.config.githubKeychainService, githubAccount.keychain_account)
+      : null;
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
     checks.push(this.fileCheck("policy_file_valid", "Policy file", this.paths.policyFile, true));
@@ -3251,6 +3462,104 @@ export class PersonalOpsService {
             "auth.keychain_service is blank in config.toml. Restore the default or set the intended Keychain service before re-auth.",
             "setup",
           ),
+    );
+    checks.push(
+      this.config.githubEnabled
+        ? this.passCheck("github_enabled", "GitHub integration", "GitHub integration is enabled.", "integration")
+        : this.passCheck("github_enabled", "GitHub integration", "GitHub integration is disabled.", "integration"),
+    );
+    checks.push(
+      !this.config.githubEnabled
+        ? this.passCheck(
+            "github_repository_scope_configured",
+            "GitHub repository scope",
+            "GitHub repository scope is not required while the integration is disabled.",
+            "integration",
+          )
+        : this.config.includedGithubRepositories.length > 0
+          ? this.passCheck(
+              "github_repository_scope_configured",
+              "GitHub repository scope",
+              `${this.config.includedGithubRepositories.length} GitHub repositor${this.config.includedGithubRepositories.length === 1 ? "y is" : "ies are"} included.`,
+              "integration",
+            )
+          : this.warnCheck(
+              "github_repository_scope_configured",
+              "GitHub repository scope",
+              "GitHub is enabled, but github.included_repositories is empty in config.toml.",
+              "integration",
+            ),
+    );
+    checks.push(
+      !this.config.githubEnabled
+        ? this.passCheck(
+            "github_token_present",
+            "GitHub token",
+            "GitHub token is not required while the integration is disabled.",
+            "integration",
+          )
+        : githubToken
+          ? this.passCheck("github_token_present", "GitHub token", "GitHub Keychain token is present.", "integration")
+          : this.warnCheck(
+              "github_token_present",
+              "GitHub token",
+              "GitHub is enabled, but no PAT is stored in Keychain. Run `personal-ops auth github login`.",
+              "integration",
+            ),
+    );
+    checks.push(
+      !this.config.githubEnabled
+        ? this.passCheck(
+            "github_connected_login_recorded",
+            "GitHub connected login",
+            "GitHub connected login is not required while the integration is disabled.",
+            "integration",
+          )
+        : githubAccount
+          ? this.passCheck(
+              "github_connected_login_recorded",
+              "GitHub connected login",
+              `GitHub is connected as ${githubAccount.login}.`,
+              "integration",
+            )
+          : this.warnCheck(
+              "github_connected_login_recorded",
+              "GitHub connected login",
+              "GitHub is enabled, but no connected GitHub login is recorded. Run `personal-ops auth github login`.",
+              "integration",
+            ),
+    );
+    const githubStaleMinutes = Math.max(15, this.config.githubSyncIntervalMinutes * 3);
+    checks.push(
+      !this.config.githubEnabled
+        ? this.passCheck("github_sync_fresh", "GitHub sync freshness", "GitHub sync is not required while the integration is disabled.", "integration")
+        : githubSync?.status === "degraded"
+          ? this.warnCheck(
+              "github_sync_fresh",
+              "GitHub sync freshness",
+              githubSync.last_error_message ?? "GitHub sync is degraded. Run `personal-ops github sync now`.",
+              "integration",
+            )
+          : !githubSync?.last_synced_at
+            ? this.warnCheck(
+                "github_sync_fresh",
+                "GitHub sync freshness",
+                "GitHub has not synced yet. Run `personal-ops github sync now` after login.",
+                "integration",
+              )
+            : Date.now() - Date.parse(githubSync.last_synced_at) > githubStaleMinutes * 60_000
+              ? this.warnCheck(
+                  "github_sync_fresh",
+                  "GitHub sync freshness",
+                  `GitHub sync is stale. Last synced at ${githubSync.last_synced_at}. Run \`personal-ops github sync now\`.`,
+                  "integration",
+                )
+              : this.passCheck(
+                  "github_sync_fresh",
+                  "GitHub sync freshness",
+                  `GitHub sync is fresh as of ${githubSync.last_synced_at}.`,
+                  "integration",
+                ),
     );
     checks.push(
       machineIdentity.status === "configured"
@@ -4288,6 +4597,42 @@ export class PersonalOpsService {
         due_at: calendarSync.updated_at,
         suggested_command: "personal-ops calendar sync now",
         metadata_json: JSON.stringify({ state_marker: calendarSync.updated_at, calendar_sync_state: calendarSync.status }),
+      });
+    }
+
+    for (const pullRequest of this.db.listGithubPullRequests({ attention_only: true })) {
+      if (!pullRequest.attention_kind) {
+        continue;
+      }
+      const severity: AttentionSeverity =
+        pullRequest.attention_kind === "github_pr_merge_ready" ? "info" : "warn";
+      const title =
+        pullRequest.attention_kind === "github_review_requested"
+          ? "GitHub review requested"
+          : pullRequest.attention_kind === "github_pr_checks_failing"
+            ? "GitHub checks failing"
+            : pullRequest.attention_kind === "github_pr_changes_requested"
+              ? "GitHub changes requested"
+              : "GitHub PR merge ready";
+      items.push({
+        item_id: `github:${pullRequest.pr_key}:${pullRequest.attention_kind}`,
+        kind: pullRequest.attention_kind,
+        severity,
+        title,
+        summary: pullRequest.attention_summary ?? `${pullRequest.repository}#${pullRequest.number} ${pullRequest.title}`,
+        target_type: "github_pull_request",
+        target_id: pullRequest.pr_key,
+        created_at: pullRequest.created_at,
+        due_at: pullRequest.updated_at,
+        suggested_command: `personal-ops github pr ${pullRequest.pr_key}`,
+        metadata_json: JSON.stringify({
+          state_marker: pullRequest.updated_at,
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          attention_kind: pullRequest.attention_kind,
+          check_state: pullRequest.check_state,
+          review_state: pullRequest.review_state,
+        }),
       });
     }
 

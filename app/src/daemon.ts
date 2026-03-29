@@ -36,6 +36,16 @@ async function runCalendarSync() {
   }
 }
 
+async function runGithubSync() {
+  try {
+    await service.syncGithub(systemIdentity);
+  } catch (error) {
+    logger.error("github_sync_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 const attentionSweep = setInterval(() => {
   service.runAttentionSweep({ httpReachable: true }).catch((error) => {
     logger.error("attention_sweep_failed", {
@@ -63,6 +73,15 @@ const calendarSync = setInterval(() => {
 }, Math.max(1, config.calendarSyncIntervalMinutes) * 60_000);
 calendarSync.unref();
 
+const githubSync = setInterval(() => {
+  runGithubSync().catch((error) => {
+    logger.error("github_sync_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}, Math.max(1, config.githubSyncIntervalMinutes) * 60_000);
+githubSync.unref();
+
 server.listen(config.servicePort, config.serviceHost, () => {
   logger.info("daemon_started", {
     host: config.serviceHost,
@@ -77,6 +96,11 @@ server.listen(config.servicePort, config.serviceHost, () => {
     });
     await runCalendarSync().catch((error) => {
       logger.error("calendar_sync_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    await runGithubSync().catch((error) => {
+      logger.error("github_sync_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -100,6 +124,7 @@ function shutdown(signal: string) {
   clearInterval(attentionSweep);
   clearInterval(mailboxSync);
   clearInterval(calendarSync);
+  clearInterval(githubSync);
   server.close(() => process.exit(0));
 }
 

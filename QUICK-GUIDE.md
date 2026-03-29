@@ -28,6 +28,7 @@ Keep these pieces separate:
 - `gmail-oauth-client.json` is the Google Desktop OAuth client
 - the local API token files gate local CLI and assistant access
 - the Gmail refresh token lives in Keychain and is never restored from snapshots
+- the optional GitHub PAT also lives in Keychain and is scoped only to the repositories you explicitly opt into
 - backups may move state intentionally, but auth and secrets still stay machine-local
 
 ### Daily commands
@@ -40,6 +41,8 @@ Keep these pieces separate:
   The focused “what should I do next right now?” command.
 - `personal-ops workflow prep-day`
   The preferred day-start bundle with exact next commands.
+- `personal-ops github status`
+  The optional GitHub PR and review queue summary.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -65,7 +68,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, while still keeping higher-trust flows in the CLI.
+The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, and it can also surface GitHub PR and review attention when the optional integration is configured, while still keeping higher-trust flows in the CLI.
 
 Read next:
 
@@ -92,6 +95,7 @@ If `personal-ops` is unavailable, report that problem instead of falling back to
 Safe assistant work includes:
 
 - reading status, worklist, inbox, calendar, task, planning, and assistant-safe audit context
+- reading assistant-safe GitHub PR and review queue context when the operator has enabled it
 - creating limited assistant-safe suggestions where supported
 - explaining queue state, planning pressure, and operational context
 

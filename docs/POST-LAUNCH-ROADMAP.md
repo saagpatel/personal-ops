@@ -168,18 +168,45 @@ Phase 6 is complete.
 - no bulk workflow executor
 - higher-trust actions still stay in the existing CLI paths
 
-## Phase 7: Integrations and Context Expansion
+## Phase 7: GitHub PR and Review Context
 
-This phase should only happen where added context clearly improves the operator loop.
+Phase 7 is complete.
 
-Likely candidates:
+### Delivered
+
+- GitHub.com PR and review queue context only
+- PAT-based GitHub auth stored in Keychain
+- explicit repository opt-in through `config.toml`
+- daemon-managed GitHub sync
+- `personal-ops github status`
+- `personal-ops github sync now`
+- `personal-ops github reviews`
+- `personal-ops github pulls`
+- `personal-ops github pr <owner/repo#number>`
+- assistant-safe MCP GitHub read tools
+- additive GitHub context in status, worklist, `workflow now-next`, `workflow prep-day`, and the console
+
+### Guardrails kept
+
+- read-first only
+- no GitHub write actions
+- no GitHub Enterprise support
+- no issues ingestion
+- no new browser mutation scope
+- no new assistant mutation scope
+
+## Phase 8: Broader Context Expansion
+
+This phase should only happen if the GitHub integration proves high-signal without adding too much operator noise.
+
+Possible candidates:
 
 - Slack
 - Notion
 - deeper Google Drive / Docs linkage
-- GitHub work tracking context
+- broader GitHub work tracking only if PR and review context proves worth extending
 
-Each integration should justify its trust boundary, operator value, and maintenance cost.
+Each integration should justify its trust boundary, operator value, and maintenance cost before it lands.
 
 ## Recommended Order
 
@@ -191,7 +218,8 @@ Build the post-launch roadmap in this order:
 4. Phase 4: Release and Distribution Polish
 5. Phase 5: Workflow Actions and Bundles
 6. Phase 6: Intelligence Layer
-7. Phase 7: Integrations and Context Expansion
+7. Phase 7: GitHub PR and Review Context
+8. Phase 8: Broader Context Expansion
 
 This order keeps the next work close to the strongest current foundation:
 
@@ -206,7 +234,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 7: Integrations and Context Expansion
+- the recommended next build is Phase 8: Broader Context Expansion, but only if GitHub context proves meaningfully useful without adding operator noise
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

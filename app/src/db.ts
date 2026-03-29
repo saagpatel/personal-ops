@@ -23,6 +23,10 @@ import {
   DraftInput,
   DraftReviewState,
   GmailMessageMetadata,
+  GithubAccount,
+  GithubPullRequest,
+  GithubSyncState,
+  GithubSyncStatus,
   MailMessage,
   MailSyncState,
   MailSyncStatus,
@@ -54,7 +58,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -125,6 +129,47 @@ export class PersonalOpsDb {
       )
       .get() as { email: string; keychain_service: string; keychain_account: string; profile_json: string } | undefined;
     return row ?? null;
+  }
+
+  upsertGithubAccount(account: GithubAccount): GithubAccount {
+    this.db
+      .prepare(
+        `INSERT INTO github_accounts (
+          provider, login, keychain_service, keychain_account, connected_at, updated_at, profile_json
+        ) VALUES ('github', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(provider) DO UPDATE SET
+          login = excluded.login,
+          keychain_service = excluded.keychain_service,
+          keychain_account = excluded.keychain_account,
+          connected_at = excluded.connected_at,
+          updated_at = excluded.updated_at,
+          profile_json = excluded.profile_json`,
+      )
+      .run(
+        account.login,
+        account.keychain_service,
+        account.keychain_account,
+        account.connected_at,
+        account.updated_at,
+        account.profile_json,
+      );
+    return this.getGithubAccount()!;
+  }
+
+  getGithubAccount(): GithubAccount | null {
+    const row = this.db
+      .prepare(
+        `SELECT login, keychain_service, keychain_account, connected_at, updated_at, profile_json
+         FROM github_accounts
+         WHERE provider = 'github'
+         LIMIT 1`,
+      )
+      .get() as Record<string, unknown> | undefined;
+    return row ? this.mapGithubAccount(row) : null;
+  }
+
+  clearGithubAccount(): void {
+    this.db.prepare(`DELETE FROM github_accounts WHERE provider = 'github'`).run();
   }
 
   getSchemaVersion(): number {
@@ -253,6 +298,16 @@ export class PersonalOpsDb {
         compatible: false,
         message: `Schema ${current} is missing governance columns: ${missingGovernanceColumns.join(", ")}.`,
       };
+    }
+    for (const tableName of ["github_accounts", "github_sync_state", "github_pull_requests"]) {
+      if (!this.tableExists(tableName)) {
+        return {
+          current_version: current,
+          expected_version: SCHEMA_VERSION,
+          compatible: false,
+          message: `Schema is missing ${tableName}.`,
+        };
+      }
     }
     return {
       current_version: current,
@@ -1486,6 +1541,138 @@ export class PersonalOpsDb {
     return counts;
   }
 
+  getGithubSyncState(): GithubSyncState | null {
+    const row = this.db
+      .prepare(`SELECT * FROM github_sync_state WHERE provider = 'github' LIMIT 1`)
+      .get() as Record<string, unknown> | undefined;
+    return row ? this.mapGithubSyncState(row) : null;
+  }
+
+  upsertGithubSyncState(
+    updates: {
+      status?: GithubSyncStatus;
+      last_synced_at?: string | null;
+      last_error_code?: string | null;
+      last_error_message?: string | null;
+      last_sync_duration_ms?: number | null;
+      repositories_scanned_count?: number | null;
+      pull_requests_refreshed_count?: number | null;
+    },
+  ): GithubSyncState {
+    const existing = this.getGithubSyncState();
+    const now = nowIso();
+    if (!existing) {
+      this.db
+        .prepare(
+          `INSERT INTO github_sync_state (
+            provider, status, last_synced_at, last_error_code, last_error_message, last_sync_duration_ms,
+            repositories_scanned_count, pull_requests_refreshed_count, updated_at
+          ) VALUES ('github', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          updates.status ?? "idle",
+          updates.last_synced_at ?? null,
+          updates.last_error_code ?? null,
+          updates.last_error_message ?? null,
+          updates.last_sync_duration_ms ?? null,
+          updates.repositories_scanned_count ?? null,
+          updates.pull_requests_refreshed_count ?? null,
+          now,
+        );
+      return this.getGithubSyncState()!;
+    }
+    const sets: string[] = [];
+    const params: SQLInputValue[] = [];
+    const push = (column: string, value: SQLInputValue) => {
+      sets.push(`${column} = ?`);
+      params.push(value);
+    };
+    if (updates.status !== undefined) push("status", updates.status);
+    if (updates.last_synced_at !== undefined) push("last_synced_at", updates.last_synced_at);
+    if (updates.last_error_code !== undefined) push("last_error_code", updates.last_error_code);
+    if (updates.last_error_message !== undefined) push("last_error_message", updates.last_error_message);
+    if (updates.last_sync_duration_ms !== undefined) push("last_sync_duration_ms", updates.last_sync_duration_ms);
+    if (updates.repositories_scanned_count !== undefined) {
+      push("repositories_scanned_count", updates.repositories_scanned_count);
+    }
+    if (updates.pull_requests_refreshed_count !== undefined) {
+      push("pull_requests_refreshed_count", updates.pull_requests_refreshed_count);
+    }
+    push("updated_at", now);
+    this.db.prepare(`UPDATE github_sync_state SET ${sets.join(", ")} WHERE provider = 'github'`).run(...params);
+    return this.getGithubSyncState()!;
+  }
+
+  replaceGithubPullRequests(pullRequests: GithubPullRequest[]): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM github_pull_requests`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO github_pull_requests (
+          pr_key, repository, owner, repo, number, title, html_url, author_login, is_draft, state, created_at, updated_at,
+          requested_reviewers_json, head_sha, check_state, review_state, mergeable_state, is_review_requested,
+          is_authored_by_viewer, attention_kind, attention_summary
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const pullRequest of pullRequests) {
+        insert.run(
+          pullRequest.pr_key,
+          pullRequest.repository,
+          pullRequest.owner,
+          pullRequest.repo,
+          pullRequest.number,
+          pullRequest.title,
+          pullRequest.html_url,
+          pullRequest.author_login,
+          pullRequest.is_draft ? 1 : 0,
+          pullRequest.state,
+          pullRequest.created_at,
+          pullRequest.updated_at,
+          toJson(pullRequest.requested_reviewers),
+          pullRequest.head_sha,
+          pullRequest.check_state,
+          pullRequest.review_state,
+          pullRequest.mergeable_state ?? null,
+          pullRequest.is_review_requested ? 1 : 0,
+          pullRequest.is_authored_by_viewer ? 1 : 0,
+          pullRequest.attention_kind ?? null,
+          pullRequest.attention_summary ?? null,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listGithubPullRequests(filter: {
+    attention_only?: boolean;
+    attention_kind?: GithubPullRequest["attention_kind"];
+  } = {}): GithubPullRequest[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (filter.attention_only) {
+      clauses.push(`attention_kind IS NOT NULL`);
+    }
+    if (filter.attention_kind) {
+      clauses.push(`attention_kind = ?`);
+      params.push(filter.attention_kind);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM github_pull_requests ${where} ORDER BY updated_at DESC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapGithubPullRequest(row));
+  }
+
+  getGithubPullRequest(prKey: string): GithubPullRequest | null {
+    const row = this.db
+      .prepare(`SELECT * FROM github_pull_requests WHERE pr_key = ?`)
+      .get(prKey) as Record<string, unknown> | undefined;
+    return row ? this.mapGithubPullRequest(row) : null;
+  }
+
   getCalendarSyncState(account: string): CalendarSyncState | null {
     const row = this.db
       .prepare(`SELECT * FROM calendar_sync_state WHERE account = ?`)
@@ -2641,7 +2828,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("planning_hygiene_policy_governance_events")
+      const inferred = this.tableExists("github_pull_requests")
+        ? 15
+        : this.tableExists("planning_hygiene_policy_governance_events")
         ? 14
         : this.tableExists("planning_hygiene_policy_proposals")
         ? 13
@@ -2725,6 +2914,10 @@ export class PersonalOpsDb {
       } else if (version === 13) {
         this.migrateToV14();
         version = 14;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 14) {
+        this.migrateToV15();
+        version = 15;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -3242,6 +3435,62 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV15() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS github_accounts (
+        provider TEXT PRIMARY KEY,
+        login TEXT NOT NULL,
+        keychain_service TEXT NOT NULL,
+        keychain_account TEXT NOT NULL,
+        connected_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        profile_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS github_sync_state (
+        provider TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        last_synced_at TEXT,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        last_sync_duration_ms INTEGER,
+        repositories_scanned_count INTEGER,
+        pull_requests_refreshed_count INTEGER,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS github_pull_requests (
+        pr_key TEXT PRIMARY KEY,
+        repository TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        html_url TEXT NOT NULL,
+        author_login TEXT NOT NULL,
+        is_draft INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        requested_reviewers_json TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        check_state TEXT NOT NULL,
+        review_state TEXT NOT NULL,
+        mergeable_state TEXT,
+        is_review_requested INTEGER NOT NULL,
+        is_authored_by_viewer INTEGER NOT NULL,
+        attention_kind TEXT,
+        attention_summary TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_github_pull_requests_updated_at
+        ON github_pull_requests(updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_github_pull_requests_attention_kind
+        ON github_pull_requests(attention_kind, updated_at DESC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -3258,6 +3507,66 @@ export class PersonalOpsDb {
     if (!this.columnExists(table, column)) {
       this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
+  }
+
+  private mapGithubAccount(row: Record<string, unknown>): GithubAccount {
+    return {
+      login: String(row.login),
+      keychain_service: String(row.keychain_service),
+      keychain_account: String(row.keychain_account),
+      connected_at: String(row.connected_at),
+      updated_at: String(row.updated_at),
+      profile_json: String(row.profile_json),
+    };
+  }
+
+  private mapGithubSyncState(row: Record<string, unknown>): GithubSyncState {
+    return {
+      provider: "github",
+      status: String(row.status) as GithubSyncStatus,
+      last_synced_at: row.last_synced_at ? String(row.last_synced_at) : undefined,
+      last_error_code: row.last_error_code ? String(row.last_error_code) : undefined,
+      last_error_message: row.last_error_message ? String(row.last_error_message) : undefined,
+      last_sync_duration_ms:
+        row.last_sync_duration_ms === null || row.last_sync_duration_ms === undefined
+          ? undefined
+          : Number(row.last_sync_duration_ms),
+      repositories_scanned_count:
+        row.repositories_scanned_count === null || row.repositories_scanned_count === undefined
+          ? undefined
+          : Number(row.repositories_scanned_count),
+      pull_requests_refreshed_count:
+        row.pull_requests_refreshed_count === null || row.pull_requests_refreshed_count === undefined
+          ? undefined
+          : Number(row.pull_requests_refreshed_count),
+      updated_at: String(row.updated_at),
+    };
+  }
+
+  private mapGithubPullRequest(row: Record<string, unknown>): GithubPullRequest {
+    return {
+      pr_key: String(row.pr_key),
+      repository: String(row.repository),
+      owner: String(row.owner),
+      repo: String(row.repo),
+      number: Number(row.number),
+      title: String(row.title),
+      html_url: String(row.html_url),
+      author_login: String(row.author_login),
+      is_draft: Boolean(row.is_draft),
+      state: String(row.state),
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+      requested_reviewers: fromJsonArray(String(row.requested_reviewers_json ?? "[]")),
+      head_sha: String(row.head_sha),
+      check_state: String(row.check_state) as GithubPullRequest["check_state"],
+      review_state: String(row.review_state) as GithubPullRequest["review_state"],
+      mergeable_state: row.mergeable_state ? String(row.mergeable_state) : undefined,
+      is_review_requested: Boolean(row.is_review_requested),
+      is_authored_by_viewer: Boolean(row.is_authored_by_viewer),
+      attention_kind: row.attention_kind ? (String(row.attention_kind) as GithubPullRequest["attention_kind"]) : undefined,
+      attention_summary: row.attention_summary ? String(row.attention_summary) : undefined,
+    };
   }
 
   private mapDraft(row: Record<string, unknown>): DraftArtifact {

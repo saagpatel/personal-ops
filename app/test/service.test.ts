@@ -13,6 +13,7 @@ import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, writeRestoreProvenance } from "../src/machine.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
+import { buildNowNextWorkflowReport, buildPrepDayWorkflowReport } from "../src/service/workflows.js";
 import { PersonalOpsService } from "../src/service.js";
 import {
   GoogleCalendarEventsPage,
@@ -23,6 +24,8 @@ import {
   Config,
   DoctorCheck,
   GmailClientConfig,
+  GithubAccount,
+  GithubPullRequest,
   GmailHistoryPage,
   GmailMessageMetadata,
   GmailMessageRefPage,
@@ -33,6 +36,14 @@ import {
 interface FixtureOptions {
   allowSend?: boolean;
   accountEmail?: string;
+  githubEnabled?: boolean;
+  includedGithubRepositories?: string[];
+  githubVerifyImpl?: (token: string, keychainService: string) => Promise<GithubAccount>;
+  githubSyncImpl?: (
+    token: string,
+    repositories: string[],
+    viewerLogin: string,
+  ) => Promise<{ repositories_scanned_count: number; pull_requests: GithubPullRequest[] }>;
   meetingPrepWarningMinutes?: number;
   sendImpl?: (providerDraftId: string) => Promise<{ provider_message_id: string; provider_thread_id?: string }>;
   updateImpl?: () => Promise<string>;
@@ -58,6 +69,12 @@ interface FixtureOptions {
   profileHistoryId?: string;
 }
 
+const GITHUB_TEST_IDENTITY: ClientIdentity = {
+  client_id: "github-test",
+  requested_by: "github-test",
+  auth_role: "operator",
+};
+
 function createFixture(options: FixtureOptions = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-service-"));
   process.env.PERSONAL_OPS_CONFIG_DIR = path.join(base, "config");
@@ -73,6 +90,7 @@ function createFixture(options: FixtureOptions = {}) {
   fs.mkdirSync(paths.snapshotsDir, { recursive: true });
 
   const accountEmail = options.accountEmail ?? "machine@example.com";
+  const githubRepositories = options.includedGithubRepositories ?? [];
 
   fs.writeFileSync(
     paths.configFile,
@@ -86,6 +104,12 @@ allowed_origins = []
 [gmail]
 account_email = "${accountEmail}"
 review_url = "https://mail.google.com/mail/u/0/#drafts"
+
+[github]
+enabled = ${options.githubEnabled ? "true" : "false"}
+included_repositories = [${githubRepositories.map((value) => `"${value}"`).join(", ")}]
+sync_interval_minutes = 10
+keychain_service = "personal-ops.github.test"
 
 [calendar]
 enabled = true
@@ -143,6 +167,10 @@ default_limit = 50
     allowedOrigins: [],
     gmailAccountEmail: accountEmail,
     gmailReviewUrl: "https://mail.google.com/mail/u/0/#drafts",
+    githubEnabled: options.githubEnabled ?? false,
+    includedGithubRepositories: githubRepositories,
+    githubSyncIntervalMinutes: 10,
+    githubKeychainService: "personal-ops.github.test",
     calendarEnabled: true,
     calendarProvider: "google",
     includedCalendarIds: [],
@@ -165,6 +193,7 @@ default_limit = 50
     auditDefaultLimit: 50,
   };
   const logger = new Logger(paths);
+  const keychainSecrets = new Map<string, string>();
 
   const clientConfig: GmailClientConfig = {
     client_id: "client-id",
@@ -219,6 +248,28 @@ default_limit = 50
       options.listCalendarsImpl ? options.listCalendarsImpl(pageToken) : { calendars: [] },
     listGoogleCalendarEvents: async (_tokensJson, _clientConfig, calendarId, calendarOptions) =>
       options.listCalendarEventsImpl ? options.listCalendarEventsImpl(calendarId, calendarOptions) : { events: [] },
+    verifyGithubToken: async (token, keychainService) =>
+      options.githubVerifyImpl
+        ? options.githubVerifyImpl(token, keychainService)
+        : {
+            login: "octocat",
+            keychain_service: keychainService,
+            keychain_account: "octocat",
+            connected_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            profile_json: JSON.stringify({ login: "octocat" }),
+          },
+    syncGithubPullRequests: async (token, repositories, viewerLogin) =>
+      options.githubSyncImpl
+        ? options.githubSyncImpl(token, repositories, viewerLogin)
+        : { repositories_scanned_count: repositories.length, pull_requests: [] },
+    setKeychainSecret: (serviceName, accountName, secret) => {
+      keychainSecrets.set(`${serviceName}:${accountName}`, secret);
+    },
+    getKeychainSecret: (serviceName, accountName) => keychainSecrets.get(`${serviceName}:${accountName}`) ?? null,
+    deleteKeychainSecret: (serviceName, accountName) => {
+      keychainSecrets.delete(`${serviceName}:${accountName}`);
+    },
     getGoogleCalendarEvent: async (_tokensJson, _clientConfig, calendarId, providerEventId) => {
       if (options.getCalendarEventImpl) {
         return options.getCalendarEventImpl(calendarId, providerEventId);
@@ -6718,4 +6769,184 @@ test("phase-31 mcp audit tool only exposes limit and category inputs", () => {
   assert.doesNotMatch(source, /search\.set\("target_type", args\.target_type\)/);
   assert.doesNotMatch(source, /search\.set\("target_id", args\.target_id\)/);
   assert.doesNotMatch(source, /search\.set\("client", args\.client\)/);
+});
+
+test("phase-7 github login stores verified auth and logout clears it", async () => {
+  const { service } = createFixture({
+    githubEnabled: true,
+    includedGithubRepositories: ["acme/api"],
+    githubVerifyImpl: async (_token, keychainService) => ({
+      login: "octocat",
+      keychain_service: keychainService,
+      keychain_account: "octocat",
+      connected_at: "2026-03-29T12:00:00.000Z",
+      updated_at: "2026-03-29T12:00:00.000Z",
+      profile_json: JSON.stringify({ login: "octocat" }),
+    }),
+  });
+
+  const account = await service.loginGithubPat(GITHUB_TEST_IDENTITY, "ghp_test_token");
+  assert.equal(account.login, "octocat");
+  assert.equal(service.getGithubStatusReport().connected_login, "octocat");
+  assert.equal(service.getGithubStatusReport().authenticated, true);
+
+  const logout = service.logoutGithub(GITHUB_TEST_IDENTITY);
+  assert.equal(logout.cleared, true);
+  assert.equal(logout.login, "octocat");
+  assert.equal(service.getGithubStatusReport().connected_login, null);
+  assert.equal(service.getGithubStatusReport().authenticated, false);
+});
+
+test("phase-7 github sync feeds status, worklist, and read-only routes", async () => {
+  const { service, config } = createFixture({
+    githubEnabled: true,
+    includedGithubRepositories: ["acme/api"],
+    githubSyncImpl: async (_token, repositories, viewerLogin) => {
+      assert.deepEqual(repositories, ["acme/api"]);
+      assert.equal(viewerLogin, "octocat");
+      return {
+        repositories_scanned_count: 1,
+        pull_requests: [
+          {
+            pr_key: "acme/api#12",
+            repository: "acme/api",
+            owner: "acme",
+            repo: "api",
+            number: 12,
+            title: "Review me",
+            html_url: "https://github.com/acme/api/pull/12",
+            author_login: "teammate",
+            is_draft: false,
+            state: "OPEN",
+            created_at: "2026-03-29T11:00:00.000Z",
+            updated_at: "2026-03-29T12:00:00.000Z",
+            requested_reviewers: ["octocat"],
+            head_sha: "abc123",
+            check_state: "unknown",
+            review_state: "review_requested",
+            mergeable_state: "clean",
+            is_review_requested: true,
+            is_authored_by_viewer: false,
+            attention_kind: "github_review_requested",
+            attention_summary: "Review requested: acme/api#12 Review me",
+          },
+          {
+            pr_key: "acme/api#18",
+            repository: "acme/api",
+            owner: "acme",
+            repo: "api",
+            number: 18,
+            title: "Fix failing checks",
+            html_url: "https://github.com/acme/api/pull/18",
+            author_login: "octocat",
+            is_draft: false,
+            state: "OPEN",
+            created_at: "2026-03-29T09:00:00.000Z",
+            updated_at: "2026-03-29T12:30:00.000Z",
+            requested_reviewers: [],
+            head_sha: "def456",
+            check_state: "failing",
+            review_state: "commented",
+            mergeable_state: "dirty",
+            is_review_requested: false,
+            is_authored_by_viewer: true,
+            attention_kind: "github_pr_checks_failing",
+            attention_summary: "Checks failing: acme/api#18 Fix failing checks",
+          },
+        ],
+      };
+    },
+  });
+  await service.loginGithubPat(GITHUB_TEST_IDENTITY, "ghp_test_token");
+  await service.syncGithub(GITHUB_TEST_IDENTITY);
+
+  const status = service.getGithubStatusReport();
+  assert.equal(status.review_requested_count, 1);
+  assert.equal(status.authored_pr_attention_count, 1);
+  assert.match(status.top_item_summary ?? "", /checks failing/i);
+
+  const worklist = await service.getWorklistReport({ httpReachable: true });
+  assert.equal(worklist.items.some((item) => item.kind === "github_review_requested"), true);
+  assert.equal(worklist.items.some((item) => item.kind === "github_pr_checks_failing"), true);
+
+  const server = createHttpServer(service, config, { notificationsTitlePrefix: "Personal Ops", allowSend: false, auditDefaultLimit: 50 });
+  await new Promise<void>((resolve) => server.listen(0, config.serviceHost, () => resolve()));
+  try {
+    const address = server.address();
+    assert(address && typeof address === "object");
+    const baseUrl = `http://${config.serviceHost}:${address.port}`;
+    const statusResponse = await fetch(`${baseUrl}/v1/github/status`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "github-http-test" },
+    });
+    assert.equal(statusResponse.status, 200);
+    const statusPayload = (await statusResponse.json()) as { github: { review_requested_count: number } };
+    assert.equal(statusPayload.github.review_requested_count, 1);
+
+    const pullsResponse = await fetch(`${baseUrl}/v1/github/pulls`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "github-http-test" },
+    });
+    assert.equal(pullsResponse.status, 200);
+    const pullsPayload = (await pullsResponse.json()) as { pull_requests: Array<{ pr_key: string }> };
+    assert.deepEqual(
+      pullsPayload.pull_requests.map((pull) => pull.pr_key),
+      ["acme/api#18", "acme/api#12"],
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("phase-7 workflows rank github pull request work above governance noise in healthy state", async () => {
+  const fakeService = {
+    getStatusReport: async () => ({
+      state: "ready",
+      mailbox: { connected: "machine@example.com", configured: "machine@example.com" },
+    }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-03-29T12:00:00.000Z",
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 1, info: 1 },
+      send_window: { active: false },
+      planning_groups: [],
+      items: [
+        {
+          item_id: "planning-policy",
+          kind: "planning_policy_governance_needed",
+          severity: "info",
+          title: "Policy review",
+          summary: "Review governance tuning",
+          target_type: "planning_recommendation_family",
+          target_id: "policy-1",
+          created_at: "2026-03-29T10:00:00.000Z",
+          suggested_command: "personal-ops recommendation policy",
+          metadata_json: "{}",
+        },
+        {
+          item_id: "github-pr",
+          kind: "github_pr_checks_failing",
+          severity: "warn",
+          title: "GitHub checks failing",
+          summary: "Checks failing: acme/api#18 Fix failing checks",
+          target_type: "github_pull_request",
+          target_id: "acme/api#18",
+          created_at: "2026-03-29T12:30:00.000Z",
+          suggested_command: "personal-ops github pr acme/api#18",
+          metadata_json: "{}",
+        },
+      ],
+    }),
+    listPlanningRecommendations: () => [],
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: () => null,
+  };
+
+  const nowNext = await buildNowNextWorkflowReport(fakeService, { httpReachable: true });
+  const prepDay = await buildPrepDayWorkflowReport(fakeService, { httpReachable: true });
+
+  assert.equal(nowNext.actions[0]?.target_type, "github_pull_request");
+  assert.equal(nowNext.actions[0]?.target_id, "acme/api#18");
+  assert.equal(prepDay.actions[0]?.target_type, "github_pull_request");
 });

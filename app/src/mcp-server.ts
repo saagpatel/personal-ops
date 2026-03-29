@@ -264,6 +264,45 @@ const tools = [
     },
   },
   {
+    name: "github_status",
+    description: "Show GitHub PR and review integration readiness for personal-ops.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "github_reviews",
+    description: "List GitHub review requests needing operator attention.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "github_pulls",
+    description: "List GitHub pull requests that currently matter to the operator loop.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "github_pull_get",
+    description: "Get details for a GitHub pull request in owner/repo#number form.",
+    inputSchema: {
+      type: "object",
+      required: ["pr_key"],
+      properties: {
+        pr_key: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_window_status",
     description: "Show the current timed send-window status without mutating it.",
     inputSchema: {
@@ -714,6 +753,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   if (name === "personal_ops_worklist") {
     const response = await requestJson("GET", "/v1/worklist");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "github_status") {
+    const response = await requestJson("GET", "/v1/github/status");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "github_reviews") {
+    const response = await requestJson("GET", "/v1/github/reviews");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "github_pulls") {
+    const response = await requestJson("GET", "/v1/github/pulls");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "github_pull_get") {
+    const response = await requestJson("GET", `/v1/github/pulls/${encodeURIComponent(String(args.pr_key))}`);
     return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
   }
   if (name === "send_window_status") {

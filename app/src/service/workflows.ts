@@ -308,6 +308,30 @@ function worklistCandidate(item: AttentionItem): WorkflowCandidate {
       whyNow = "A grouped recommendation can clear a cluster of similar operator work in one pass.";
       signals.push("batchable");
       break;
+    case "github_review_requested":
+      score = 760;
+      category = "followup";
+      whyNow = "A teammate is waiting on your review, so this is concrete collaboration work rather than hygiene noise.";
+      signals.push("github_review");
+      break;
+    case "github_pr_checks_failing":
+      score = 750;
+      category = "task";
+      whyNow = "An authored pull request has failing checks, so unblocking it can remove real delivery friction quickly.";
+      signals.push("github_checks_failing");
+      break;
+    case "github_pr_changes_requested":
+      score = 740;
+      category = "task";
+      whyNow = "An authored pull request has requested changes waiting on you, which is stronger than general review cleanup.";
+      signals.push("github_changes_requested");
+      break;
+    case "github_pr_merge_ready":
+      score = 500;
+      category = "task";
+      whyNow = "An authored pull request is merge-ready, so it is a bounded piece of work you can close out cleanly.";
+      signals.push("github_merge_ready");
+      break;
     case "calendar_conflict":
       score = 560;
       category = "meeting";

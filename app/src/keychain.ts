@@ -11,3 +11,16 @@ export function getKeychainSecret(service: string, account: string): string | nu
   const probe = probeKeychainSecret(service, account, { execFileSyncImpl: execFileSync });
   return probe.status === "present" ? probe.secret : null;
 }
+
+export function deleteKeychainSecret(service: string, account: string): void {
+  try {
+    execFileSync("security", ["delete-generic-password", "-s", service, "-a", account], {
+      stdio: "pipe",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("could not be found")) {
+      throw error;
+    }
+  }
+}

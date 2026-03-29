@@ -34,6 +34,10 @@ Planning recommendation reads now include ranking, grouping, trigger/suppression
 - `personal_ops_status`
 - `personal_ops_doctor`
 - `personal_ops_worklist`
+- `github_status`
+- `github_reviews`
+- `github_pulls`
+- `github_pull_get`
 - `send_window_status`
 - `inbox_status`
 - `inbox_unread_list`
@@ -102,6 +106,9 @@ These remain outside assistant control:
 - planning policy archive/supersede mutation
 - planning policy prune mutation
 - planning policy governance reads
+- GitHub auth login and logout
+- explicit GitHub sync mutation
+- any GitHub write action
 - send-window enable/disable
 - approval reopen/cancel
 - review resolve
@@ -112,7 +119,15 @@ These remain outside assistant control:
 
 ## Client rule
 
-Assistants must use `personal-ops` for shared mailbox, task, and calendar workflows. If `personal-ops` is unavailable, they should report the issue instead of falling back to direct Gmail, direct calendar access, or another parallel provider path.
+Assistants must use `personal-ops` for shared mailbox, task, calendar, and supported GitHub PR and review workflows. If `personal-ops` is unavailable, they should report the issue instead of falling back to direct Gmail, direct calendar access, direct GitHub write flows, or another parallel provider path.
+
+Phase 7 adds assistant-safe GitHub PR and review reads only:
+
+- GitHub.com only
+- explicit repository opt-in by the operator
+- PR and review queue context only
+- no GitHub write actions
+- no issue ingestion
 
 Phase 23 keeps that rule intact while treating the current governance surfaces as the supported baseline. Assistants may inspect hygiene families, review-needed counts, follow-through state, safe tuning attention detail, grouped planning summaries, group detail, recommendation provenance, next-action recommendations, derived summary/backlog/closure/hygiene/tuning reports, and assistant-safe audit summaries, but they still do not apply, reject, snooze, replan, mutate recommendation groups, review hygiene families, record or dismiss hygiene proposals, archive, supersede, or prune policy governance, read the operator-only policy report, create active suppression state, hide recommendations, or directly calendar-write those recommendations.
 

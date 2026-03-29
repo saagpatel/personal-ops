@@ -14,6 +14,7 @@ It gives one machine-owned source of truth for:
 - calendar context
 - tasks and task suggestions
 - planning recommendations
+- optional GitHub PR and review context
 - drafts, approvals, and reviews
 - assistant-safe operational reads
 
@@ -40,6 +41,7 @@ Use this path if you want to:
 - understand the single-primary-machine model before using backups to migrate state
 - use the local operator console for daily visibility plus narrow browser-safe actions
 - use the new day-start workflow bundle before dropping into narrower commands
+- optionally add narrow GitHub PR and review context
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands
@@ -64,7 +66,7 @@ Use this path if you want to:
 ## Main docs map
 
 - [OPERATIONS.md](OPERATIONS.md)
-  The practical runbook for install, auth, wrappers, LaunchAgent, console access, backup, restore, verification, and troubleshooting.
+  The practical runbook for install, auth, wrappers, LaunchAgent, optional GitHub setup, console access, backup, restore, verification, and troubleshooting.
 - [RELEASING.md](RELEASING.md)
   The release and maintenance checklist for the formal local ship gate and recurring health checks.
 - [UPGRADING.md](UPGRADING.md)
@@ -78,7 +80,7 @@ Use this path if you want to:
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
   The shortest role-based onboarding path for a new operator or a new assistant.
 - [CLIENTS.md](CLIENTS.md)
-  The shared client contract for assistants and MCP consumers.
+  The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub read surface.
 
 ## History and deep context
 

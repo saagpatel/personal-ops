@@ -46,6 +46,11 @@ export {
   formatTaskSuggestionDetail,
 } from "./formatters/tasks.js";
 export {
+  formatGithubPullDetail,
+  formatGithubPullRequests,
+  formatGithubStatus,
+} from "./formatters/github.js";
+export {
   formatPlanningRecommendations,
   formatPlanningRecommendationGroups,
   formatPlanningRecommendationGroupDetail,

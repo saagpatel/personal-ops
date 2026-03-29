@@ -6,6 +6,7 @@ import type {
   AuditEventCategory,
   DoctorReport,
   DraftArtifact,
+  GithubPullRequest,
   MailThreadDetail,
   PlanningRecommendationDetail,
   PlanningRecommendationGroup,
@@ -98,6 +99,10 @@ interface SnapshotCreateResponse {
   snapshot: SnapshotManifest;
 }
 
+interface GithubPullDetailResponse {
+  pull_request: GithubPullRequest;
+}
+
 interface TaskDetailResponse {
   task: TaskDetail;
 }
@@ -112,6 +117,7 @@ type WorklistDetail =
   | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
   | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
   | { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
+  | { kind: "github_pull_request"; item: AttentionItem; detail: GithubPullRequest }
   | { kind: "snapshot"; item: AttentionItem; detail: SnapshotInspection }
   | { kind: "unsupported"; item: AttentionItem; message: string };
 
@@ -648,6 +654,10 @@ async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail>
     const response = await fetchJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(item.target_id)}`);
     return { kind: "approval_request", item, detail: response.approval };
   }
+  if (item.target_type === "github_pull_request") {
+    const response = await fetchJson<GithubPullDetailResponse>(`/v1/github/pulls/${encodeURIComponent(item.target_id)}`);
+    return { kind: "github_pull_request", item, detail: response.pull_request };
+  }
   if (item.target_type === "snapshot") {
     const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(item.target_id)}`);
     return { kind: "snapshot", item, detail: response.snapshot };
@@ -733,6 +743,7 @@ function renderOverview(payload: ConsolePayload): string {
       ${metricCard("Planning", `${formatCount(status.planning_recommendations.active_count)} open`, status.planning_recommendations.top_group_summary ?? "No active planning summary")}
       ${metricCard("Approvals", `${formatCount(status.approval_queue.pending_count)} pending`, `${formatCount(status.approval_queue.total_count)} total requests`)}
       ${metricCard("Reviews", `${formatCount(status.review_queue.pending_count)} pending`, `${formatCount(status.review_queue.total_count)} total review items`)}
+      ${metricCard("GitHub", `${formatCount(status.github.review_requested_count)} reviews`, `${formatCount(status.github.authored_pr_attention_count)} authored PRs need attention`)}
     </section>
     <section class="columns columns--wide-right">
       <div class="detail-stack">
@@ -792,6 +803,19 @@ function renderOverview(payload: ConsolePayload): string {
               ? `<button class="button" data-open-snapshot="${escapeHtml(latestSnapshot.snapshot_id)}" type="button">Inspect latest snapshot</button>`
               : ""
           }
+        </div>
+      </div>
+      <div class="panel">
+        <h3>GitHub queue</h3>
+        <div class="detail-list detail-list--spaced">
+          <div class="detail-row"><dt>Connected login</dt><dd>${escapeHtml(status.github.connected_login ?? "not connected")}</dd></div>
+          <div class="detail-row"><dt>Sync</dt><dd>${escapeHtml(status.github.sync_status)}</dd></div>
+          <div class="detail-row"><dt>Review requests</dt><dd>${escapeHtml(String(status.github.review_requested_count))}</dd></div>
+          <div class="detail-row"><dt>Authored PR attention</dt><dd>${escapeHtml(String(status.github.authored_pr_attention_count))}</dd></div>
+        </div>
+        <p class="subtle subtle--body">${escapeHtml(status.github.top_item_summary ?? "Nothing notable is waiting in the GitHub queue right now.")}</p>
+        <div class="list-item__actions list-item__actions--stack">
+          ${commandStack(["personal-ops github status", "personal-ops github pulls"])}
         </div>
       </div>
     </section>
@@ -935,6 +959,27 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
           `personal-ops approval reject ${approval.approval_id} --note "<reason>"`,
           `personal-ops approval send ${approval.approval_id} --note "<reason>"`,
         ])}
+      </div>
+    `;
+  }
+
+  if (detail.kind === "github_pull_request") {
+    const pullRequest = detail.detail;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>PR</dt><dd>${escapeHtml(`${pullRequest.repository}#${pullRequest.number}`)}</dd></div>
+        <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(pullRequest.title)}</dd></div>
+        <div class="detail-row"><dt>Author</dt><dd>${escapeHtml(pullRequest.author_login)}</dd></div>
+        <div class="detail-row"><dt>Checks</dt><dd>${escapeHtml(pullRequest.check_state)}</dd></div>
+        <div class="detail-row"><dt>Review</dt><dd>${escapeHtml(pullRequest.review_state)}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(pullRequest.attention_summary ?? "Use the CLI to inspect the live GitHub detail and continue the review or PR loop.")}</p>
+      ${intelligenceBlock}
+      <div class="list-item__actions">
+        <a class="button" href="${escapeHtml(pullRequest.html_url)}" target="_blank" rel="noreferrer">Open on GitHub</a>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([`personal-ops github pr ${pullRequest.pr_key}`])}
       </div>
     `;
   }

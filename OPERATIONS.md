@@ -7,6 +7,7 @@ Use this document for:
 - install and bootstrap
 - auth and local runtime setup
 - local secret handling and re-auth recovery
+- optional GitHub PR and review context setup
 - machine ownership and intentional migration
 - operator console access and narrow browser-safe actions
 - operator automations
@@ -55,6 +56,8 @@ Official distribution model in this phase:
   The assistant-safe bearer token for local assistant clients.
 - Keychain item for the configured mailbox
   The stored Gmail refresh token used to reach Gmail and Google Calendar.
+- Keychain item for the configured GitHub service
+  The stored GitHub PAT used for read-only PR and review context when the optional GitHub integration is enabled.
 
 Important rules:
 
@@ -119,6 +122,37 @@ Finish with:
 personal-ops doctor --deep
 ```
 
+### Optional GitHub PR and review context
+
+Phase 7 adds narrow GitHub context for review requests and authored pull request attention.
+
+Enable it in `~/.config/personal-ops/config.toml`:
+
+```toml
+[github]
+enabled = true
+included_repositories = ["owner/repo"]
+sync_interval_minutes = 10
+keychain_service = "personal-ops.github"
+```
+
+Then run:
+
+```bash
+personal-ops auth github login
+personal-ops github sync now
+personal-ops github status
+```
+
+Important GitHub rules:
+
+- GitHub.com only in this phase
+- repository scope is explicit and opt-in
+- the token is stored in Keychain
+- the integration is read-first
+- no GitHub write actions are added in this phase
+- issue ingestion and broader repo browsing are intentionally deferred
+
 ### Safe re-auth path
 
 If auth is missing, stale, or attached to the wrong mailbox:
@@ -171,6 +205,14 @@ Other common commands:
   Builds the current-day meeting prep bundle.
 - `personal-ops workflow prep-meetings --next-24h`
   Builds the next-24-hours meeting prep bundle.
+- `personal-ops github status`
+  Shows whether the optional GitHub integration is connected and what PR attention is waiting.
+- `personal-ops github reviews`
+  Lists open review requests that need attention.
+- `personal-ops github pulls`
+  Lists the open authored PR attention queue from the included repositories.
+- `personal-ops github pr <owner/repo#number>`
+  Shows one cached PR detail with check and review state.
 - `personal-ops backup create`
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup prune --dry-run`
@@ -249,6 +291,8 @@ Browser-safe console actions now include:
 - snooze or reject a planning recommendation group
 
 The Overview section now also leads with the current now-next guidance, then surfaces the current day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
+
+When GitHub is configured, the Overview and worklist detail can also surface narrow PR and review queue context with exact CLI handoff plus an external GitHub link.
 
 These actions always require explicit confirmation in the browser.
 

@@ -28,6 +28,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const worklist = await service.getWorklistReport(options);
   const inboxStatus = service.getInboxStatusReport();
   const calendarStatus = service.getCalendarStatusReport();
+  const githubStatus = service.getGithubStatusReport();
   const topInboxItem =
     worklist.items.find((item: any) =>
       ["sync_degraded", "inbox_unread_old", "thread_needs_reply", "thread_stale_followup"].includes(item.kind),
@@ -242,6 +243,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
       top_item_summary: topCalendarItem?.summary ?? null,
       top_scheduling_item_summary: topSchedulingItem?.summary ?? null,
     },
+    github: githubStatus,
   };
 }
 

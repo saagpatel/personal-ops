@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
+import { PersonalOpsDb } from "./db.js";
+import { getKeychainSecret } from "./keychain.js";
 import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath,
@@ -240,7 +242,14 @@ function readConfigMailbox(paths: Paths): string {
   }
 }
 
-function readAuthConfigSummary(paths: Paths): { mailbox: string; keychainService: string; oauthClientPath: string } {
+function readAuthConfigSummary(paths: Paths): {
+  mailbox: string;
+  keychainService: string;
+  oauthClientPath: string;
+  githubEnabled: boolean;
+  githubIncludedRepositories: string[];
+  githubKeychainService: string;
+} {
   try {
     const raw = fs.readFileSync(paths.configFile, "utf8");
     const parsed = parseToml(raw) as Record<string, any>;
@@ -248,12 +257,20 @@ function readAuthConfigSummary(paths: Paths): { mailbox: string; keychainService
       mailbox: String(parsed.gmail?.account_email ?? "").trim(),
       keychainService: String(parsed.auth?.keychain_service ?? "").trim(),
       oauthClientPath: String(parsed.auth?.oauth_client_file ?? "").trim(),
+      githubEnabled: Boolean(parsed.github?.enabled ?? false),
+      githubIncludedRepositories: Array.isArray(parsed.github?.included_repositories)
+        ? parsed.github.included_repositories.map((value: unknown) => String(value).trim()).filter(Boolean)
+        : [],
+      githubKeychainService: String(parsed.github?.keychain_service ?? "personal-ops.github").trim(),
     };
   } catch {
     return {
       mailbox: "",
       keychainService: "",
       oauthClientPath: "",
+      githubEnabled: false,
+      githubIncludedRepositories: [],
+      githubKeychainService: "personal-ops.github",
     };
   }
 }
@@ -428,6 +445,13 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     dependencies.launchAgentDependencies,
   );
   const authConfig = readAuthConfigSummary(paths);
+  const githubDb = fs.existsSync(paths.databaseFile) ? new PersonalOpsDb(paths.databaseFile) : null;
+  const githubAccount = githubDb?.getGithubAccount() ?? null;
+  const githubSync = githubDb?.getGithubSyncState() ?? null;
+  const githubToken =
+    githubAccount && authConfig.githubKeychainService
+      ? getKeychainSecret(authConfig.githubKeychainService, githubAccount.keychain_account)
+      : null;
   const oauthValidation = validateOAuthClientFile(paths.oauthClientFile);
   const oauthPermissions = validateSecretFilePermissions(paths.oauthClientFile, "OAuth client file");
   const localApiToken = validateSecretTextFile(paths.apiTokenFile, "Local API token");
@@ -484,6 +508,96 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
           "auth.keychain_service is blank in config.toml. Restore the default or set the intended Keychain service before re-auth.",
           "setup",
         ),
+  );
+  checks.push(
+    authConfig.githubEnabled
+      ? passCheck("github_enabled", "GitHub integration", "GitHub integration is enabled.", "integration")
+      : passCheck("github_enabled", "GitHub integration", "GitHub integration is disabled.", "integration"),
+  );
+  checks.push(
+    !authConfig.githubEnabled
+      ? passCheck(
+          "github_repository_scope_configured",
+          "GitHub repository scope",
+          "GitHub repository scope is not required while the integration is disabled.",
+          "integration",
+        )
+      : authConfig.githubIncludedRepositories.length > 0
+        ? passCheck(
+            "github_repository_scope_configured",
+            "GitHub repository scope",
+            `${authConfig.githubIncludedRepositories.length} GitHub repositor${authConfig.githubIncludedRepositories.length === 1 ? "y is" : "ies are"} included.`,
+            "integration",
+          )
+        : warnCheck(
+            "github_repository_scope_configured",
+            "GitHub repository scope",
+            "GitHub is enabled, but github.included_repositories is empty in config.toml.",
+            "integration",
+          ),
+  );
+  checks.push(
+    !authConfig.githubEnabled
+      ? passCheck(
+          "github_connected_login_recorded",
+          "GitHub connected login",
+          "GitHub connected login is not required while the integration is disabled.",
+          "integration",
+        )
+      : githubAccount
+        ? passCheck(
+            "github_connected_login_recorded",
+            "GitHub connected login",
+            `GitHub is connected as ${githubAccount.login}.`,
+            "integration",
+          )
+        : warnCheck(
+            "github_connected_login_recorded",
+            "GitHub connected login",
+            "GitHub is enabled, but no connected GitHub login is recorded. Run `personal-ops auth github login`.",
+            "integration",
+          ),
+  );
+  checks.push(
+    !authConfig.githubEnabled
+      ? passCheck(
+          "github_token_present",
+          "GitHub token",
+          "GitHub token is not required while the integration is disabled.",
+          "integration",
+        )
+      : githubToken
+        ? passCheck("github_token_present", "GitHub token", "GitHub Keychain token is present.", "integration")
+        : warnCheck(
+            "github_token_present",
+            "GitHub token",
+            "GitHub is enabled, but no PAT is stored in Keychain. Run `personal-ops auth github login`.",
+            "integration",
+          ),
+  );
+  checks.push(
+    !authConfig.githubEnabled
+      ? passCheck("github_sync_fresh", "GitHub sync freshness", "GitHub sync is not required while the integration is disabled.", "integration")
+      : githubSync?.status === "degraded"
+        ? warnCheck(
+            "github_sync_fresh",
+            "GitHub sync freshness",
+            githubSync.last_error_message ?? "GitHub sync is degraded. Run `personal-ops github sync now`.",
+            "integration",
+          )
+        : githubSync?.last_synced_at
+          ? passCheck(
+              "github_sync_fresh",
+              "GitHub sync freshness",
+              `GitHub sync is fresh as of ${githubSync.last_synced_at}.`,
+              "integration",
+            )
+          : warnCheck(
+              "github_sync_fresh",
+              "GitHub sync freshness",
+              "GitHub has not synced yet. Run `personal-ops github sync now` after login.",
+              "integration",
+            ),
   );
   checks.push(
     machineIdentity.status === "configured"
@@ -721,6 +835,8 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
       ? passCheck("launch_agent_loaded", "LaunchAgent state", "LaunchAgent is loaded.", "integration")
       : failCheck("launch_agent_loaded", "LaunchAgent state", "LaunchAgent is not loaded.", "integration"),
   );
+
+  githubDb?.close();
 
   return {
     generated_at: new Date().toISOString(),
