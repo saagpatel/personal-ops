@@ -42,7 +42,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
 
   program
     .command("console")
-    .description("Open the local read-first operator console in the default browser.")
+    .description("Open the local operator console with narrow browser-safe actions.")
     .option("--print-url", "Print the console launch URL instead of opening the browser")
     .action(async (options) => {
       const response = await context.requestJson<{ console_session: { launch_url: string } }>("POST", "/v1/web/session-grants");

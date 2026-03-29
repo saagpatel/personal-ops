@@ -173,7 +173,10 @@ function assertAuthorized(
     throw new HttpError(401, "Console session expired. Run `personal-ops console` to reopen the operator console.");
   }
   if (!isConsoleBrowserRoute(method, pathname)) {
-    throw new HttpError(403, "Console sessions are read-only in Phase 8. Run the matching CLI command for this action.");
+    throw new HttpError(
+      403,
+      "Console sessions are limited to the browser-safe Phase 2 actions. Run the matching CLI command for anything else.",
+    );
   }
   (request as http.IncomingMessage & { browserSessionId?: string }).browserSessionId = session.sessionId;
   return { role: "operator", source: "browser_session", sessionId: session.sessionId };
