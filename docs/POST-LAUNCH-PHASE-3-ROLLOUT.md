@@ -64,10 +64,10 @@ Branch:
 - `codex/post-launch-phase-3-reliability-recovery`
 
 Commits:
-- Pending final closeout
+- `7b51e11` `feat(reliability): add recovery automation and prune flow`
 
 Draft PR:
-- Pending final closeout
+- [#12](https://github.com/saagpatel/personal-ops/pull/12)
 
 ## Next recommended phase
 
