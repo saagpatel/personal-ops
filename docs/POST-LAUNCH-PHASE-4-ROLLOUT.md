@@ -73,11 +73,12 @@ Branch:
 
 Commits:
 
-- Pending final closeout
+- `87ff094` `feat(release): add source-first release workflow`
+- `8040d37` `docs(release): finalize phase 4 rollout record`
 
 Draft PR:
 
-- Pending final closeout
+- [#13](https://github.com/saagpatel/personal-ops/pull/13)
 
 ## Next recommended phase
 
