@@ -144,6 +144,8 @@ These are the main operator commands after setup:
   Opens the local operator console in the browser.
 - `personal-ops version`
   Shows the current product version, release tag, release gate, and official upgrade hint.
+- `personal-ops workflow prep-day`
+  The preferred day-start bundle with current readiness, top attention, time-sensitive items, and exact next commands.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -161,6 +163,12 @@ Other common commands:
 
 - `personal-ops doctor --deep`
   Adds live Gmail and Google Calendar verification.
+- `personal-ops workflow follow-up-block`
+  Builds the bounded inbox and stale follow-up action block.
+- `personal-ops workflow prep-meetings --today`
+  Builds the current-day meeting prep bundle.
+- `personal-ops workflow prep-meetings --next-24h`
+  Builds the next-24-hours meeting prep bundle.
 - `personal-ops backup create`
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup prune --dry-run`
@@ -195,6 +203,8 @@ Use [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md) as the source of truth for:
 - workspace path
 - prompt intent
 - pause, update, and recreate steps
+
+The daily briefing layer now centers on `personal-ops workflow prep-day`. That workflow bundle is the preferred operator day-start command, and Morning Brief now uses it as the automation source of truth.
 
 ## Operator console
 
@@ -236,6 +246,8 @@ Browser-safe console actions now include:
 - apply, snooze, and reject a planning recommendation
 - snooze or reject a planning recommendation group
 
+The Overview section now also surfaces the current day-start workflow bundle, including exact CLI commands and in-console detail handoff where available.
+
 These actions always require explicit confirmation in the browser.
 
 Still CLI-only:
@@ -248,6 +260,8 @@ Still CLI-only:
 - sync and broader admin actions
 
 The console also surfaces exact CLI commands for the actions that still intentionally stay outside browser scope.
+
+Workflow bundles stay read-first in this phase. They can recommend exact CLI commands, but they do not add a new bulk workflow executor or any new browser mutation scope.
 
 ## Wrappers and LaunchAgent
 

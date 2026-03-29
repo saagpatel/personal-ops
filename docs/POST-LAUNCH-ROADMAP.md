@@ -28,7 +28,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Completed |
 | 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Completed |
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Completed |
-| 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Planned |
+| 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Completed |
 | 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Planned |
 | 7 | Integrations and Context Expansion | Add the next external systems only where they make the operator loop meaningfully stronger | Planned |
 
@@ -128,15 +128,23 @@ Phase 4 is complete.
 
 ## Phase 5: Workflow Actions and Bundles
 
-This phase should make the system more operationally useful, not just more observable.
+Phase 5 is complete.
 
-Good targets:
+### Delivered
 
-- “prep my day” workflow
-- inbox cleanup bundles
-- task and follow-up batching
-- better meeting-prep workflows
-- more natural inbox-to-task and recommendation-to-action loops
+- `personal-ops workflow prep-day`
+- `personal-ops workflow follow-up-block`
+- `personal-ops workflow prep-meetings`
+- read-only workflow HTTP reads for the console
+- Overview workflow bundle surfacing and action handoff
+- Morning Brief now sourcing from the shared day-start bundle
+
+### Guardrails kept
+
+- workflow bundles stay read-first
+- higher-trust actions still run through the existing CLI paths
+- browser mutation scope does not widen in this phase
+- no new planning store or bundle executor is introduced
 
 ## Phase 6: Intelligence Layer
 
@@ -188,7 +196,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 5: Workflow Actions and Bundles
+- the recommended next build is Phase 6: Intelligence Layer
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

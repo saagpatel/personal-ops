@@ -1040,6 +1040,37 @@ export interface WorklistReport {
   items: AttentionItem[];
 }
 
+export interface WorkflowBundleSectionItem {
+  label: string;
+  summary: string;
+  command?: string | undefined;
+  target_type?: string | undefined;
+  target_id?: string | undefined;
+}
+
+export interface WorkflowBundleSection {
+  title: string;
+  items: WorkflowBundleSectionItem[];
+}
+
+export interface WorkflowBundleAction {
+  label: string;
+  summary: string;
+  command: string;
+  target_type?: string | undefined;
+  target_id?: string | undefined;
+}
+
+export interface WorkflowBundleReport {
+  workflow: "prep-day" | "follow-up-block" | "prep-meetings";
+  generated_at: string;
+  readiness: ServiceState;
+  summary: string;
+  sections: WorkflowBundleSection[];
+  actions: WorkflowBundleAction[];
+  first_repair_step: string | null;
+}
+
 export interface MailSyncState {
   mailbox: string;
   provider: string;

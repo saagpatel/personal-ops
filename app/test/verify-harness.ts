@@ -351,6 +351,9 @@ async function runHttpSmoke(env: VerificationEnvironment): Promise<void> {
   assert.ok(status.status.state, "status report should include a state.");
   const worklist = await requestJson<{ worklist: { items: unknown[] } }>("GET", "/v1/worklist");
   assert.ok(Array.isArray(worklist.worklist.items), "worklist should include items.");
+  const workflow = await requestJson<{ workflow: { workflow: string; sections: unknown[] } }>("GET", "/v1/workflows/prep-day");
+  assert.equal(workflow.workflow.workflow, "prep-day");
+  assert.ok(Array.isArray(workflow.workflow.sections), "workflow bundle should include sections.");
   const doctor = await requestJson<{ doctor: { checks: unknown[] } }>("GET", "/v1/doctor");
   assert.ok(Array.isArray(doctor.doctor.checks), "doctor should include checks.");
 }
@@ -742,9 +745,12 @@ export async function runFullVerification(): Promise<void> {
 
     const status = await runCliJson<{ status: { state: string } }>(env, ["status", "--json"]);
     const worklist = await runCliJson<{ worklist: { items: unknown[] } }>(env, ["worklist", "--json"]);
+    const prepDay = await runCliJson<{ workflow: { workflow: string; actions: unknown[] } }>(env, ["workflow", "prep-day", "--json"]);
     const doctor = await runCliJson<{ doctor: { checks: unknown[] } }>(env, ["doctor", "--json"]);
     assert.ok(status.status.state);
     assert.ok(Array.isArray(worklist.worklist.items));
+    assert.equal(prepDay.workflow.workflow, "prep-day");
+    assert.ok(Array.isArray(prepDay.workflow.actions));
     assert.ok(Array.isArray(doctor.doctor.checks));
 
     await runHttpSmoke(env);
@@ -830,11 +836,16 @@ export async function runConsoleVerification(): Promise<void> {
       await snapshotPage.goto(launchUrl, { waitUntil: "networkidle" });
       await snapshotPage.waitForSelector("text=Local operator console");
       await snapshotPage.waitForSelector("text=Top-level readiness");
+      await snapshotPage.waitForSelector("text=Day-start workflow");
       await snapshotPage.waitForSelector("text=Version");
       await snapshotPage.waitForFunction(() => {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
       });
+      await snapshotPage.getByRole("button", { name: "Open related detail", exact: true }).first().click();
+      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Worklist");
+      await snapshotPage.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();
+      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Overview");
       for (const sectionName of ["Worklist", "Approvals", "Drafts", "Planning", "Audit", "Backups", "Overview"]) {
         await snapshotPage.locator(".nav").getByRole("button", { name: sectionName, exact: true }).click();
         await snapshotPage.waitForFunction(

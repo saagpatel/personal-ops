@@ -61,6 +61,11 @@ import {
   listSnapshots as listSnapshotsFromModule,
 } from "./service/install.js";
 import { buildDoctorReport, buildStatusReport } from "./service/status.js";
+import {
+  buildFollowUpBlockWorkflowReport,
+  buildPrepDayWorkflowReport,
+  buildPrepMeetingsWorkflowReport,
+} from "./service/workflows.js";
 import { readServiceVersion } from "./version.js";
 import {
   AttentionItem,
@@ -578,6 +583,18 @@ export class PersonalOpsService {
 
   async getStatusReport(options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
     return buildStatusReport(this, options);
+  }
+
+  async getPrepDayWorkflowReport(options: { httpReachable: boolean }) {
+    return buildPrepDayWorkflowReport(this, options);
+  }
+
+  async getFollowUpBlockWorkflowReport(options: { httpReachable: boolean }) {
+    return buildFollowUpBlockWorkflowReport(this, options);
+  }
+
+  async getPrepMeetingsWorkflowReport(options: { httpReachable: boolean; scope: "today" | "next_24h" }) {
+    return buildPrepMeetingsWorkflowReport(this, options);
   }
 
   async runDoctor(options: DoctorOptions): Promise<DoctorReport> {

@@ -39,6 +39,7 @@ Use this path if you want to:
 - install or move the system to another Mac
 - understand the single-primary-machine model before using backups to migrate state
 - use the local operator console for daily visibility plus narrow browser-safe actions
+- use the new day-start workflow bundle before dropping into narrower commands
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands
@@ -103,7 +104,7 @@ These docs are still important, but they are history and deeper context, not the
 If you are a new operator:
 
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
-2. Follow [OPERATIONS.md](OPERATIONS.md) for the daily command surface.
+2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` as the preferred day-start command.
 3. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
 4. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 

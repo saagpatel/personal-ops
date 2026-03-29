@@ -395,6 +395,28 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/workflows/prep-day") {
+        sendJson(response, 200, {
+          workflow: await service.getPrepDayWorkflowReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/workflows/follow-up-block") {
+        sendJson(response, 200, {
+          workflow: await service.getFollowUpBlockWorkflowReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/workflows/prep-meetings") {
+        const scope = url.searchParams.get("scope") === "next_24h" ? "next_24h" : "today";
+        sendJson(response, 200, {
+          workflow: await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope }),
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/inbox/status") {
         sendJson(response, 200, {
           inbox: service.getInboxStatusReport(),

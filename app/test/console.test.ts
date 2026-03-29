@@ -152,7 +152,7 @@ function cookieValue(setCookieHeader: string | null): string {
   return cookie;
 }
 
-test("Phase 2 console session grants are single-use and allow browser-safe status access", async () => {
+test("Phase 5 console session grants are single-use and allow browser-safe workflow access", async () => {
   const fixture = await createConsoleFixture();
   try {
     const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
@@ -178,6 +178,16 @@ test("Phase 2 console session grants are single-use and allow browser-safe statu
       },
     });
     assert.equal(statusResponse.status, 200);
+
+    const workflowResponse = await fetch(`${baseUrl}/v1/workflows/prep-day`, {
+      headers: {
+        cookie,
+      },
+    });
+    assert.equal(workflowResponse.status, 200);
+    const workflowPayload = (await workflowResponse.json()) as { workflow?: { workflow?: string; sections?: unknown[] } };
+    assert.equal(workflowPayload.workflow?.workflow, "prep-day");
+    assert.ok(Array.isArray(workflowPayload.workflow?.sections));
 
     const secondConsume = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
     assert.equal(secondConsume.status, 302);
