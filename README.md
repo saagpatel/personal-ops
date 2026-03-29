@@ -84,6 +84,9 @@ Today, the repo includes:
 - formal local release gate with `npm run release:check` from `app/`
 - a first CI baseline for typecheck, tests, and smoke verification on pushes and PRs
 - recurring-friendly local health checks with `personal-ops health check`
+- explicit product version output with `personal-ops version`
+- source-first tagged releases with notes in `CHANGELOG.md`
+- in-place upgrade guidance in `UPGRADING.md`
 
 ## Learn More
 
@@ -91,6 +94,8 @@ Today, the repo includes:
 - Quick guide: [QUICK-GUIDE.md](QUICK-GUIDE.md)
 - Operations runbook: [OPERATIONS.md](OPERATIONS.md)
 - Release checklist: [RELEASING.md](RELEASING.md)
+- Upgrade guide: [UPGRADING.md](UPGRADING.md)
+- Release notes: [CHANGELOG.md](CHANGELOG.md)
 - Architecture guide: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Client usage contract: [CLIENTS.md](CLIENTS.md)
 - New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)

@@ -15,6 +15,8 @@
     "verify:all": "npm run typecheck && npm run test && npm run verify:smoke && npm run verify:full && npm run verify:console && npm run verify:launchagent && npm run verify:recovery",
     "release:check": "npm run verify:all",
     "release:check:ci": "npm run typecheck && npm run test && npm run verify:smoke",
+    "release:prep": "node scripts/release-prep.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "daemon": "node dist/src/daemon.js",
     "cli": "node dist/src/cli.js",
     "mcp": "node dist/src/mcp-server.js"

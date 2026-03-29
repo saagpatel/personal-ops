@@ -798,6 +798,7 @@ test("accepting and rejecting task suggestions preserve attribution and feed the
   assert.equal(worklist.items.some((item) => item.kind === "task_due_soon"), true);
 
   const status = await service.getStatusReport({ httpReachable: true });
+  assert.equal(status.service_version, "0.1.0-test");
   assert.equal(status.task_suggestions.pending_count, 1);
   assert.equal(status.tasks.pending_count, 1);
 });

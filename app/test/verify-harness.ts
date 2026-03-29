@@ -830,6 +830,7 @@ export async function runConsoleVerification(): Promise<void> {
       await snapshotPage.goto(launchUrl, { waitUntil: "networkidle" });
       await snapshotPage.waitForSelector("text=Local operator console");
       await snapshotPage.waitForSelector("text=Top-level readiness");
+      await snapshotPage.waitForSelector("text=Version");
       await snapshotPage.waitForFunction(() => {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");

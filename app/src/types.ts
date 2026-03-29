@@ -1257,6 +1257,7 @@ export interface SnapshotPruneResult {
 
 export interface ServiceStatusReport {
   generated_at: string;
+  service_version: string;
   state: ServiceState;
   daemon_reachable: boolean;
   send_enabled: boolean;
@@ -1443,6 +1444,14 @@ export interface HealthCheckReport {
     fail: number;
   };
   checks: DoctorCheck[];
+}
+
+export interface VersionReport {
+  service_version: string;
+  release_tag: string;
+  distribution_model: string;
+  release_check_command: string;
+  upgrade_hint: string;
 }
 
 export interface SnapshotManifest {

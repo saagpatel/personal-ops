@@ -6,11 +6,13 @@ import {
   formatNowReport,
   formatSendWindowStatus,
   formatStatusReport,
+  formatVersionReport,
   formatWorklistReport,
 } from "../../formatters.js";
 import { buildHealthCheckReport } from "../../health.js";
 import type { Logger } from "../../logger.js";
 import type { Paths } from "../../types.js";
+import { buildVersionReport } from "../../version.js";
 import type { CliContext } from "../shared.js";
 
 function openUrl(url: string): void {
@@ -54,6 +56,15 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
       openUrl(launchUrl);
       logger.info("console_opened", { launch_url: launchUrl });
       process.stdout.write(`Opened operator console: ${launchUrl}\n`);
+    });
+
+  program
+    .command("version")
+    .description("Show the current personal-ops version and the official source-first upgrade path.")
+    .option("--json", "Print raw JSON")
+    .action((options) => {
+      const response = { version: buildVersionReport(paths) };
+      context.printOutput(response, (value) => formatVersionReport(value.version), options.json);
     });
 
   program

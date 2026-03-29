@@ -66,6 +66,10 @@ Use this path if you want to:
   The practical runbook for install, auth, wrappers, LaunchAgent, console access, backup, restore, verification, and troubleshooting.
 - [RELEASING.md](RELEASING.md)
   The release and maintenance checklist for the formal local ship gate and recurring health checks.
+- [UPGRADING.md](UPGRADING.md)
+  The official source-first upgrade path after tagging or changing branches.
+- [CHANGELOG.md](CHANGELOG.md)
+  The operator-facing release notes for tagged versions.
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
   The operator automation runbook for the recurring briefing, recovery snapshot, and rehearsal reminder layer.
 - [ARCHITECTURE.md](ARCHITECTURE.md)

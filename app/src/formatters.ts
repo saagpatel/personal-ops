@@ -4,6 +4,7 @@ export {
   formatHealthCheckReport,
   formatSendWindowStatus,
   formatWorklistReport,
+  formatVersionReport,
   formatNowReport,
 } from "./formatters/status.js";
 export {

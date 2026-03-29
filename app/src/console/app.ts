@@ -617,6 +617,10 @@ function renderOverview(payload: ConsolePayload): string {
           <p>${escapeHtml(status.mailbox.connected ?? status.mailbox.configured ?? "not configured")}</p>
         </div>
         <div>
+          <p class="eyebrow">Version</p>
+          <p>${escapeHtml(status.service_version)}</p>
+        </div>
+        <div>
           <p class="eyebrow">Latest snapshot</p>
           <p>${escapeHtml(latestSnapshot?.snapshot_id ?? "none yet")}</p>
         </div>

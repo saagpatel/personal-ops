@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
 import { getPersonalOpsMcpHeaders } from "./mcp-identity.js";
+import { readServiceVersion } from "./version.js";
 
 const paths = ensureRuntimeFiles();
 const config = loadConfig(paths);
@@ -608,7 +609,7 @@ const tools = [
 const server = new Server(
   {
     name: "personal-ops",
-    version: "0.1.0",
+    version: readServiceVersion(paths.appDir),
   },
   {
     capabilities: {

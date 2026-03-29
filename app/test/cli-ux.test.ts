@@ -56,6 +56,11 @@ function repoAppDir() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
 
+function repoPackageVersion() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoAppDir(), "package.json"), "utf8")) as { version?: string };
+  return pkg.version ?? "0.0.0-unknown";
+}
+
 function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
   const keys = [
     "HOME",
@@ -281,6 +286,32 @@ test("Phase 4 formatters emphasize start-here guidance and the new now summary",
   assert.match(formattedNow, /Personal Ops Now:/);
   assert.match(formattedNow, /Next Steps/);
   assert.match(formattedNow, /personal-ops worklist/);
+});
+
+test("Phase 4 version command reports the current release identity and upgrade path", () => {
+  const { env, paths } = createTempEnv("version");
+  writeFixtureFiles(paths, 46211);
+
+  const stdout = execFileSync("node", [cliEntryPath(), "version"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+  assert.match(stdout, new RegExp(`personal-ops ${repoPackageVersion().replace(/\./g, "\\.")}`));
+  assert.match(stdout, /Release tag:\s+v/);
+  assert.match(stdout, /Upgrade path/);
+
+  const jsonOutput = execFileSync("node", [cliEntryPath(), "version", "--json"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+  const parsed = JSON.parse(jsonOutput) as {
+    version: { service_version: string; release_tag: string; upgrade_hint: string };
+  };
+  assert.equal(parsed.version.service_version, repoPackageVersion());
+  assert.equal(parsed.version.release_tag, `v${repoPackageVersion()}`);
+  assert.match(parsed.version.upgrade_hint, /\.\/bootstrap/);
 });
 
 test("Phase 4 top-level help highlights the main operator path and the now shortcut", () => {
