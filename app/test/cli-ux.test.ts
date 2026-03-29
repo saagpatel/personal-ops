@@ -314,6 +314,28 @@ test("Phase 5 workflow formatter renders the bounded day-start sections and repa
   }
 });
 
+test("Phase 6 workflow formatter renders now-next guidance with why-now detail", async () => {
+  const { service } = createServiceFixture();
+  service.createTask(cliIdentity, {
+    title: "Prepare operator follow-up",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+  });
+
+  const report = await service.getNowNextWorkflowReport({ httpReachable: true });
+  const formatted = formatWorkflowBundleReport(report);
+
+  assert.equal(report.workflow, "now-next");
+  assert.match(formatted, /Best Next Move/);
+  assert.match(formatted, /Why Now/);
+  assert.match(formatted, /Alternatives/);
+  assert.match(formatted, /If Blocked/);
+  assert.match(formatted, /why now:/);
+  assert.match(formatted, /score band:/);
+});
+
 test("Phase 4 version command reports the current release identity and upgrade path", () => {
   const { env, paths } = createTempEnv("version");
   writeFixtureFiles(paths, 46211);

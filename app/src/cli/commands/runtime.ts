@@ -101,6 +101,15 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
 
   const workflow = program.command("workflow").description("Compose the day-start operator flow into bounded workflow bundles.");
   workflow
+    .command("now-next")
+    .description("Show the single best next move right now, plus a short backup list if that path is blocked.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ workflow: unknown }>("GET", "/v1/workflows/now-next");
+      context.printOutput(response, (value) => formatWorkflowBundleReport(value.workflow), options.json);
+    });
+
+  workflow
     .command("prep-day")
     .description("Show the preferred day-start bundle with top attention, time-sensitive items, and exact next commands.")
     .option("--json", "Print raw JSON")

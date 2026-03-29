@@ -36,6 +36,8 @@ Keep these pieces separate:
   Opens the local operator console with narrow browser-safe actions for planning and snapshots.
 - `personal-ops version`
   Shows the current product version and the official source-first upgrade path.
+- `personal-ops workflow now-next`
+  The focused “what should I do next right now?” command.
 - `personal-ops workflow prep-day`
   The preferred day-start bundle with exact next commands.
 - `personal-ops now`
@@ -61,9 +63,9 @@ The recurring automation loop now includes:
 
 The briefing automations stay read-first. The reliability automations are limited to local snapshot create and local prune after a `ready` health gate.
 
-The preferred operator rhythm now starts with `personal-ops workflow prep-day`, then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
+The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by showing the same day-start bundle on Overview, while still keeping higher-trust flows in the CLI.
+The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, while still keeping higher-trust flows in the CLI.
 
 Read next:
 

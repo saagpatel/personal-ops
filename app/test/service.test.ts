@@ -27,6 +27,7 @@ import {
   GmailMessageMetadata,
   GmailMessageRefPage,
   Policy,
+  WorklistReport,
 } from "../src/types.js";
 
 interface FixtureOptions {
@@ -5902,6 +5903,144 @@ test("phase-5 meeting workflow respects today vs next-24h scope", async () => {
   assert.equal(todayReport.workflow, "prep-meetings");
   assert.doesNotMatch(todayText, /Tomorrow workflow meeting/);
   assert.match(next24Text, /Tomorrow workflow meeting/);
+});
+
+test("phase-6 now-next leads with the first repair step when readiness is degraded", async () => {
+  const { service } = createFixture();
+  const degradedWorklist: WorklistReport = {
+    generated_at: new Date().toISOString(),
+    state: "degraded",
+    counts_by_severity: { critical: 1, warn: 0, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    items: [
+      {
+        item_id: "repair-1",
+        kind: "system_degraded",
+        severity: "critical",
+        title: "Daemon needs repair",
+        summary: "The daemon is unreachable and should be restarted before normal operator work.",
+        target_type: "system",
+        target_id: "personal-ops",
+        created_at: new Date().toISOString(),
+        suggested_command: "personal-ops doctor",
+        metadata_json: "{}",
+      },
+    ],
+  };
+  (service as any).getWorklistReport = async () => degradedWorklist;
+  (service as any).getStatusReport = async () => ({
+    state: "degraded",
+    worklist_summary: { top_item_summary: degradedWorklist.items[0]!.summary },
+    mailbox: { connected: "machine@example.com", configured: "machine@example.com" },
+  });
+
+  const report = await service.getNowNextWorkflowReport({ httpReachable: true });
+
+  assert.equal(report.workflow, "now-next");
+  assert.equal(report.first_repair_step, "personal-ops doctor");
+  assert.equal(report.actions[0]?.command, "personal-ops doctor");
+  assert.match(report.sections[0]?.items[0]?.summary ?? "", /daemon is unreachable/i);
+});
+
+test("phase-6 prep-day prefers concrete work over governance review in healthy state", async () => {
+  const { service } = createFixture();
+  const soon = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const healthyWorklist: WorklistReport = {
+    generated_at: new Date().toISOString(),
+    state: "ready",
+    counts_by_severity: { critical: 0, warn: 2, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    items: [
+      {
+        item_id: "governance-1",
+        kind: "planning_policy_governance_needed",
+        severity: "warn",
+        title: "Planning hygiene review needed",
+        summary: "A governance review is open for a noisy planning family.",
+        target_type: "planning_recommendation_family",
+        target_id: "family-1",
+        created_at: new Date().toISOString(),
+        suggested_command: "personal-ops recommendation hygiene --review-needed-only",
+        metadata_json: "{}",
+      },
+      {
+        item_id: "task-1",
+        kind: "task_due_soon",
+        severity: "warn",
+        title: "High-priority task needs attention",
+        summary: "A real operator task is due soon.",
+        target_type: "task",
+        target_id: "task-1",
+        created_at: new Date().toISOString(),
+        due_at: soon,
+        suggested_command: "personal-ops task show task-1",
+        metadata_json: "{}",
+      },
+    ],
+  };
+  (service as any).getWorklistReport = async () => healthyWorklist;
+  (service as any).getStatusReport = async () => ({
+    state: "ready",
+    worklist_summary: { top_item_summary: healthyWorklist.items[0]!.summary },
+    mailbox: { connected: "machine@example.com", configured: "machine@example.com" },
+  });
+
+  const report = await service.getPrepDayWorkflowReport({ httpReachable: true });
+
+  assert.equal(report.workflow, "prep-day");
+  assert.equal(report.actions[0]?.command, "personal-ops task show task-1");
+  assert.notEqual(report.actions[0]?.command, "personal-ops recommendation hygiene --review-needed-only");
+  assert.match(report.actions[0]?.why_now ?? "", /task|due window/i);
+});
+
+test("phase-6 meeting workflow only surfaces prep when the meeting window is close", async () => {
+  const { service, accountEmail } = createFixture();
+  const nearStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const farStart = new Date(Date.now() + 10 * 60 * 60 * 1000);
+
+  service.db.upsertCalendarEvent({
+    event_id: "primary:phase6-near",
+    provider_event_id: "phase6-near",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Near meeting",
+    status: "confirmed",
+    start_at: nearStart.toISOString(),
+    end_at: new Date(nearStart.getTime() + 30 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+  service.db.upsertCalendarEvent({
+    event_id: "primary:phase6-far",
+    provider_event_id: "phase6-far",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Far meeting",
+    status: "confirmed",
+    start_at: farStart.toISOString(),
+    end_at: new Date(farStart.getTime() + 30 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 1,
+    created_by_personal_ops: false,
+    updated_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+  });
+
+  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "today" });
+  const prepNeeded = report.sections.find((section) => section.title === "Prep Needed");
+  const prepText = JSON.stringify(prepNeeded?.items ?? []);
+
+  assert.match(prepText, /Near meeting/);
+  assert.doesNotMatch(prepText, /Far meeting/);
 });
 
 test("phase-25 status keeps one compact policy attention signal", async () => {

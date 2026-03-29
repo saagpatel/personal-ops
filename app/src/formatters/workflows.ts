@@ -28,6 +28,15 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
       section.title,
       section.items.flatMap((item) => {
         const rendered = [`- ${item.label}: ${item.summary}`];
+        if (item.why_now) {
+          rendered.push(`  why now: ${item.why_now}`);
+        }
+        if (item.score_band) {
+          rendered.push(`  score band: ${item.score_band}`);
+        }
+        if (item.signals?.length) {
+          rendered.push(`  signals: ${item.signals.join(", ")}`);
+        }
         if (item.command) {
           rendered.push(`  next: ${item.command}`);
         }

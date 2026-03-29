@@ -26,6 +26,7 @@ type BannerTone = "good" | "warn" | "critical";
 interface ConsolePayload {
   status: ServiceStatusReport;
   worklist: WorklistReport;
+  nowNextWorkflow: WorkflowBundleReport;
   prepDayWorkflow: WorkflowBundleReport;
   doctor: DoctorReport;
   approvals: ApprovalRequest[];
@@ -296,6 +297,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   const [
     statusResponse,
     worklistResponse,
+    nowNextWorkflowResponse,
     workflowResponse,
     doctorResponse,
     approvalsResponse,
@@ -308,6 +310,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   ] = await Promise.all([
     fetchJson<StatusResponse>("/v1/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
+    fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<DoctorResponse>("/v1/doctor"),
     fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
@@ -322,6 +325,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   return {
     status: statusResponse.status,
     worklist: worklistResponse.worklist,
+    nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
     doctor: doctorResponse.doctor,
     approvals: approvalsResponse.approval_requests,
@@ -394,19 +398,39 @@ function commandStack(commands: string[]): string {
     .join("");
 }
 
-function workflowActionButton(action: WorkflowBundleReport["actions"][number], index: number): string {
+function workflowActionButton(
+  workflow: WorkflowBundleReport["workflow"],
+  action: WorkflowBundleReport["actions"][number],
+  index: number,
+): string {
   return `
     <div class="command-line">
       <div>
         <p class="eyebrow">${escapeHtml(action.label)}</p>
         <code class="code">${escapeHtml(action.command)}</code>
+        ${
+          action.why_now
+            ? `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
+            : ""
+        }
       </div>
       <div class="list-item__actions">
-        <button class="button" data-workflow-action="${escapeHtml(String(index))}" type="button">Open related detail</button>
+        <button class="button" data-workflow="${escapeHtml(workflow)}" data-workflow-action="${escapeHtml(String(index))}" type="button">Open related detail</button>
         <button class="copy-button" data-copy="${escapeHtml(action.command)}" type="button">Copy</button>
       </div>
     </div>
   `;
+}
+
+function renderWorkflowItemMeta(item: WorkflowBundleReport["sections"][number]["items"][number]): string {
+  const parts: string[] = [];
+  if (item.score_band) {
+    parts.push(`Score band: ${item.score_band}`);
+  }
+  if (item.signals?.length) {
+    parts.push(`Signals: ${item.signals.join(", ")}`);
+  }
+  return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" · "))}</p>` : "";
 }
 
 function renderWorkflowSections(report: WorkflowBundleReport): string {
@@ -426,6 +450,8 @@ function renderWorkflowSections(report: WorkflowBundleReport): string {
                           <h4>${escapeHtml(item.label)}</h4>
                         </div>
                         <p>${escapeHtml(item.summary)}</p>
+                        ${item.why_now ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>` : ""}
+                        ${renderWorkflowItemMeta(item)}
                         ${
                           item.command
                             ? `<div class="list-item__actions">${commandAction(item.command, "Copy command")}</div>`
@@ -464,8 +490,25 @@ function getCurrentPayload(): ConsolePayload {
   return state.payload;
 }
 
+function workflowByName(payload: ConsolePayload, workflow: WorkflowBundleReport["workflow"]): WorkflowBundleReport {
+  if (workflow === "now-next") {
+    return payload.nowNextWorkflow;
+  }
+  return payload.prepDayWorkflow;
+}
+
 function findSelectedWorklistItem(payload: ConsolePayload): AttentionItem | null {
   return payload.worklist.items.find((item) => item.item_id === state.selectedWorklistItemId) ?? null;
+}
+
+function intelligenceForWorklistItem(
+  payload: ConsolePayload,
+  item: AttentionItem,
+): WorkflowBundleReport["actions"][number] | null {
+  const matches = [...payload.nowNextWorkflow.actions, ...payload.prepDayWorkflow.actions].find(
+    (action) => action.target_type === item.target_type && action.target_id === item.target_id,
+  );
+  return matches ?? null;
 }
 
 function nextRecommendationId(payload: ConsolePayload): string | null {
@@ -651,8 +694,9 @@ function renderOverview(payload: ConsolePayload): string {
   const status = payload.status;
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
-  const topRecommendation = state.planningRecommendationDetail ?? payload.planningNext;
   const workflow = payload.prepDayWorkflow;
+  const nowNext = payload.nowNextWorkflow;
+  const primaryNowNext = nowNext.actions[0] ?? null;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -660,7 +704,7 @@ function renderOverview(payload: ConsolePayload): string {
         <h3>${escapeHtml(status.state === "ready" ? "Local control plane looks healthy." : "Local control plane needs attention.")}</h3>
         <span class="${status.state === "ready" ? "pill pill--good" : "pill pill--warn"}">${escapeHtml(status.state)}</span>
       </div>
-      <p>${escapeHtml(workflow.summary)}</p>
+      <p>${escapeHtml(nowNext.summary)}</p>
       <div class="hero__meta">
         <div>
           <p class="eyebrow">Machine</p>
@@ -693,6 +737,11 @@ function renderOverview(payload: ConsolePayload): string {
     <section class="columns columns--wide-right">
       <div class="detail-stack">
         <section class="detail-card">
+          <h3>What to do right now</h3>
+          <p class="subtle subtle--body">Use this focused bundle when you want one strongest next move plus a short backup path.</p>
+          ${renderWorkflowSections(nowNext)}
+        </section>
+        <section class="detail-card">
           <h3>Day-start workflow</h3>
           <p class="subtle subtle--body">Use this bundle when you want the shortest useful operator plan for right now.</p>
           ${renderWorkflowSections(workflow)}
@@ -702,31 +751,31 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>Next commands</h3>
           ${
-            workflow.actions.length === 0
+            nowNext.actions.length === 0
               ? `<div class="empty">No immediate commands are queued right now.</div>`
-              : workflow.actions.map((action, index) => workflowActionButton(action, index)).join("")
+              : nowNext.actions.map((action, index) => workflowActionButton(nowNext.workflow, action, index)).join("")
           }
         </section>
       </div>
     </section>
     <section class="columns">
       <div class="panel">
-        <h3>Top recommendation</h3>
+        <h3>Primary move</h3>
         ${
-          topRecommendation
+          primaryNowNext
             ? `
-              <p>${escapeHtml(topRecommendation.recommendation.reason_summary)}</p>
+              <p>${escapeHtml(primaryNowNext.summary)}</p>
               <div class="detail-list detail-list--spaced">
-                <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(maybe(topRecommendation.recommendation.proposed_title, "untitled"))}</dd></div>
-                <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(topRecommendation.recommendation.status)}</dd></div>
-                <div class="detail-row"><dt>Window</dt><dd>${escapeHtml(`${formatTime(topRecommendation.recommendation.proposed_start_at)} to ${formatTime(topRecommendation.recommendation.proposed_end_at)}`)}</dd></div>
+                <div class="detail-row"><dt>Command</dt><dd>${escapeHtml(primaryNowNext.command)}</dd></div>
+                <div class="detail-row"><dt>Score band</dt><dd>${escapeHtml(primaryNowNext.score_band ?? "medium")}</dd></div>
+                <div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(primaryNowNext.why_now ?? "This is the strongest current next move.")}</dd></div>
               </div>
               <div class="list-item__actions">
-                <button class="button button--primary" data-open-planning="${escapeHtml(topRecommendation.recommendation.recommendation_id)}" type="button">Open in Planning</button>
-                <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(topRecommendation.recommendation.recommendation_id))}" type="button">Copy CLI command</button>
+                <button class="button button--primary" data-workflow="${escapeHtml(nowNext.workflow)}" data-workflow-action="0" type="button">Open related detail</button>
+                <button class="copy-button" data-copy="${escapeHtml(primaryNowNext.command)}" type="button">Copy CLI command</button>
               </div>
             `
-            : `<div class="empty">No current planning recommendation is available.</div>`
+            : `<div class="empty">No current primary move is available.</div>`
         }
       </div>
       <div class="panel">
@@ -750,7 +799,7 @@ function renderOverview(payload: ConsolePayload): string {
       <h3>CLI handoff</h3>
       <p>Approvals, tasks, restore, auth, send, and other high-trust work still stay in the CLI.</p>
       <div class="list-item__actions list-item__actions--stack">
-        ${commandAction(topWorklistCommand(payload.worklist))}
+        ${commandAction(primaryNowNext?.command ?? topWorklistCommand(payload.worklist))}
       </div>
     </section>
   `;
@@ -783,6 +832,17 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
   if (!detail) {
     return `<div class="empty">Choose a worklist item to inspect the related task, thread, recommendation, approval, or snapshot.</div>`;
   }
+  const payload = state.payload;
+  const intelligence = payload ? intelligenceForWorklistItem(payload, detail.item) : null;
+  const intelligenceBlock = intelligence
+    ? `
+      <section class="panel">
+        <h4>Why this matters now</h4>
+        <p>${escapeHtml(intelligence.why_now ?? "This item is part of the current intelligence layer.")}</p>
+        <p class="subtle subtle--body">${escapeHtml(`Score band: ${intelligence.score_band ?? "medium"}${intelligence.signals?.length ? ` · Signals: ${intelligence.signals.join(", ")}` : ""}`)}</p>
+      </section>
+    `
+    : "";
 
   if (detail.kind === "task") {
     const task = detail.detail.task;
@@ -794,6 +854,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Due</dt><dd>${escapeHtml(formatTime(task.due_at))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(maybe(task.notes, "No task notes recorded."))}</p>
+      ${intelligenceBlock}
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([`personal-ops task show ${task.task_id}`])}
       </div>
@@ -810,6 +871,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Messages</dt><dd>${escapeHtml(String(thread.messages.length))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(thread.messages[0]?.subject ?? "No message preview available.")}</p>
+      ${intelligenceBlock}
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([thread.suggested_next_command])}
       </div>
@@ -826,6 +888,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(maybe(recommendation.group_summary, "not grouped"))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(recommendation.reason_summary)}</p>
+      ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button button--primary" data-open-planning="${escapeHtml(recommendation.recommendation_id)}" type="button">Open in Planning</button>
         <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(recommendation.recommendation_id))}" type="button">Copy CLI command</button>
@@ -843,6 +906,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Median open age</dt><dd>${escapeHtml(formatDurationHours(group.median_open_age_hours))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(group.closure_meaning_summary ?? "Use the Planning section for the current next action and group-wide controls.")}</p>
+      ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button button--primary" data-open-planning-group="${escapeHtml(group.group_key)}" type="button">Open in Planning</button>
         <button class="copy-button" data-copy="${escapeHtml(recommendationGroupShowCommand(group.group_key))}" type="button">Copy CLI command</button>
@@ -860,6 +924,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(approval.expires_at))}</dd></div>
       </div>
       <p class="subtle subtle--body">Approvals stay CLI-only in Phase 2.</p>
+      ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button" data-open-approval="${escapeHtml(approval.approval_id)}" type="button">Open in Approvals</button>
       </div>
@@ -884,6 +949,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(snapshot.manifest.source_machine ? `${snapshot.manifest.source_machine.machine_label} (${truncateId(snapshot.manifest.source_machine.machine_id)})` : "legacy snapshot")}</dd></div>
       </div>
       <p class="subtle subtle--body">Restore stays CLI-only and does not merge state.</p>
+      ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button button--primary" data-open-snapshot="${escapeHtml(snapshot.manifest.snapshot_id)}" type="button">Open in Backups</button>
       </div>
@@ -898,6 +964,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
 
   return `
     <p>${escapeHtml(detail.message)}</p>
+    ${intelligenceBlock}
     <div class="list-item__actions list-item__actions--stack">
       ${commandStack([detail.item.suggested_command])}
     </div>
@@ -1516,9 +1583,9 @@ async function selectWorklistItem(itemId: string): Promise<void> {
   }
 }
 
-async function openWorkflowAction(actionIndex: number): Promise<void> {
+async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"], actionIndex: number): Promise<void> {
   const payload = state.payload;
-  const action = payload?.prepDayWorkflow.actions[actionIndex];
+  const action = payload ? workflowByName(payload, workflowName).actions[actionIndex] : null;
   if (!payload || !action) {
     setFlash("That workflow action is no longer available. Refresh the console and try again.", "warn");
     render();
@@ -1711,8 +1778,8 @@ document.addEventListener("click", async (event) => {
   }
 
   const workflowAction = target.closest<HTMLButtonElement>("[data-workflow-action]");
-  if (workflowAction?.dataset.workflowAction) {
-    await openWorkflowAction(Number(workflowAction.dataset.workflowAction));
+  if (workflowAction?.dataset.workflowAction && workflowAction.dataset.workflow) {
+    await openWorkflowAction(workflowAction.dataset.workflow as WorkflowBundleReport["workflow"], Number(workflowAction.dataset.workflowAction));
     return;
   }
 

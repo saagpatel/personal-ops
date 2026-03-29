@@ -16,12 +16,16 @@ All five automations use this workspace:
 - Purpose: start the workday with the shortest useful operator briefing
 - Schedule: every weekday at 8:30 AM America/Los_Angeles
 - Commands used:
+  - `personal-ops workflow now-next --json`
   - `personal-ops workflow prep-day --json`
 - Output shape:
   - `Overall State`
   - `Top Attention`
   - `Time-Sensitive Items`
   - `Next Commands`
+- Notes:
+  - uses `workflow now-next` for the lead recommendation
+  - uses `workflow prep-day` for the broader day-start picture
 
 ### Midday Health Guard
 
@@ -132,7 +136,7 @@ Common maintenance paths:
 
 ## Operator notes
 
-- These automations are meant to support the daily loop around `personal-ops workflow prep-day`, `personal-ops worklist`, and `personal-ops health check`.
+- These automations are meant to support the daily loop around `personal-ops workflow prep-day`, `personal-ops workflow now-next`, `personal-ops worklist`, and `personal-ops health check`.
 - The recurring reliability layer now centers on `personal-ops health check`, `personal-ops backup prune`, and `npm run verify:recovery`.
 - If one starts producing noisy output, tighten the prompt before adding more automations.
 - If the system ever needs mutation-capable automation, treat that as a new roadmap phase instead of extending these prompts casually.

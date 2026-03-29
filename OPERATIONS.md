@@ -161,6 +161,8 @@ These are the main operator commands after setup:
 
 Other common commands:
 
+- `personal-ops workflow now-next`
+  The focused answer to what should happen next right now.
 - `personal-ops doctor --deep`
   Adds live Gmail and Google Calendar verification.
 - `personal-ops workflow follow-up-block`
@@ -204,7 +206,7 @@ Use [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md) as the source of truth for:
 - prompt intent
 - pause, update, and recreate steps
 
-The daily briefing layer now centers on `personal-ops workflow prep-day`. That workflow bundle is the preferred operator day-start command, and Morning Brief now uses it as the automation source of truth.
+The daily briefing layer now centers on `personal-ops workflow prep-day`, while `personal-ops workflow now-next` answers the narrower “what should I do right now?” question. Morning Brief now uses both workflow bundles as its automation source of truth.
 
 ## Operator console
 
@@ -246,7 +248,7 @@ Browser-safe console actions now include:
 - apply, snooze, and reject a planning recommendation
 - snooze or reject a planning recommendation group
 
-The Overview section now also surfaces the current day-start workflow bundle, including exact CLI commands and in-console detail handoff where available.
+The Overview section now also leads with the current now-next guidance, then surfaces the current day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
 
 These actions always require explicit confirmation in the browser.
 
@@ -261,7 +263,7 @@ Still CLI-only:
 
 The console also surfaces exact CLI commands for the actions that still intentionally stay outside browser scope.
 
-Workflow bundles stay read-first in this phase. They can recommend exact CLI commands, but they do not add a new bulk workflow executor or any new browser mutation scope.
+Workflow intelligence stays deterministic and read-first in this phase. It can recommend exact CLI commands, but it does not add a new bulk workflow executor or any new browser mutation scope.
 
 ## Wrappers and LaunchAgent
 

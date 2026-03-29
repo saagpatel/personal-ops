@@ -1046,6 +1046,9 @@ export interface WorkflowBundleSectionItem {
   command?: string | undefined;
   target_type?: string | undefined;
   target_id?: string | undefined;
+  why_now?: string | undefined;
+  score_band?: WorkflowScoreBand | undefined;
+  signals?: string[] | undefined;
 }
 
 export interface WorkflowBundleSection {
@@ -1053,16 +1056,21 @@ export interface WorkflowBundleSection {
   items: WorkflowBundleSectionItem[];
 }
 
+export type WorkflowScoreBand = "highest" | "high" | "medium";
+
 export interface WorkflowBundleAction {
   label: string;
   summary: string;
   command: string;
   target_type?: string | undefined;
   target_id?: string | undefined;
+  why_now?: string | undefined;
+  score_band?: WorkflowScoreBand | undefined;
+  signals?: string[] | undefined;
 }
 
 export interface WorkflowBundleReport {
-  workflow: "prep-day" | "follow-up-block" | "prep-meetings";
+  workflow: "now-next" | "prep-day" | "follow-up-block" | "prep-meetings";
   generated_at: string;
   readiness: ServiceState;
   summary: string;

@@ -29,7 +29,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Completed |
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Completed |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Completed |
-| 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Planned |
+| 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Completed |
 | 7 | Integrations and Context Expansion | Add the next external systems only where they make the operator loop meaningfully stronger | Planned |
 
 ## Phase 1: Automation and Daily Briefings
@@ -148,15 +148,25 @@ Phase 5 is complete.
 
 ## Phase 6: Intelligence Layer
 
-This phase should improve the quality of prioritization and guidance.
+Phase 6 is complete.
 
-Good targets:
+### Delivered
 
-- better ranking across inbox, tasks, planning, and calendar
-- stronger recommendation scoring
-- deadline-risk detection
-- meeting prep summaries
-- better “what should I do next?” synthesis
+- `personal-ops workflow now-next`
+- `GET /v1/workflows/now-next`
+- deterministic next-move ranking across tasks, inbox, planning, meetings, and readiness repair
+- additive `why_now`, `score_band`, and `signals` workflow fields
+- smarter `prep-day`, `follow-up-block`, and `prep-meetings` ordering
+- console Overview now-next surfacing and richer worklist intelligence detail
+- Morning Brief now sourcing from both `workflow now-next` and `workflow prep-day`
+
+### Guardrails kept
+
+- intelligence remains deterministic and read-first
+- no schema change
+- no new browser mutation scope
+- no bulk workflow executor
+- higher-trust actions still stay in the existing CLI paths
 
 ## Phase 7: Integrations and Context Expansion
 
@@ -196,7 +206,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 6: Intelligence Layer
+- the recommended next build is Phase 7: Integrations and Context Expansion
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan
