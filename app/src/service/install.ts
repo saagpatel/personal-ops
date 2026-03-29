@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureMachineIdentity, machineDescriptorFromIdentity } from "../machine.js";
+import { inspectSnapshot as inspectSnapshotFromPaths, listSnapshotSummaries } from "../recovery.js";
 import { createSnapshotId } from "../snapshots.js";
 import type { SnapshotInspection, SnapshotManifest, SnapshotSummary } from "../types.js";
 
@@ -57,48 +58,9 @@ export async function createSnapshot(service: any, stateOverride?: any): Promise
 }
 
 export function listSnapshots(service: any): SnapshotSummary[] {
-  if (!fs.existsSync(service.paths.snapshotsDir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(service.paths.snapshotsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => service.readSnapshotManifest(entry.name))
-    .filter((manifest): manifest is SnapshotManifest => Boolean(manifest))
-    .sort((a, b) => b.snapshot_id.localeCompare(a.snapshot_id))
-    .map((manifest) => ({
-      snapshot_id: manifest.snapshot_id,
-      created_at: manifest.created_at,
-      path: path.join(service.paths.snapshotsDir, manifest.snapshot_id),
-      daemon_state: manifest.daemon_state,
-    }));
+  return listSnapshotSummaries(service.paths);
 }
 
 export function inspectSnapshot(service: any, snapshotId: string): SnapshotInspection {
-  const manifest = service.readSnapshotManifest(snapshotId);
-  if (!manifest) {
-    throw new Error(`Snapshot ${snapshotId} was not found.`);
-  }
-  const trackedPaths = [manifest.db_backup_path, ...manifest.config_paths, ...manifest.log_paths];
-  const files = trackedPaths.map((filePath) => {
-    const exists = fs.existsSync(filePath);
-    const sizeBytes = exists ? fs.statSync(filePath).size : 0;
-    return {
-      path: filePath,
-      exists,
-      size_bytes: sizeBytes,
-    };
-  });
-  const warnings = [...manifest.notes];
-  if (manifest.daemon_state !== "ready") {
-    warnings.push(`Snapshot ${snapshotId} was created while service state was ${manifest.daemon_state}.`);
-  }
-  if (!manifest.source_machine) {
-    warnings.push(`Snapshot ${snapshotId} does not include machine provenance because it predates Phase 7.`);
-  }
-  return {
-    manifest,
-    files,
-    warnings,
-  };
+  return inspectSnapshotFromPaths(service.paths, snapshotId);
 }

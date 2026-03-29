@@ -20,6 +20,7 @@ That runs:
 - `npm run verify:full`
 - `npm run verify:console`
 - `npm run verify:launchagent`
+- `npm run verify:recovery`
 
 GitHub CI baseline:
 
@@ -86,8 +87,18 @@ personal-ops health check --max-snapshot-age-hours 24
 Behavior:
 
 - combines local install health, daemon reachability, doctor state, and snapshot freshness
+- surfaces retention pressure when prune candidates are waiting
+- surfaces recovery rehearsal freshness
 - exits non-zero when warnings or failures are present
 - works well for recurring local automation, cron, or launchd
+
+Recovery confidence loop:
+
+```bash
+npm run verify:recovery
+```
+
+This runs an isolated backup-and-restore rehearsal, verifies rescue snapshot behavior, checks prune logic, and only then refreshes the local recovery rehearsal success stamp.
 
 ## When to stop and investigate
 
@@ -98,6 +109,7 @@ Do not treat a build as releasable if any of these are true:
 - `personal-ops doctor --deep` is not `ready`
 - `personal-ops health check` reports attention needed or degraded state
 - no recent recovery snapshot exists
+- no recent successful recovery rehearsal exists
 
 ## Rollback posture
 

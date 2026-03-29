@@ -47,13 +47,15 @@ Keep these pieces separate:
 
 ### Daily automation loop
 
-The first post-launch automation phase adds three weekday briefings:
+The recurring automation loop now includes:
 
 - Morning Brief
 - Midday Health Guard
 - End-of-Day Wrap-Up
+- End-of-Day Recovery Snapshot
+- Weekly Recovery Rehearsal Reminder
 
-They are read-first and built on the same CLI surfaces you would use manually.
+The briefing automations stay read-first. The reliability automations are limited to local snapshot create and local prune after a `ready` health gate.
 
 The console now complements that loop by letting you create snapshots and run narrow planning actions in the browser while keeping higher-trust flows in the CLI.
 

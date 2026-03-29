@@ -20,6 +20,7 @@ export {
   formatSnapshotManifest,
   formatSnapshotList,
   formatSnapshotInspection,
+  formatSnapshotPruneResult,
   formatInstallManifest,
   formatInstallCheckReport,
   formatInstallPermissionsFixResult,

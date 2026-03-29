@@ -21,7 +21,7 @@ test("hardening release gate script runs the full local verification stack", () 
 
   assert.equal(
     packageJson.scripts?.["verify:all"],
-    "npm run typecheck && npm run test && npm run verify:smoke && npm run verify:full && npm run verify:console && npm run verify:launchagent",
+    "npm run typecheck && npm run test && npm run verify:smoke && npm run verify:full && npm run verify:console && npm run verify:launchagent && npm run verify:recovery",
   );
   assert.equal(packageJson.scripts?.["release:check"], "npm run verify:all");
   assert.equal(packageJson.scripts?.["release:check:ci"], "npm run typecheck && npm run test && npm run verify:smoke");

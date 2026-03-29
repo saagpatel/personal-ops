@@ -2,11 +2,11 @@
 
 This document is the operator runbook for the post-launch recurring automation layer.
 
-The first post-launch automation phase is intentionally read-first. These automations summarize, surface, and remind. They do not send, restore, approve, re-authenticate, or mutate state in the background.
+The automation layer is still conservative. Most automations remain read-first. The only allowed unattended mutations are local recovery snapshot create and local snapshot prune when the health gate is already `ready`.
 
 ## Active personal-ops automations
 
-All three automations use this workspace:
+All five automations use this workspace:
 
 - `/Users/d/.local/share/personal-ops`
 
@@ -36,6 +36,10 @@ All three automations use this workspace:
   - `Health State`
   - `Snapshot Freshness`
   - `First Repair Step`
+- Notes:
+  - surfaces prune pressure
+  - surfaces recovery rehearsal staleness
+  - remains read-first
 
 ### End-of-Day Wrap-Up
 
@@ -50,9 +54,41 @@ All three automations use this workspace:
   - `Carry Forward`
   - `Tomorrow’s First Move`
 
+### End-of-Day Recovery Snapshot
+
+- Automation id: `personal-ops-end-of-day-recovery-snapshot`
+- Purpose: capture one fresh weekday recovery point and apply retention when health is already safe
+- Schedule: every weekday at 6:15 PM America/Los_Angeles
+- Commands used:
+  - `personal-ops health check --json`
+  - `personal-ops backup create --json`
+  - `personal-ops backup prune --yes --json`
+- Output shape:
+  - `Health State`
+  - `Snapshot Action`
+  - `Retention Result`
+  - `Next Repair Step`
+- Mutation rule:
+  - if health is not `ready`, do not mutate and open a repair-oriented inbox item instead
+  - if health is `ready`, mutation is limited to local snapshot create and local snapshot prune
+
+### Weekly Recovery Rehearsal Reminder
+
+- Automation id: `personal-ops-weekly-recovery-rehearsal-reminder`
+- Purpose: keep restore confidence from going stale
+- Schedule: every Monday at 9:15 AM America/Los_Angeles
+- Commands used:
+  - `personal-ops health check --json`
+- Output shape:
+  - `Recovery Confidence`
+  - `Last Rehearsal`
+  - `Run This Week`
+- Reminder rule:
+  - when rehearsal is stale or missing, lead with `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`
+
 ## Guardrails
 
-These automations must remain read-first:
+These automations must remain conservative:
 
 - no send
 - no restore
@@ -61,6 +97,8 @@ These automations must remain read-first:
 - no silent state changes
 - no background task mutation
 - no background calendar mutation
+- no background browser action
+- only `End-of-Day Recovery Snapshot` may mutate, and only for local snapshot create/prune after a `ready` health gate
 
 If a later phase adds higher-trust automation behavior, it should be a separate explicit phase with new guardrails and verification.
 
@@ -97,5 +135,6 @@ Common maintenance paths:
 ## Operator notes
 
 - These automations are meant to support the daily loop around `personal-ops now`, `personal-ops worklist`, and `personal-ops health check`.
+- The recurring reliability layer now centers on `personal-ops health check`, `personal-ops backup prune`, and `npm run verify:recovery`.
 - If one starts producing noisy output, tighten the prompt before adding more automations.
 - If the system ever needs mutation-capable automation, treat that as a new roadmap phase instead of extending these prompts casually.

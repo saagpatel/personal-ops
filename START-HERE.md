@@ -67,7 +67,7 @@ Use this path if you want to:
 - [RELEASING.md](RELEASING.md)
   The release and maintenance checklist for the formal local ship gate and recurring health checks.
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
-  The operator automation runbook for the recurring briefing and health-check layer.
+  The operator automation runbook for the recurring briefing, recovery snapshot, and rehearsal reminder layer.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
   The current system shape after Phases 1 to 4, including trust boundaries and module layout.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)

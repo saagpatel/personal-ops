@@ -1,6 +1,14 @@
-import fs from "node:fs";
-import path from "node:path";
 import { buildInstallCheckReport } from "./install.js";
+import {
+  getLatestSnapshotSummary,
+  pruneSnapshots,
+  readRecoveryRehearsalStamp,
+  recoveryRehearsalAgeHours,
+  snapshotAgeHours,
+  RECOVERY_REHEARSAL_WARN_HOURS,
+  SNAPSHOT_FAIL_HOURS,
+  SNAPSHOT_WARN_HOURS,
+} from "./recovery.js";
 import type {
   DoctorCheck,
   DoctorReport,
@@ -31,6 +39,32 @@ function summarizeChecks(checks: DoctorCheck[]) {
     },
     { pass: 0, warn: 0, fail: 0 },
   );
+}
+
+function nextRepairStep(checks: DoctorCheck[]): string | null {
+  const firstActionable =
+    checks.find((check) => check.severity === "fail") ??
+    checks.find((check) => check.severity === "warn") ??
+    null;
+  if (!firstActionable) {
+    return null;
+  }
+  if (firstActionable.id === "snapshot_freshness") {
+    return "personal-ops backup create";
+  }
+  if (firstActionable.id === "snapshot_retention_pressure") {
+    return "personal-ops backup prune --dry-run";
+  }
+  if (firstActionable.id === "recovery_rehearsal_freshness") {
+    return "cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery";
+  }
+  if (firstActionable.id === "install_health_ready") {
+    return "personal-ops install check";
+  }
+  if (firstActionable.id === "doctor_health_ready" || firstActionable.id === "daemon_runtime_ready") {
+    return "personal-ops doctor";
+  }
+  return "personal-ops status";
 }
 
 function classifyHealthState(checks: DoctorCheck[]): HealthCheckReport["state"] {
@@ -101,54 +135,10 @@ function summarizeDoctor(report: DoctorReport): DoctorCheck {
   );
 }
 
-function readLatestSnapshotSummary(paths: Paths): SnapshotSummary | null {
-  if (!fs.existsSync(paths.snapshotsDir)) {
-    return null;
-  }
-  const snapshotIds = fs
-    .readdirSync(paths.snapshotsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort()
-    .reverse();
-  for (const snapshotId of snapshotIds) {
-    const snapshotDir = path.join(paths.snapshotsDir, snapshotId);
-    const manifestPath = path.join(snapshotDir, "manifest.json");
-    if (!fs.existsSync(manifestPath)) {
-      continue;
-    }
-    try {
-      const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
-        created_at?: string;
-        daemon_state?: SnapshotSummary["daemon_state"];
-      };
-      return {
-        snapshot_id: snapshotId,
-        created_at: raw.created_at ?? "",
-        path: snapshotDir,
-        daemon_state: raw.daemon_state ?? "ready",
-      };
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function snapshotAgeHours(snapshot: SnapshotSummary | null): number | null {
-  if (!snapshot?.created_at) {
-    return null;
-  }
-  const createdAt = Date.parse(snapshot.created_at);
-  if (Number.isNaN(createdAt)) {
-    return null;
-  }
-  return (Date.now() - createdAt) / (1000 * 60 * 60);
-}
-
 function summarizeSnapshot(snapshot: SnapshotSummary | null, snapshotAgeLimitHours: number | null): DoctorCheck {
+  const thresholdHours = snapshotAgeLimitHours ?? SNAPSHOT_WARN_HOURS;
   if (!snapshot) {
-    return warnCheck(
+    return failCheck(
       "snapshot_freshness",
       "Snapshot freshness",
       "No snapshots were found. Run `personal-ops backup create` to capture a recovery point.",
@@ -156,26 +146,90 @@ function summarizeSnapshot(snapshot: SnapshotSummary | null, snapshotAgeLimitHou
     );
   }
   const ageHours = snapshotAgeHours(snapshot);
-  if (snapshotAgeLimitHours == null || ageHours == null) {
-    return passCheck(
-      "snapshot_freshness",
-      "Snapshot freshness",
-      `Latest snapshot ${snapshot.snapshot_id} is present.`,
-      "runtime",
-    );
-  }
-  if (ageHours > snapshotAgeLimitHours) {
+  if (ageHours == null) {
     return warnCheck(
       "snapshot_freshness",
       "Snapshot freshness",
-      `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old, beyond the ${snapshotAgeLimitHours}h threshold. Run \`personal-ops backup create\`.`,
+      `Latest snapshot ${snapshot.snapshot_id} is present, but its timestamp could not be interpreted. Create a fresh recovery point.`,
+      "runtime",
+    );
+  }
+  if (ageHours > SNAPSHOT_FAIL_HOURS) {
+    return failCheck(
+      "snapshot_freshness",
+      "Snapshot freshness",
+      `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old, beyond the ${SNAPSHOT_FAIL_HOURS}h recovery limit. Run \`personal-ops backup create\`.`,
+      "runtime",
+    );
+  }
+  if (thresholdHours < ageHours) {
+    return warnCheck(
+      "snapshot_freshness",
+      "Snapshot freshness",
+      `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old, beyond the ${thresholdHours}h target. Run \`personal-ops backup create\`.`,
       "runtime",
     );
   }
   return passCheck(
     "snapshot_freshness",
     "Snapshot freshness",
-    `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old and within the ${snapshotAgeLimitHours}h threshold.`,
+    `Latest snapshot ${snapshot.snapshot_id} is ${ageHours.toFixed(1)}h old and within the ${thresholdHours}h target.`,
+    "runtime",
+  );
+}
+
+function summarizePrunePressure(paths: Paths): DoctorCheck {
+  const prune = pruneSnapshots(paths, { dryRun: true });
+  if (prune.prune_candidates > 0) {
+    return warnCheck(
+      "snapshot_retention_pressure",
+      "Snapshot retention",
+      `${prune.prune_candidates} snapshot${prune.prune_candidates === 1 ? "" : "s"} can be pruned under the retention policy. Run \`personal-ops backup prune --dry-run\`, then \`personal-ops backup prune --yes\`.`,
+      "runtime",
+    );
+  }
+  return passCheck(
+    "snapshot_retention_pressure",
+    "Snapshot retention",
+    "Snapshot retention is within policy and no prune backlog is waiting.",
+    "runtime",
+  );
+}
+
+function summarizeRecoveryRehearsal(paths: Paths): DoctorCheck {
+  const rehearsal = readRecoveryRehearsalStamp(paths);
+  if (rehearsal.status === "invalid") {
+    return warnCheck("recovery_rehearsal_freshness", "Recovery rehearsal", rehearsal.message, "runtime");
+  }
+  if (rehearsal.status === "missing" || !rehearsal.stamp) {
+    return warnCheck(
+      "recovery_rehearsal_freshness",
+      "Recovery rehearsal",
+      "No successful recovery rehearsal is recorded. Run `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`.",
+      "runtime",
+    );
+  }
+  const ageHours = recoveryRehearsalAgeHours(rehearsal.stamp);
+  if (ageHours == null) {
+    return warnCheck(
+      "recovery_rehearsal_freshness",
+      "Recovery rehearsal",
+      "Recovery rehearsal history exists, but its timestamp could not be read. Rerun `npm run verify:recovery`.",
+      "runtime",
+    );
+  }
+  if (ageHours > RECOVERY_REHEARSAL_WARN_HOURS) {
+    return warnCheck(
+      "recovery_rehearsal_freshness",
+      "Recovery rehearsal",
+      `Last successful recovery rehearsal was ${ageHours.toFixed(1)}h ago. Run \`cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery\`.`,
+      "runtime",
+    );
+  }
+  return passCheck(
+    "recovery_rehearsal_freshness",
+    "Recovery rehearsal",
+    `Last successful recovery rehearsal was ${ageHours.toFixed(1)}h ago via ${rehearsal.stamp.command_name}.`,
     "runtime",
   );
 }
@@ -192,7 +246,7 @@ export async function buildHealthCheckReport(
 
   let daemonReachable = false;
   let doctorState: DoctorReport["state"] | null = null;
-  let latestSnapshot = readLatestSnapshotSummary(paths);
+  let latestSnapshot = getLatestSnapshotSummary(paths);
 
   try {
     const statusResponse = await requestJson<{ status: ServiceStatusReport }>("GET", "/v1/status");
@@ -243,8 +297,12 @@ export async function buildHealthCheckReport(
   }
 
   checks.push(summarizeSnapshot(latestSnapshot, options.snapshotAgeLimitHours));
+  checks.push(summarizePrunePressure(paths));
+  checks.push(summarizeRecoveryRehearsal(paths));
 
   const summary = summarizeChecks(checks);
+  const prune = pruneSnapshots(paths, { dryRun: true });
+  const recoveryRehearsal = readRecoveryRehearsalStamp(paths);
   return {
     generated_at: new Date().toISOString(),
     state: classifyHealthState(checks),
@@ -255,6 +313,10 @@ export async function buildHealthCheckReport(
     doctor_state: doctorState,
     latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot),
     latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+    prune_candidate_count: prune.prune_candidates,
+    last_recovery_rehearsal_at: recoveryRehearsal.stamp?.successful_at ?? null,
+    recovery_rehearsal_age_hours: recoveryRehearsalAgeHours(recoveryRehearsal.stamp),
+    next_repair_step: nextRepairStep(checks),
     summary,
     checks,
   };

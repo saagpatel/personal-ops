@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CURRENT_SCHEMA_VERSION } from "./db.js";
+import { readSnapshotManifest } from "./recovery.js";
 import { createSnapshotId } from "./snapshots.js";
 import {
   ensureMachineIdentity,
@@ -33,14 +34,6 @@ function getServiceVersion(paths: Paths): string {
   } catch {
     return "0.1.0";
   }
-}
-
-function readSnapshotManifest(paths: Paths, snapshotId: string): SnapshotManifest | null {
-  const manifestPath = path.join(paths.snapshotsDir, snapshotId, "manifest.json");
-  if (!fs.existsSync(manifestPath)) {
-    return null;
-  }
-  return JSON.parse(fs.readFileSync(manifestPath, "utf8")) as SnapshotManifest;
 }
 
 async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, notes: string[] = []): Promise<SnapshotManifest> {

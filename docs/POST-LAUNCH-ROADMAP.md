@@ -26,7 +26,7 @@ The post-launch roadmap should build on those foundations instead of reworking t
 | --- | --- | --- | --- |
 | 1 | Automation and Daily Briefings | Make the system proactively useful through recurring checks, summaries, and operator nudges | Completed |
 | 2 | Console Phase 2 | Add a narrow, high-value set of safe operator actions and richer detail views to the console | Completed |
-| 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Planned |
+| 3 | Reliability and Recovery Automation | Make long-term operation safer with retention, recurring snapshots, and restore confidence loops | Completed |
 | 4 | Release and Distribution Polish | Make shipping, upgrading, versioning, and release communication more product-like | Planned |
 | 5 | Workflow Actions and Bundles | Add stronger “do the next thing” flows across inbox, tasks, planning, and calendar | Planned |
 | 6 | Intelligence Layer | Improve prioritization, recommendation quality, meeting prep, and operator guidance | Planned |
@@ -102,15 +102,15 @@ Turn the read-first console into a lightly interactive operator workspace withou
 
 ## Phase 3: Reliability and Recovery Automation
 
-This phase should make long-running operation safer.
+Phase 3 is complete.
 
-Good targets:
+### Delivered
 
-- recurring automatic snapshots with explicit retention policy
-- snapshot freshness policy and warnings
-- restore rehearsal workflow against fixtures
-- daemon drift detection
-- recovery runbooks tied more tightly to automated checks
+- `personal-ops backup prune` with a fixed tiered retention policy
+- additive health and doctor recovery signals for freshness, prune pressure, and rehearsal staleness
+- `npm run verify:recovery` as the restore confidence loop
+- updated Codex reliability automations for midday health, end-of-day recovery snapshotting, and weekly rehearsal reminder
+- updated docs for recurring recovery operations
 
 ## Phase 4: Release and Distribution Polish
 
@@ -187,7 +187,7 @@ This order keeps the next work close to the strongest current foundation:
 - the original Phase 1 to 8 roadmap is complete
 - the follow-on hardening pass is complete
 - the next roadmap starts here, in `docs/POST-LAUNCH-ROADMAP.md`
-- the recommended next build is Phase 3: Reliability and Recovery Automation
+- the recommended next build is Phase 4: Release and Distribution Polish
 - post-launch work should stay conservative about trust boundaries and operator control
 - future post-launch phases should follow the same pattern as before:
   - a plan

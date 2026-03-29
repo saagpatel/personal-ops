@@ -25,6 +25,7 @@ export function resolvePaths(): Paths {
     snapshotsDir: path.join(stateDir, "snapshots"),
     machineIdentityFile: path.join(stateDir, "machine-identity.json"),
     restoreProvenanceFile: path.join(stateDir, "restore-provenance.json"),
+    recoveryRehearsalFile: path.join(stateDir, "recovery-rehearsal.json"),
     configFile: path.join(configDir, "config.toml"),
     policyFile: path.join(configDir, "policy.toml"),
     oauthClientFile: path.join(configDir, "gmail-oauth-client.json"),

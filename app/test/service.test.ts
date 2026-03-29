@@ -12,6 +12,7 @@ import { createHttpServer } from "../src/http.js";
 import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, writeRestoreProvenance } from "../src/machine.js";
 import { resolvePaths } from "../src/paths.js";
+import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import { PersonalOpsService } from "../src/service.js";
 import {
   GoogleCalendarEventsPage,
@@ -871,6 +872,55 @@ test("Phase 7 status and doctor surface cross-machine restore provenance", async
 
   const doctor = await service.runDoctor({ deep: false, httpReachable: true });
   assert.equal(doctor.checks.some((check) => check.id === "state_origin_safe" && check.severity === "warn"), true);
+});
+
+test("Phase 3 doctor surfaces stale recovery posture", async () => {
+  const { service, paths } = createFixture();
+  const latestDir = path.join(paths.snapshotsDir, "2026-03-29T18-00-00Z");
+  const localDate = (daysAgo: number, hour: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    date.setHours(hour, 0, 0, 0);
+    return date.toISOString();
+  };
+  for (const [snapshotId, snapshotDir, createdAt] of [
+    ["2026-03-29T18-00-00Z", latestDir, new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()],
+    ["2026-03-27T18-00-00Z", path.join(paths.snapshotsDir, "2026-03-27T18-00-00Z"), localDate(2, 18)],
+    ["2026-03-27T08-00-00Z", path.join(paths.snapshotsDir, "2026-03-27T08-00-00Z"), localDate(2, 8)],
+  ] as const) {
+    fs.mkdirSync(snapshotDir, { recursive: true });
+    const manifest = {
+      snapshot_id: snapshotId,
+      created_at: createdAt,
+      service_version: "0.1.0",
+      schema_version: 14,
+      backup_intent: "recovery",
+      mailbox: null,
+      db_backup_path: path.join(snapshotDir, "personal-ops.db"),
+      config_paths: [path.join(snapshotDir, "config.toml"), path.join(snapshotDir, "policy.toml")],
+      log_paths: [path.join(snapshotDir, "app.jsonl")],
+      daemon_state: "ready",
+      notes: [],
+    };
+    fs.writeFileSync(manifest.db_backup_path, "", "utf8");
+    for (const configPath of manifest.config_paths) {
+      fs.writeFileSync(configPath, "", "utf8");
+    }
+    for (const logPath of manifest.log_paths) {
+      fs.writeFileSync(logPath, "", "utf8");
+    }
+    fs.writeFileSync(path.join(snapshotDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  }
+  writeRecoveryRehearsalStamp(paths, {
+    successful_at: localDate(16, 9),
+    app_version: "0.1.0-test",
+    command_name: "npm run verify:recovery",
+  });
+
+  const doctor = await service.runDoctor({ deep: false, httpReachable: true });
+  assert.equal(doctor.checks.some((check) => check.id === "snapshot_freshness" && check.severity === "pass"), true);
+  assert.equal(doctor.checks.some((check) => check.id === "snapshot_retention_pressure" && check.severity === "warn"), true);
+  assert.equal(doctor.checks.some((check) => check.id === "recovery_rehearsal_freshness" && check.severity === "warn"), true);
 });
 
 test("inbox thread detail and status expose derived mailbox state", async () => {

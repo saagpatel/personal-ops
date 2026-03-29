@@ -5,6 +5,7 @@ import type {
   RestoreResult,
   SnapshotInspection,
   SnapshotManifest,
+  SnapshotPruneResult,
   SnapshotSummary,
 } from "../types.js";
 import { formatSeverity, formatStateLabel, line, yesNo } from "./shared.js";
@@ -59,6 +60,30 @@ export function formatSnapshotInspection(inspection: SnapshotInspection): string
     for (const warning of inspection.warnings) {
       lines.push(`- ${warning}`);
     }
+  }
+  return lines.join("\n");
+}
+
+export function formatSnapshotPruneResult(result: SnapshotPruneResult): string {
+  const lines: string[] = [];
+  lines.push(result.dry_run ? "Snapshot prune: DRY RUN" : "Snapshot prune: COMPLETE");
+  lines.push(line("Generated", result.generated_at));
+  lines.push(line("Policy", result.policy_summary));
+  lines.push(line("Scanned", String(result.total_snapshots)));
+  lines.push(line("Kept", String(result.snapshots_kept)));
+  lines.push(line("Candidates", String(result.prune_candidates)));
+  lines.push(line("Deleted", String(result.snapshots_deleted)));
+  lines.push(line("Newest snapshot", result.newest_snapshot_id ?? "none"));
+  if (result.prune_candidate_items.length === 0) {
+    lines.push("");
+    lines.push("No snapshots are waiting to be pruned.");
+    return lines.join("\n");
+  }
+
+  lines.push("");
+  lines.push("Prune candidates");
+  for (const item of result.prune_candidate_items) {
+    lines.push(`- ${item.snapshot_id} | ${item.created_at} | ${item.reason}`);
   }
   return lines.join("\n");
 }
