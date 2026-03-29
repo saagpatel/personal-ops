@@ -94,15 +94,16 @@ Branch:
 
 Commit hashes:
 
-- to be filled at closeout
+- `da0df95` `feat(console): add read-first operator console`
+- closeout commit to be filled after final metadata update
 
 Pushed remote branch:
 
-- to be filled at closeout
+- `origin/codex/phase-8-operator-console`
 
 Draft PR link:
 
-- to be filled at closeout
+- [#5](https://github.com/saagpatel/personal-ops/pull/5)
 
 ## Notes
 
