@@ -2,6 +2,10 @@
 
 This guide is the practical “how do I get this running on another Mac?” version of the project docs.
 
+For the main onboarding path, start with [START-HERE.md](../START-HERE.md).
+
+For the full operational runbook, use [OPERATIONS.md](../OPERATIONS.md).
+
 ## What moves to the new machine
 
 You should move:
@@ -150,6 +154,7 @@ personal-ops install check
 
 ## What to read next
 
-- `README.md` for the plain-English overview
+- `START-HERE.md` for the main documentation entry point
+- `OPERATIONS.md` for the operational runbook
 - `CLIENTS.md` for the assistant/client contract
 - `docs/PROGRAM-COMPLETE-SUMMARY.md` for the full project story

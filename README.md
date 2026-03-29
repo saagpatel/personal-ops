@@ -60,7 +60,11 @@ The core idea is simple:
 
 ## Learn More
 
-- New machine setup: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
-- Full project summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
+- Start here: [START-HERE.md](START-HERE.md)
+- Quick guide: [QUICK-GUIDE.md](QUICK-GUIDE.md)
+- Operations runbook: [OPERATIONS.md](OPERATIONS.md)
+- Architecture guide: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Client usage contract: [CLIENTS.md](CLIENTS.md)
+- New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
+- Full project summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
 - Deep system audit: [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)

@@ -20,7 +20,7 @@ The current roadmap starts after that completed program. It focuses on productiz
 | 2 | Refactor the Core and Create Durable Roadmap Memory | Preserve roadmap intent in-repo and split large core files into safer internal modules | Completed | `docs/PHASE-2-PLAN.md`, `docs/PHASE-2-ROLLOUT.md` |
 | 3 | Add End-To-End Confidence Checks | Prove install, daemon, HTTP, MCP, backup, and restore all work as a product stack | Completed | `docs/PHASE-3-PLAN.md`, `docs/PHASE-3-ROLLOUT.md` |
 | 4 | Improve Daily Operator Experience | Make CLI help, diagnostics, errors, logs, and operator shortcuts clearer | Completed | `docs/PHASE-4-PLAN.md`, `docs/PHASE-4-ROLLOUT.md` |
-| 5 | Create Better Documentation Layers | Add stronger onboarding, operations, and architecture docs | Planned | `docs/PHASE-5-PLAN.md` |
+| 5 | Create Better Documentation Layers | Add stronger onboarding, operations, and architecture docs | Completed | `docs/PHASE-5-PLAN.md`, `docs/PHASE-5-ROLLOUT.md` |
 | 6 | Strengthen Secrets and Safety Operations | Improve secret bootstrap, validation, recovery, and rotation guidance | Planned | `docs/PHASE-6-PLAN.md` |
 | 7 | Decide the Multi-Machine Strategy | Make machine ownership and portability intentional instead of accidental | Planned | `docs/PHASE-7-PLAN.md` |
 | 8 | Build a Lightweight Operator Console | Add a local web console on top of the stable backend surfaces | Planned | `docs/PHASE-8-PLAN.md` |
@@ -84,12 +84,12 @@ Phase 4 completed a conservative operator-UX pass without changing trusted backe
 
 ## Phase 5
 
-Phase 5 should improve the documentation layers:
+Phase 5 completed the new documentation layer:
 
 - `START-HERE.md`
 - `OPERATIONS.md`
 - `ARCHITECTURE.md`
-- a quick guide for a new operator or assistant
+- `QUICK-GUIDE.md`
 
 Historical phase docs should remain history, not onboarding.
 
@@ -127,7 +127,7 @@ Phase 8 should add a lightweight operator console backed by the existing local H
 
 ### Current Goal
 
-Phase 4 is complete. The repo now has a clearer operator-facing CLI on top of the Phase 3 confidence layer, and the next improvement target is Phase 5 documentation layering.
+Phase 5 is complete. The repo now has a clear onboarding and reference layer on top of the verified product baseline, and the next improvement target is Phase 6 secrets and safety operations.
 
 ### Guardrails
 
@@ -137,7 +137,8 @@ Phase 4 is complete. The repo now has a clearer operator-facing CLI on top of th
 - do not change schema version without a clearly justified bugfix
 - preserve current Phase 1 install and restore behavior
 - keep the new operator-facing wording aligned with the underlying trust model
-- use the Phase 3 verification commands and the Phase 4 live sanity pass as the baseline confidence layer for later phases
+- keep the new docs layer aligned with the verified command surface and trust model
+- use the Phase 3 verification commands and the later live sanity passes as the baseline confidence layer for later phases
 
 ### Current Assumptions
 
@@ -146,6 +147,7 @@ Phase 4 is complete. The repo now has a clearer operator-facing CLI on top of th
 - Phase 2 completed the first compatibility-façade refactor slice
 - Phase 3 verification now protects install, daemon, HTTP, MCP, backup, restore, and LaunchAgent behavior
 - Phase 4 improved human-readable operator guidance without changing JSON, HTTP, MCP, audit, governance, or schema contracts
+- Phase 5 added the new primary onboarding and reference docs without changing behavior contracts
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
 
 ### Required End-of-Phase Verification
@@ -165,6 +167,7 @@ Phase 4 is complete. The repo now has a clearer operator-facing CLI on top of th
 - Phase 2 completed the durable roadmap memory pattern and the first compatibility-façade refactor slice
 - Phase 3 completed the isolated product verification layer and fixed a real restore edge around SQLite sidecar files
 - Phase 4 completed a conservative operator UX pass and added a short `personal-ops now` summary without widening permissions
+- Phase 5 completed the main docs layer with `START-HERE`, `OPERATIONS`, `ARCHITECTURE`, and `QUICK-GUIDE`
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule
