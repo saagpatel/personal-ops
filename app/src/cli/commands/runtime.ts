@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import {
+  formatAssistantActionRunResult,
+  formatAssistantQueueReport,
   formatDriveDoc,
   formatDriveFiles,
   formatDriveStatus,
@@ -103,6 +105,29 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .action(async (options) => {
       const response = await context.requestJson<{ worklist: unknown }>("GET", "/v1/worklist");
       context.printOutput(response, (value) => formatWorklistReport(value.worklist), options.json);
+    });
+
+  const assistant = program.command("assistant").description("Inspect or run the safe assistant action queue.");
+  assistant
+    .command("queue")
+    .description("Show the current assistant action queue with safe one-click actions and review-gated items.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ assistant_queue: unknown }>("GET", "/v1/assistant/actions");
+      context.printOutput(response, (value) => formatAssistantQueueReport(value.assistant_queue), options.json);
+    });
+
+  assistant
+    .command("run")
+    .description("Run a safe assistant action from the queue.")
+    .argument("<actionId>", "Assistant action id")
+    .option("--json", "Print raw JSON")
+    .action(async (actionId, options) => {
+      const response = await context.requestJson<{ assistant_run: unknown }>(
+        "POST",
+        `/v1/assistant/actions/${encodeURIComponent(String(actionId))}/run`,
+      );
+      context.printOutput(response, (value) => formatAssistantActionRunResult(value.assistant_run), options.json);
     });
 
   const github = program.command("github").description("Read the narrow GitHub PR and review queue context.");

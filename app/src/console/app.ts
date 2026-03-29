@@ -1,6 +1,9 @@
 import type {
   ApprovalDetail,
   ApprovalRequest,
+  AssistantActionItem,
+  AssistantActionQueueReport,
+  AssistantActionRunResult,
   AttentionItem,
   AuditEvent,
   AuditEventCategory,
@@ -27,6 +30,7 @@ type BannerTone = "good" | "warn" | "critical";
 interface ConsolePayload {
   status: ServiceStatusReport;
   worklist: WorklistReport;
+  assistantQueue: AssistantActionQueueReport;
   nowNextWorkflow: WorkflowBundleReport;
   prepDayWorkflow: WorkflowBundleReport;
   doctor: DoctorReport;
@@ -49,6 +53,14 @@ interface StatusResponse {
 
 interface WorklistResponse {
   worklist: WorklistReport;
+}
+
+interface AssistantQueueResponse {
+  assistant_queue: AssistantActionQueueReport;
+}
+
+interface AssistantRunResponse {
+  assistant_run: AssistantActionRunResult;
 }
 
 interface WorkflowResponse {
@@ -303,6 +315,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   const [
     statusResponse,
     worklistResponse,
+    assistantQueueResponse,
     nowNextWorkflowResponse,
     workflowResponse,
     doctorResponse,
@@ -316,6 +329,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   ] = await Promise.all([
     fetchJson<StatusResponse>("/v1/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
+    fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
     fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<DoctorResponse>("/v1/doctor"),
@@ -331,6 +345,7 @@ async function loadPayload(): Promise<ConsolePayload> {
   return {
     status: statusResponse.status,
     worklist: worklistResponse.worklist,
+    assistantQueue: assistantQueueResponse.assistant_queue,
     nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
     doctor: doctorResponse.doctor,
@@ -533,6 +548,79 @@ function workflowByName(payload: ConsolePayload, workflow: WorkflowBundleReport[
     return payload.nowNextWorkflow;
   }
   return payload.prepDayWorkflow;
+}
+
+function assistantStateClass(action: AssistantActionItem): string {
+  if (action.state === "failed" || action.state === "blocked") {
+    return "pill pill--critical";
+  }
+  if (action.state === "running" || action.state === "awaiting_review" || action.state === "proposed") {
+    return "pill pill--warn";
+  }
+  return "pill pill--good";
+}
+
+function assistantActionsForSection(payload: ConsolePayload, section: AssistantActionItem["section"]): AssistantActionItem[] {
+  return payload.assistantQueue.actions.filter((action) => action.section === section);
+}
+
+function renderAssistantActionCard(action: AssistantActionItem, options: { compact?: boolean } = {}): string {
+  const primaryAction =
+    action.one_click && action.state !== "blocked" && action.state !== "completed" && action.state !== "running"
+      ? `<button class="button button--primary" data-assistant-run="${escapeHtml(action.action_id)}" type="button">Run safe action</button>`
+      : `<button class="button" data-assistant-open="${escapeHtml(action.action_id)}" type="button">Open related detail</button>`;
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>${escapeHtml(action.title)}</h4>
+        <span class="${assistantStateClass(action)}">${escapeHtml(action.state)}</span>
+      </div>
+      <p>${escapeHtml(action.summary)}</p>
+      <p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>
+      ${
+        action.signals.length > 0
+          ? `<p class="subtle subtle--body">${escapeHtml(`Signals: ${action.signals.join(", ")}`)}</p>`
+          : ""
+      }
+      ${
+        action.blocking_reason
+          ? `<p class="subtle subtle--body">${escapeHtml(`Blocked: ${action.blocking_reason}`)}</p>`
+          : ""
+      }
+      ${
+        action.latest_run
+          ? `<p class="subtle subtle--body">${escapeHtml(`Latest run: ${action.latest_run.summary}`)}</p>`
+          : ""
+      }
+      <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
+        ${primaryAction}
+        ${
+          action.command
+            ? `<button class="copy-button" data-copy="${escapeHtml(action.command)}" type="button">Copy CLI command</button>`
+            : ""
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderAssistantSection(
+  payload: ConsolePayload,
+  title: string,
+  section: AssistantActionItem["section"],
+  emptyText: string,
+): string {
+  const actions = assistantActionsForSection(payload, section);
+  return `
+    <section class="panel">
+      <h3>${escapeHtml(title)}</h3>
+      ${
+        actions.length === 0
+          ? `<div class="empty">${escapeHtml(emptyText)}</div>`
+          : actions.map((action) => renderAssistantActionCard(action)).join("")
+      }
+    </section>
+  `;
 }
 
 function findSelectedWorklistItem(payload: ConsolePayload): AttentionItem | null {
@@ -738,7 +826,9 @@ function renderOverview(payload: ConsolePayload): string {
   const latestSnapshot = status.snapshot_latest;
   const workflow = payload.prepDayWorkflow;
   const nowNext = payload.nowNextWorkflow;
+  const assistantQueue = payload.assistantQueue;
   const primaryNowNext = nowNext.actions[0] ?? null;
+  const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -781,6 +871,15 @@ function renderOverview(payload: ConsolePayload): string {
     <section class="columns columns--wide-right">
       <div class="detail-stack">
         <section class="detail-card">
+          <h3>What the assistant is doing now</h3>
+          <p class="subtle subtle--body">${escapeHtml(assistantQueue.summary)}</p>
+          ${
+            topAssistantAction
+              ? renderAssistantActionCard(topAssistantAction)
+              : `<div class="empty">The assistant queue is currently caught up.</div>`
+          }
+        </section>
+        <section class="detail-card">
           <h3>What to do right now</h3>
           <p class="subtle subtle--body">Use this focused bundle when you want one strongest next move plus a short backup path.</p>
           ${renderWorkflowSections(nowNext)}
@@ -792,6 +891,14 @@ function renderOverview(payload: ConsolePayload): string {
         </section>
       </div>
       <div class="detail-stack">
+        <section class="detail-card">
+          <h3>Assistant queue</h3>
+          ${
+            assistantQueue.actions.length === 0
+              ? `<div class="empty">No assistant actions are queued right now.</div>`
+              : assistantQueue.actions.slice(0, 4).map((action) => renderAssistantActionCard(action, { compact: true })).join("")
+          }
+        </section>
         <section class="detail-card">
           <h3>Next commands</h3>
           ${
@@ -1052,6 +1159,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
 
 function renderWorklist(payload: ConsolePayload): string {
   return `
+    ${renderAssistantSection(payload, "Assistant action queue", "worklist", "No assistant-prepared worklist actions are waiting right now.")}
     <section class="columns">
       <div class="list-card">
         <h3>Attention queue</h3>
@@ -1112,6 +1220,7 @@ function renderApprovals(payload: ConsolePayload): string {
       `;
 
   return `
+    ${renderAssistantSection(payload, "Assistant-prepared approval work", "approvals", "No assistant-prepared approval review is waiting right now.")}
     <section class="columns">
       <div class="list-card">
         <h3>Approval queue</h3>
@@ -1126,10 +1235,17 @@ function renderApprovals(payload: ConsolePayload): string {
 }
 
 function renderDrafts(payload: ConsolePayload): string {
+  const assistantSection = renderAssistantSection(
+    payload,
+    "Assistant-prepared draft work",
+    "drafts",
+    "No assistant-prepared draft review is waiting right now.",
+  );
   if (payload.drafts.length === 0) {
-    return `<section class="empty">No local draft artifacts are currently stored.</section>`;
+    return `${assistantSection}<section class="empty">No local draft artifacts are currently stored.</section>`;
   }
   return `
+    ${assistantSection}
     <section class="list">
       ${payload.drafts
         .map(
@@ -1305,6 +1421,7 @@ function renderPlanning(payload: ConsolePayload): string {
   const topClosureSummary =
     payload.planningSummary.most_completed_group?.summary ?? "No recent closure summary";
   return `
+    ${renderAssistantSection(payload, "Assistant-prepared planning work", "planning", "No assistant-prepared planning review is waiting right now.")}
     <section class="stats-grid">
       ${metricCard("Open recommendations", `${formatCount(payload.planningSummary.open_count)}`, topBacklogSummary)}
       ${metricCard("Review needed", `${formatCount(payload.planningSummary.review_needed_count)}`, topReviewNeededSummary)}
@@ -1415,6 +1532,7 @@ function renderAudit(payload: ConsolePayload): string {
 function renderBackups(payload: ConsolePayload): string {
   const detail = state.snapshotInspection;
   return `
+    ${renderAssistantSection(payload, "Assistant-prepared backup work", "backups", "No assistant-prepared backup actions are waiting right now.")}
     <section class="columns">
       <div class="list-card">
         <div class="card-toolbar">
@@ -1701,6 +1819,86 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
   render();
 }
 
+async function openAssistantAction(actionId: string): Promise<void> {
+  const payload = state.payload;
+  const action = payload?.assistantQueue.actions.find((item) => item.action_id === actionId) ?? null;
+  if (!payload || !action) {
+    setFlash("That assistant action is no longer available. Refresh the console and try again.", "warn");
+    render();
+    return;
+  }
+
+  const matchingWorklistItem = payload.worklist.items.find(
+    (item) => item.target_type === action.target_type && item.target_id === action.target_id,
+  );
+  if (matchingWorklistItem) {
+    await selectWorklistItem(matchingWorklistItem.item_id);
+    return;
+  }
+  if (action.target_type === "planning_recommendation" && action.target_id) {
+    await selectPlanningRecommendation(action.target_id);
+    return;
+  }
+  if (action.target_type === "approval_request" && action.target_id) {
+    await selectApproval(action.target_id);
+    return;
+  }
+  if (action.target_type === "snapshot" && action.target_id) {
+    await selectSnapshot(action.target_id);
+    return;
+  }
+  if (action.section === "drafts") {
+    state.section = "drafts";
+    location.hash = state.section;
+    render();
+    return;
+  }
+  if (action.command) {
+    await navigator.clipboard.writeText(action.command);
+    setFlash("No deeper in-console detail exists for that action yet. The CLI command has been copied instead.", "warn");
+    render();
+    return;
+  }
+  state.section = action.section === "overview" ? "overview" : action.section;
+  location.hash = state.section;
+  render();
+}
+
+async function runAssistantActionFromConsole(actionId: string): Promise<void> {
+  const payload = state.payload;
+  const action = payload?.assistantQueue.actions.find((item) => item.action_id === actionId) ?? null;
+  if (!action) {
+    setFlash("That assistant action is no longer available. Refresh the console and try again.", "warn");
+    render();
+    return;
+  }
+  const confirmation = action.title === "Refresh local context"
+    ? "Refresh mailbox, calendar, GitHub, and Drive context where available?"
+    : `Run "${action.title}" now?`;
+  if (!confirm(confirmation)) {
+    return;
+  }
+  try {
+    const response = await postJson<AssistantRunResponse>(
+      `/v1/assistant/actions/${encodeURIComponent(actionId)}/run`,
+      {},
+    );
+    state.section = action.section === "overview" ? "overview" : action.section;
+    setFlash(response.assistant_run.summary, response.assistant_run.state === "failed" ? "critical" : "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)}${action.command ? ` Run ${action.command} if you need the CLI path.` : ""}`,
+      "critical",
+    );
+    render();
+  }
+}
+
 function requireValue(selector: string, message: string): string {
   const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
   const value = input?.value.trim() ?? "";
@@ -1859,6 +2057,18 @@ document.addEventListener("click", async (event) => {
   const workflowAction = target.closest<HTMLButtonElement>("[data-workflow-action]");
   if (workflowAction?.dataset.workflowAction && workflowAction.dataset.workflow) {
     await openWorkflowAction(workflowAction.dataset.workflow as WorkflowBundleReport["workflow"], Number(workflowAction.dataset.workflowAction));
+    return;
+  }
+
+  const assistantRunButton = target.closest<HTMLButtonElement>("[data-assistant-run]");
+  if (assistantRunButton?.dataset.assistantRun) {
+    await runAssistantActionFromConsole(assistantRunButton.dataset.assistantRun);
+    return;
+  }
+
+  const assistantOpenButton = target.closest<HTMLButtonElement>("[data-assistant-open]");
+  if (assistantOpenButton?.dataset.assistantOpen) {
+    await openAssistantAction(assistantOpenButton.dataset.assistantOpen);
     return;
   }
 

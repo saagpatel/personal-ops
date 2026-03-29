@@ -56,6 +56,10 @@ export {
   formatDriveStatus,
 } from "./formatters/drive.js";
 export {
+  formatAssistantQueueReport,
+  formatAssistantActionRunResult,
+} from "./formatters/assistant.js";
+export {
   formatPlanningRecommendations,
   formatPlanningRecommendationGroups,
   formatPlanningRecommendationGroupDetail,

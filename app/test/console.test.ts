@@ -276,6 +276,61 @@ test("Phase 2 console sessions can create snapshots and run narrow planning acti
   }
 });
 
+test("assistant-led Phase 1 console sessions can read the assistant queue and run safe assistant actions only", async () => {
+  const fixture = await createConsoleFixture();
+  try {
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const queueResponse = await fetch(`${baseUrl}/v1/assistant/actions`, {
+      headers: {
+        cookie,
+      },
+    });
+    assert.equal(queueResponse.status, 200);
+    const queuePayload = (await queueResponse.json()) as {
+      assistant_queue: { actions: Array<{ action_id: string }> };
+    };
+    assert.equal(queuePayload.assistant_queue.actions.some((action) => action.action_id === "assistant.create-snapshot"), true);
+
+    const runResponse = await fetch(`${baseUrl}/v1/assistant/actions/assistant.create-snapshot/run`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(runResponse.status, 200);
+    const runPayload = (await runResponse.json()) as { assistant_run: { state: string } };
+    assert.equal(runPayload.assistant_run.state, "completed");
+
+    const reviewRunResponse = await fetch(`${baseUrl}/v1/assistant/actions/assistant.review-top-attention/run`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(reviewRunResponse.status, 400);
+    const reviewRunPayload = (await reviewRunResponse.json()) as { error?: string };
+    assert.match(reviewRunPayload.error ?? "", /requires operator review/i);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("Phase 2 console sessions can run allowed planning group actions", async () => {
   const fixture = await createConsoleFixture();
   try {

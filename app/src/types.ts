@@ -1188,6 +1188,53 @@ export interface WorklistReport {
   items: AttentionItem[];
 }
 
+export type AssistantActionState = "proposed" | "running" | "awaiting_review" | "blocked" | "completed" | "failed";
+
+export type AssistantActionSection = "overview" | "worklist" | "drafts" | "planning" | "approvals" | "backups";
+
+export interface AssistantActionRunReport {
+  started_at: string;
+  completed_at?: string | undefined;
+  outcome: "success" | "failure";
+  summary: string;
+  details?: string[] | undefined;
+}
+
+export interface AssistantActionItem {
+  action_id: string;
+  title: string;
+  summary: string;
+  state: AssistantActionState;
+  section: AssistantActionSection;
+  batch: boolean;
+  one_click: boolean;
+  review_required: boolean;
+  why_now: string;
+  command?: string | undefined;
+  target_type?: string | undefined;
+  target_id?: string | undefined;
+  signals: string[];
+  blocking_reason?: string | undefined;
+  latest_run?: AssistantActionRunReport | undefined;
+}
+
+export interface AssistantActionQueueReport {
+  generated_at: string;
+  readiness: ServiceState;
+  summary: string;
+  counts_by_state: Record<AssistantActionState, number>;
+  top_item_summary: string | null;
+  actions: AssistantActionItem[];
+}
+
+export interface AssistantActionRunResult {
+  action_id: string;
+  state: AssistantActionState;
+  summary: string;
+  details: string[];
+  queue: AssistantActionQueueReport;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;

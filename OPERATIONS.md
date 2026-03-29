@@ -294,7 +294,7 @@ When Drive is configured, meeting prep and day-start workflows can also attach l
 
 ## Operator console
 
-The current console is served by the daemon and is lightly interactive by design.
+The current console is served by the daemon and is now the first assistant-led workspace layer.
 
 Open it with:
 
@@ -328,11 +328,12 @@ Current console sections:
 
 Browser-safe console actions now include:
 
+- assistant queue safe actions such as local refresh and fresh snapshot creation
 - create snapshot
 - apply, snooze, and reject a planning recommendation
 - snooze or reject a planning recommendation group
 
-The Overview section now also leads with the current now-next guidance, then surfaces the current day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
+The Overview section now leads with the assistant queue, then the current now-next guidance, then the day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
 
 When GitHub is configured, the Overview and worklist detail can also surface narrow PR and review queue context with exact CLI handoff plus an external GitHub link.
 
@@ -345,7 +346,7 @@ Still CLI-only:
 - restore
 - auth login and re-auth flows
 - send and send-window control
-- sync and broader admin actions
+- broader admin actions outside the assistant queue allowlist
 
 The console also surfaces exact CLI commands for the actions that still intentionally stay outside browser scope.
 

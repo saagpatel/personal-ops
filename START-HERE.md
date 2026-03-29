@@ -83,6 +83,8 @@ Use this path if you want to:
   The shortest role-based onboarding path for a new operator or a new assistant.
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
+- [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
+  The next initiative after the completed post-launch track, starting with the assistant action queue and console-first workflow execution.
 
 ## History and deep context
 

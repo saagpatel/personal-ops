@@ -68,6 +68,7 @@ import {
   validateSecretTextFile,
 } from "./secrets.js";
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
+import { buildAssistantActionQueueReport, runAssistantAction } from "./service/assistant.js";
 import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
@@ -89,6 +90,8 @@ import {
   ApprovalDetail,
   ApprovalRequest,
   ApprovalRequestFilter,
+  AssistantActionQueueReport,
+  AssistantActionRunResult,
   ApprovalRiskFlags,
   AuditEvent,
   AuditEventFilter,
@@ -552,6 +555,7 @@ export class PersonalOpsService {
   private calendarSyncInFlight: Promise<CalendarStatusReport> | null = null;
   private githubSyncInFlight: Promise<GithubStatusReport> | null = null;
   private driveSyncInFlight: Promise<DriveStatusReport> | null = null;
+  private readonly assistantActionStartedAt = new Map<string, string>();
 
   constructor(
     private readonly paths: Paths,
@@ -642,6 +646,30 @@ export class PersonalOpsService {
 
   async getPrepMeetingsWorkflowReport(options: { httpReachable: boolean; scope: "today" | "next_24h" }) {
     return buildPrepMeetingsWorkflowReport(this, options);
+  }
+
+  async getAssistantActionQueueReport(options: { httpReachable: boolean }): Promise<AssistantActionQueueReport> {
+    return buildAssistantActionQueueReport(this, options);
+  }
+
+  getAssistantActionStartedAt(actionId: string): string | null {
+    return this.assistantActionStartedAt.get(actionId) ?? null;
+  }
+
+  async runTrackedAssistantAction<T>(actionId: string, run: () => Promise<T>): Promise<T> {
+    const startedAt = new Date().toISOString();
+    this.assistantActionStartedAt.set(actionId, startedAt);
+    try {
+      return await run();
+    } finally {
+      this.assistantActionStartedAt.delete(actionId);
+    }
+  }
+
+  async runAssistantQueueAction(identity: ClientIdentity, actionId: string): Promise<AssistantActionRunResult> {
+    this.assertOperatorOnly(identity, "run this assistant action");
+    this.db.registerClient(identity);
+    return runAssistantAction(this, identity, actionId);
   }
 
   async runDoctor(options: DoctorOptions): Promise<DoctorReport> {

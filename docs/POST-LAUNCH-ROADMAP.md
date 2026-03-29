@@ -218,6 +218,18 @@ Phase 8 is complete.
 
 - Google Docs plus Drive metadata only
 - read-first only
+
+## What Comes Next
+
+The post-launch track is now complete.
+
+The next initiative is the assistant-led roadmap recorded in:
+
+- `docs/ASSISTANT-LED-ROADMAP.md`
+
+The first active phase there is:
+
+- `docs/ASSISTANT-LED-PHASE-1-PLAN.md`
 - no Sheets or Slides support
 - no Shared Drives support
 - no Google write actions

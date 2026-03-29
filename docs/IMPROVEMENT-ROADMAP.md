@@ -22,7 +22,10 @@ After Phase 8, the active follow-on track is conservative hardening:
 - a documented release checklist and `release:check` ship path
 - a recurring-friendly `personal-ops health check` for install, runtime, and snapshot freshness
 
-After that hardening pass, the next roadmap is the post-launch track recorded in `docs/POST-LAUNCH-ROADMAP.md`.
+After that hardening pass, the next roadmap was the post-launch track recorded in `docs/POST-LAUNCH-ROADMAP.md`.
+That post-launch track is now complete.
+
+The current next initiative is the assistant-led roadmap recorded in `docs/ASSISTANT-LED-ROADMAP.md`.
 
 ## Phase Ledger
 
@@ -153,7 +156,9 @@ The current post-roadmap hardening track focuses on four audit-backed improvemen
 
 ### Current Goal
 
-The original roadmap and the follow-on hardening pass are complete. Post-launch Phases 1 to 4 are now complete. The next recommended build track is Post-Launch Phase 5: Workflow Actions and Bundles.
+The original roadmap, the follow-on hardening pass, and the full post-launch track are complete.
+
+The next active build track is the assistant-led roadmap, starting with Assistant-Led Phase 1: Assistant Action Queue and Console-First Workflow Execution.
 
 ### Guardrails
 
@@ -209,9 +214,9 @@ The original roadmap and the follow-on hardening pass are complete. Post-launch 
 - Phase 7 completed the explicit single-primary-machine strategy and cross-machine restore guardrails
 - Phase 8 completed the first read-first operator console with local browser sessions and Playwright-backed verification
 - the follow-on hardening track now includes CI maintenance, a formal release checklist, and a recurring-friendly health check command
-- the post-launch roadmap is recorded in `docs/POST-LAUNCH-ROADMAP.md`
-- Post-Launch Phases 1 to 4 are complete
-- the next recommended phase is Post-Launch Phase 5: Workflow Actions and Bundles
+- the post-launch roadmap is recorded in `docs/POST-LAUNCH-ROADMAP.md` and is complete
+- the new roadmap is recorded in `docs/ASSISTANT-LED-ROADMAP.md`
+- the current active phase is Assistant-Led Phase 1
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule

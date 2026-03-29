@@ -341,12 +341,12 @@ default_limit = 50
 function createDraft(
   service: PersonalOpsService,
   accountEmail: string,
-  overrides: Partial<{ subject: string; body_text: string; to: string[] }> = {},
+  overrides: Partial<{ subject: string; body_text: string; to: string[]; providerDraftId: string }> = {},
 ) {
   return service.db.createDraftArtifact(
     { client_id: "test-client" },
     accountEmail,
-    "provider-draft-1",
+    overrides.providerDraftId ?? "provider-draft-1",
     {
       to: overrides.to ?? ["person@example.com"],
       cc: [],
@@ -505,6 +505,53 @@ test("service creates and inspects snapshots", async () => {
   assert.equal(inspection.manifest.snapshot_id, manifest.snapshot_id);
   assert.equal(inspection.files.every((file) => file.exists), true);
   assert.equal(inspection.warnings.length > 0, true);
+});
+
+test("assistant queue surfaces safe actions and review-gated work", async () => {
+  const { service, accountEmail } = createFixture();
+  createDraft(service, accountEmail, {
+    subject: "Assistant queue draft",
+    providerDraftId: "provider-draft-assistant-queue",
+  });
+  const approvalDraft = createDraft(service, accountEmail, {
+    subject: "Approval draft",
+    providerDraftId: "provider-draft-approval-queue",
+  });
+  service.requestApproval(cliIdentity, approvalDraft.artifact_id, "Need approval");
+  service.createTask(cliIdentity, {
+    title: "Assistant queue planning task",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+  service.refreshPlanningRecommendations(cliIdentity);
+
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+  const actionIds = queue.actions.map((action) => action.action_id);
+
+  assert.equal(actionIds.includes("assistant.sync-workspace"), true);
+  assert.equal(actionIds.includes("assistant.create-snapshot"), true);
+  assert.equal(actionIds.includes("assistant.review-top-attention"), true);
+  assert.equal(actionIds.includes("assistant.review-planning"), true);
+  assert.equal(actionIds.includes("assistant.review-approvals"), true);
+  assert.equal(actionIds.includes("assistant.review-drafts"), true);
+  assert.equal(queue.actions.find((action) => action.action_id === "assistant.create-snapshot")?.one_click, true);
+  assert.equal(queue.actions.find((action) => action.action_id === "assistant.review-top-attention")?.state, "awaiting_review");
+});
+
+test("assistant queue runs safe snapshot actions and keeps review actions gated", async () => {
+  const { service } = createFixture();
+
+  const snapshotResult = await service.runAssistantQueueAction(cliIdentity, "assistant.create-snapshot");
+  assert.equal(snapshotResult.state, "completed");
+  assert.equal(snapshotResult.summary.includes("Created snapshot"), true);
+  assert.equal(service.listSnapshots().length, 1);
+
+  await assert.rejects(
+    () => service.runAssistantQueueAction(cliIdentity, "assistant.review-top-attention"),
+    /requires operator review/i,
+  );
 });
 
 test("approval request resolves review items and moves draft into approval pending", () => {

@@ -35,7 +35,11 @@ Keep these pieces separate:
 ### Daily commands
 
 - `personal-ops console`
-  Opens the local operator console with narrow browser-safe actions for planning and snapshots.
+  Opens the local operator console with the new assistant queue plus narrow browser-safe actions.
+- `personal-ops assistant queue`
+  Shows the current assistant-prepared action queue.
+- `personal-ops assistant run <actionId>`
+  Runs a safe assistant action like local refresh or snapshot creation.
 - `personal-ops version`
   Shows the current product version and the official source-first upgrade path.
 - `personal-ops workflow now-next`
@@ -71,7 +75,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, and it can also surface GitHub PR and review attention plus related Google Docs context when those optional integrations are configured, while still keeping higher-trust flows in the CLI.
+The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. It can also surface GitHub PR and review attention plus related Google Docs context when those optional integrations are configured, while still keeping higher-trust flows in the CLI.
 
 Read next:
 
@@ -84,6 +88,7 @@ Read next:
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
 - [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
+- [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
 
 ## New assistant
 

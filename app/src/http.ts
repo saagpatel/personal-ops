@@ -395,6 +395,26 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/assistant/actions") {
+        sendJson(response, 200, {
+          assistant_queue: await service.getAssistantActionQueueReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/assistant/actions/") && url.pathname.endsWith("/run")) {
+        const actionId = decodeURIComponent(url.pathname.replace("/v1/assistant/actions/", "").replace("/run", ""));
+        if (actionId && !actionId.includes("/")) {
+          sendJson(response, 200, {
+            assistant_run: await service.runAssistantQueueAction(
+              extractIdentity(request, auth?.role ?? "operator"),
+              actionId,
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/workflows/prep-day") {
         sendJson(response, 200, {
           workflow: await service.getPrepDayWorkflowReport({ httpReachable: true }),
