@@ -27,7 +27,7 @@ export {
   formatInstallPermissionsFixResult,
   formatRestoreResult,
 } from "./formatters/install.js";
-export { formatInboxStatus, formatInboxThreads, formatInboxThreadDetail } from "./formatters/inbox.js";
+export { formatInboxStatus, formatInboxThreads, formatInboxThreadDetail, formatInboxAutopilot } from "./formatters/inbox.js";
 export {
   formatCalendarStatus,
   formatCalendarSources,

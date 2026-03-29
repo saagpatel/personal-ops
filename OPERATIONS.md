@@ -329,11 +329,21 @@ Current console sections:
 Browser-safe console actions now include:
 
 - assistant queue safe actions such as local refresh and fresh snapshot creation
+- grouped inbox autopilot draft preparation
+- draft review open and resolve
+- approval request handoff from a prepared draft
 - create snapshot
 - apply, snooze, and reject a planning recommendation
 - snooze or reject a planning recommendation group
 
-The Overview section now leads with the assistant queue, then the current now-next guidance, then the day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
+The Overview section now leads with the assistant queue, then the current inbox autopilot block, then the current now-next guidance, then the day-start workflow bundle below it, including exact CLI commands and in-console detail handoff where available.
+
+The Drafts section now acts as the grouped inbox review workspace:
+
+- the assistant can stage grouped reply and follow-up drafts
+- the operator can open and resolve draft review items in-browser
+- approval can be requested from a prepared draft
+- send still stays out of browser scope
 
 When GitHub is configured, the Overview and worklist detail can also surface narrow PR and review queue context with exact CLI handoff plus an external GitHub link.
 
@@ -342,6 +352,7 @@ These actions always require explicit confirmation in the browser.
 Still CLI-only:
 
 - approvals
+- approval approve, reject, and send decisions
 - task edits and task lifecycle changes
 - restore
 - auth login and re-auth flows

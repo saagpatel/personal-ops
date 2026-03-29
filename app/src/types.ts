@@ -1026,6 +1026,10 @@ export interface DraftArtifact extends DraftInput {
   provider_draft_id: string;
   provider_message_id?: string | undefined;
   provider_thread_id?: string | undefined;
+  assistant_generated: boolean;
+  assistant_source_thread_id?: string | undefined;
+  assistant_group_id?: string | undefined;
+  assistant_why_now?: string | undefined;
   mailbox: string;
   status: DraftArtifactStatus;
   review_state: DraftReviewState;
@@ -1233,6 +1237,41 @@ export interface AssistantActionRunResult {
   summary: string;
   details: string[];
   queue: AssistantActionQueueReport;
+}
+
+export type InboxAutopilotGroupKind = "needs_reply" | "waiting_to_nudge";
+
+export interface InboxAutopilotThreadSummary {
+  thread_id: string;
+  subject: string;
+  counterparty_summary: string;
+  last_message_at: string;
+  suggested_command: string;
+  draft_artifact_id?: string | undefined;
+}
+
+export interface InboxAutopilotGroup {
+  group_id: string;
+  kind: InboxAutopilotGroupKind;
+  state: AssistantActionState;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  signals: string[];
+  assistant_action_id: string;
+  review_required: boolean;
+  one_click: boolean;
+  threads: InboxAutopilotThreadSummary[];
+  draft_artifact_ids: string[];
+}
+
+export interface InboxAutopilotReport {
+  generated_at: string;
+  readiness: ServiceState;
+  summary: string;
+  top_item_summary: string | null;
+  prepared_draft_count: number;
+  groups: InboxAutopilotGroup[];
 }
 
 export interface WorkflowBundleSectionItem {

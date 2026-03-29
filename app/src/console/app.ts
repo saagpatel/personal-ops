@@ -10,11 +10,14 @@ import type {
   DoctorReport,
   DraftArtifact,
   GithubPullRequest,
+  InboxAutopilotGroup,
+  InboxAutopilotReport,
   MailThreadDetail,
   PlanningRecommendationDetail,
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
   PlanningRecommendationSummaryReport,
+  ReviewItem,
   ServiceStatusReport,
   SnapshotInspection,
   SnapshotManifest,
@@ -31,11 +34,13 @@ interface ConsolePayload {
   status: ServiceStatusReport;
   worklist: WorklistReport;
   assistantQueue: AssistantActionQueueReport;
+  inboxAutopilot: InboxAutopilotReport;
   nowNextWorkflow: WorkflowBundleReport;
   prepDayWorkflow: WorkflowBundleReport;
   doctor: DoctorReport;
   approvals: ApprovalRequest[];
   drafts: DraftArtifact[];
+  reviewItems: ReviewItem[];
   planningSummary: PlanningRecommendationSummaryReport;
   planningGroups: PlanningRecommendationGroup[];
   planningNext: PlanningRecommendationDetail | null;
@@ -57,6 +62,10 @@ interface WorklistResponse {
 
 interface AssistantQueueResponse {
   assistant_queue: AssistantActionQueueReport;
+}
+
+interface InboxAutopilotResponse {
+  inbox_autopilot: InboxAutopilotReport;
 }
 
 interface AssistantRunResponse {
@@ -81,6 +90,10 @@ interface ApprovalDetailResponse {
 
 interface DraftResponse {
   drafts: DraftArtifact[];
+}
+
+interface ReviewQueueResponse {
+  review_items: ReviewItem[];
 }
 
 interface PlanningSummaryResponse {
@@ -316,11 +329,13 @@ async function loadPayload(): Promise<ConsolePayload> {
     statusResponse,
     worklistResponse,
     assistantQueueResponse,
+    inboxAutopilotResponse,
     nowNextWorkflowResponse,
     workflowResponse,
     doctorResponse,
     approvalsResponse,
     draftsResponse,
+    reviewQueueResponse,
     planningSummaryResponse,
     planningGroupsResponse,
     planningNextResponse,
@@ -330,11 +345,13 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<StatusResponse>("/v1/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
     fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
+    fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
     fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<DoctorResponse>("/v1/doctor"),
     fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
     fetchJson<DraftResponse>("/v1/mail/drafts"),
+    fetchJson<ReviewQueueResponse>("/v1/review-queue"),
     fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
     fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
@@ -346,11 +363,13 @@ async function loadPayload(): Promise<ConsolePayload> {
     status: statusResponse.status,
     worklist: worklistResponse.worklist,
     assistantQueue: assistantQueueResponse.assistant_queue,
+    inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
     nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
     doctor: doctorResponse.doctor,
     approvals: approvalsResponse.approval_requests,
     drafts: draftsResponse.drafts,
+    reviewItems: reviewQueueResponse.review_items,
     planningSummary: planningSummaryResponse.planning_recommendation_summary,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
     planningNext: planningNextResponse.planning_recommendation,
@@ -361,6 +380,20 @@ async function loadPayload(): Promise<ConsolePayload> {
 
 function topWorklistCommand(worklist: WorklistReport): string {
   return worklist.items[0]?.suggested_command ?? "personal-ops worklist";
+}
+
+function autopilotGroupForThread(payload: ConsolePayload, threadId: string): InboxAutopilotGroup | null {
+  return payload.inboxAutopilot.groups.find((group) => group.threads.some((thread) => thread.thread_id === threadId)) ?? null;
+}
+
+function autopilotGroupForDraft(payload: ConsolePayload, artifactId: string): InboxAutopilotGroup | null {
+  return payload.inboxAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+}
+
+function reviewItemForArtifact(payload: ConsolePayload, artifactId: string): ReviewItem | null {
+  return payload.reviewItems.find((review) => review.artifact_id === artifactId && review.state !== "resolved")
+    ?? payload.reviewItems.find((review) => review.artifact_id === artifactId)
+    ?? null;
 }
 
 function setFlash(message: string, tone: BannerTone = "good"): void {
@@ -482,6 +515,138 @@ function renderRelatedDocs(
         )
         .join("")}
     </div>
+  `;
+}
+
+function reviewCommand(review: ReviewItem | null): string {
+  if (!review) {
+    return "personal-ops review list";
+  }
+  if (review.state === "pending") {
+    return `personal-ops review open ${review.review_id}`;
+  }
+  if (review.state === "opened") {
+    return `personal-ops review resolve ${review.review_id} --note "Reviewed"`;
+  }
+  return `personal-ops review show ${review.review_id}`;
+}
+
+function groupPrimaryCommand(payload: ConsolePayload, group: InboxAutopilotGroup): string {
+  if (group.review_required) {
+    const firstReview = group.draft_artifact_ids
+      .map((artifactId) => reviewItemForArtifact(payload, artifactId))
+      .find((review): review is ReviewItem => Boolean(review));
+    return reviewCommand(firstReview ?? null);
+  }
+  return "personal-ops inbox autopilot";
+}
+
+function groupPrimaryLabel(group: InboxAutopilotGroup): string {
+  if (group.review_required) {
+    return "Open draft review";
+  }
+  if (group.state === "running") {
+    return "Preparing drafts";
+  }
+  return group.kind === "needs_reply" ? "Prepare reply block" : "Prepare follow-up block";
+}
+
+function approvalForDraft(payload: ConsolePayload, artifactId: string): ApprovalRequest | null {
+  return payload.approvals.find((approval) => approval.artifact_id === artifactId && approval.state === "pending") ?? null;
+}
+
+function renderInboxAutopilotGroupCard(
+  payload: ConsolePayload,
+  group: InboxAutopilotGroup,
+  options: { compact?: boolean; showThreads?: boolean } = {},
+): string {
+  const drafts = group.draft_artifact_ids
+    .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
+    .filter((draft): draft is DraftArtifact => Boolean(draft));
+  const firstReview = drafts
+    .map((draft) => reviewItemForArtifact(payload, draft.artifact_id))
+    .find((review): review is ReviewItem => Boolean(review));
+  const primaryButton =
+    group.state === "running"
+      ? `<button class="button" type="button" disabled>Preparing drafts</button>`
+      : group.review_required
+        ? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
+        : group.one_click
+          ? `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
+          : `<button class="button" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open related detail</button>`;
+  const secondaryButton = group.review_required
+    ? `<button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload, group))}" type="button">Copy review command</button>`
+    : `<button class="copy-button" data-copy="personal-ops inbox autopilot" type="button">Copy CLI command</button>`;
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>${escapeHtml(group.kind === "needs_reply" ? "Reply block" : "Follow-up block")}</h4>
+        <span class="${group.state === "failed" || group.state === "blocked" ? "pill pill--critical" : group.state === "awaiting_review" || group.state === "running" ? "pill pill--warn" : "pill"}">${escapeHtml(group.state)}</span>
+      </div>
+      <p>${escapeHtml(group.summary)}</p>
+      <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+      <p class="subtle subtle--body">${escapeHtml(`Score band: ${group.score_band} · Signals: ${group.signals.join(", ")}`)}</p>
+      ${
+        drafts.length > 0
+          ? `<p class="subtle subtle--body">${escapeHtml(`${drafts.length} staged draft${drafts.length === 1 ? "" : "s"}${firstReview ? ` · next review ${firstReview.state}` : ""}`)}</p>`
+          : ""
+      }
+      ${
+        group.state === "blocked"
+          ? `<p class="subtle subtle--body">Blocked until mailbox auth and sync are healthy again.</p>`
+          : ""
+      }
+      ${
+        !options.compact && options.showThreads !== false
+          ? `
+            <div class="detail-stack">
+              ${group.threads
+                .map(
+                  (thread, index) => `
+                    <div class="detail-row">
+                      <dt>${escapeHtml(`${index + 1}. ${thread.subject}`)}</dt>
+                      <dd>${escapeHtml(`${thread.counterparty_summary} · ${formatTime(thread.last_message_at)}`)}</dd>
+                    </div>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+      <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
+        ${primaryButton}
+        ${secondaryButton}
+      </div>
+    </article>
+  `;
+}
+
+function renderDraftReviewCard(payload: ConsolePayload, group: InboxAutopilotGroup, draft: DraftArtifact, index: number): string {
+  const review = reviewItemForArtifact(payload, draft.artifact_id);
+  const approval = approvalForDraft(payload, draft.artifact_id);
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</h4>
+        <span class="pill ${draft.review_state === "resolved" ? "pill--good" : "pill--warn"}">${escapeHtml(draft.review_state)}</span>
+      </div>
+      <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")} · ${escapeHtml(group.kind === "needs_reply" ? "reply draft" : "follow-up draft")}</p>
+      <p class="subtle subtle--body">${escapeHtml(draft.assistant_why_now ?? group.why_now)}</p>
+      <p class="subtle subtle--body">${escapeHtml(`Status: ${draft.status}${approval ? ` · approval ${approval.state}` : review ? ` · review ${review.state}` : ""}`)}</p>
+      <div class="list-item__actions list-item__actions--stack">
+        ${
+          review && review.state === "pending"
+            ? `<button class="button button--primary" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
+            : review && review.state === "opened"
+              ? `<button class="button button--primary" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
+              : `<button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh prepared draft</button>`
+        }
+        <button class="button" data-draft-approval="${escapeHtml(draft.artifact_id)}" type="button">Request approval</button>
+        <button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh group drafts</button>
+        <button class="copy-button" data-copy="${escapeHtml(reviewCommand(review ?? null))}" type="button">Copy review command</button>
+      </div>
+    </article>
   `;
 }
 
@@ -829,6 +994,7 @@ function renderOverview(payload: ConsolePayload): string {
   const assistantQueue = payload.assistantQueue;
   const primaryNowNext = nowNext.actions[0] ?? null;
   const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
+  const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -877,6 +1043,15 @@ function renderOverview(payload: ConsolePayload): string {
             topAssistantAction
               ? renderAssistantActionCard(topAssistantAction)
               : `<div class="empty">The assistant queue is currently caught up.</div>`
+          }
+        </section>
+        <section class="detail-card">
+          <h3>Inbox autopilot</h3>
+          <p class="subtle subtle--body">Grouped reply and follow-up work is staged here so the next move can be prepare, review, or approval handoff instead of raw inbox triage.</p>
+          ${
+            topAutopilotGroup
+              ? renderInboxAutopilotGroupCard(payload, topAutopilotGroup, { showThreads: false })
+              : `<div class="empty">No grouped inbox blocks need assistant prep right now.</div>`
           }
         </section>
         <section class="detail-card">
@@ -1028,6 +1203,11 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
 
   if (detail.kind === "mail_thread") {
     const thread = detail.detail;
+    const group = payload ? autopilotGroupForThread(payload, thread.thread.thread_id) : null;
+    const linkedDraft = payload && group
+      ? payload.drafts.find((draft) => draft.assistant_source_thread_id === thread.thread.thread_id) ?? null
+      : null;
+    const linkedReview = linkedDraft && payload ? reviewItemForArtifact(payload, linkedDraft.artifact_id) : null;
     return `
       <div class="detail-list">
         <div class="detail-row"><dt>Thread</dt><dd>${escapeHtml(truncateId(thread.thread.thread_id))}</dd></div>
@@ -1036,6 +1216,31 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Messages</dt><dd>${escapeHtml(String(thread.messages.length))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(thread.messages[0]?.subject ?? "No message preview available.")}</p>
+      ${
+        group
+          ? `
+            <section class="panel">
+              <h4>Inbox autopilot group</h4>
+              <p>${escapeHtml(group.summary)}</p>
+              <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+              <p class="subtle subtle--body">${escapeHtml(`Next action: ${group.review_required ? "review prepared draft" : "prepare grouped drafts"}`)}</p>
+              ${
+                linkedDraft
+                  ? `<p class="subtle subtle--body">${escapeHtml(`Linked draft ${linkedDraft.artifact_id} · review ${linkedDraft.review_state}${linkedReview ? ` (${linkedReview.state})` : ""}`)}</p>`
+                  : `<p class="subtle subtle--body">No staged draft exists for this thread yet.</p>`
+              }
+              <div class="list-item__actions">
+                ${
+                  group.review_required
+                    ? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open draft review</button>`
+                    : `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Prepare grouped drafts</button>`
+                }
+                <button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload!, group))}" type="button">Copy next command</button>
+              </div>
+            </section>
+          `
+          : ""
+      }
       ${intelligenceBlock}
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([thread.suggested_next_command])}
@@ -1241,29 +1446,64 @@ function renderDrafts(payload: ConsolePayload): string {
     "drafts",
     "No assistant-prepared draft review is waiting right now.",
   );
-  if (payload.drafts.length === 0) {
+  const groupedDrafts = payload.inboxAutopilot.groups.filter((group) => group.draft_artifact_ids.length > 0);
+  if (groupedDrafts.length === 0 && payload.drafts.length === 0) {
     return `${assistantSection}<section class="empty">No local draft artifacts are currently stored.</section>`;
   }
   return `
     ${assistantSection}
-    <section class="list">
-      ${payload.drafts
-        .map(
-          (draft) => `
-            <article class="list-item">
-              <div class="list-item__top">
-                <h4>${escapeHtml(draft.subject)}</h4>
-                <span class="pill ${draft.status === "draft" ? "" : "pill--warn"}">${escapeHtml(draft.status)}</span>
-              </div>
-              <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")} · review ${escapeHtml(draft.review_state)}</p>
-              <div class="list-item__actions">
-                ${commandAction("personal-ops mail list")}
-              </div>
-            </article>
-          `,
-        )
-        .join("")}
-    </section>
+    ${
+      groupedDrafts.length > 0
+        ? `
+          <section class="detail-stack">
+            ${groupedDrafts
+              .map((group) => {
+                const drafts = group.draft_artifact_ids
+                  .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
+                  .filter((draft): draft is DraftArtifact => Boolean(draft));
+                return `
+                  <section class="panel">
+                    <div class="list-item__top">
+                      <h3>${escapeHtml(group.kind === "needs_reply" ? "Prepared reply block" : "Prepared follow-up block")}</h3>
+                      <span class="pill ${group.state === "awaiting_review" ? "pill--warn" : "pill"}">${escapeHtml(group.state)}</span>
+                    </div>
+                    <p>${escapeHtml(group.summary)}</p>
+                    <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+                    <div class="list-item__actions">
+                      <button class="button" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Focus this group</button>
+                      <button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh drafts</button>
+                      <button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload, group))}" type="button">Copy next command</button>
+                    </div>
+                    <div class="list">
+                      ${drafts.map((draft, index) => renderDraftReviewCard(payload, group, draft, index)).join("")}
+                    </div>
+                  </section>
+                `;
+              })
+              .join("")}
+          </section>
+        `
+        : `
+          <section class="list">
+            ${payload.drafts
+              .map(
+                (draft) => `
+                  <article class="list-item">
+                    <div class="list-item__top">
+                      <h4>${escapeHtml(draft.subject)}</h4>
+                      <span class="pill ${draft.status === "draft" ? "" : "pill--warn"}">${escapeHtml(draft.status)}</span>
+                    </div>
+                    <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")} · review ${escapeHtml(draft.review_state)}</p>
+                    <div class="list-item__actions">
+                      ${commandAction("personal-ops mail list")}
+                    </div>
+                  </article>
+                `,
+              )
+              .join("")}
+          </section>
+        `
+    }
   `;
 }
 
@@ -1780,6 +2020,35 @@ async function selectWorklistItem(itemId: string): Promise<void> {
   }
 }
 
+async function openAutopilotGroup(groupId: string): Promise<void> {
+  const payload = state.payload;
+  const group = payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ?? null;
+  if (!payload || !group) {
+    setFlash("That inbox autopilot group is no longer available. Refresh the console and try again.", "warn");
+    render();
+    return;
+  }
+  const matchingWorklistItem = payload.worklist.items.find(
+    (item) => item.target_type === "mail_thread" && group.threads.some((thread) => thread.thread_id === item.target_id),
+  );
+  if (group.review_required || group.draft_artifact_ids.length > 0) {
+    state.section = "drafts";
+    if (matchingWorklistItem) {
+      state.selectedWorklistItemId = matchingWorklistItem.item_id;
+    }
+    location.hash = state.section;
+    render();
+    return;
+  }
+  if (matchingWorklistItem) {
+    await selectWorklistItem(matchingWorklistItem.item_id);
+    return;
+  }
+  state.section = "worklist";
+  location.hash = state.section;
+  render();
+}
+
 async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"], actionIndex: number): Promise<void> {
   const payload = state.payload;
   const action = payload ? workflowByName(payload, workflowName).actions[actionIndex] : null;
@@ -1799,6 +2068,10 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
 
   if (action.target_type === "planning_recommendation" && action.target_id) {
     await selectPlanningRecommendation(action.target_id);
+    return;
+  }
+  if (action.target_type === "inbox_autopilot_group" && action.target_id) {
+    await openAutopilotGroup(action.target_id);
     return;
   }
   if (action.target_type === "planning_recommendation_group" && action.target_id) {
@@ -1839,6 +2112,10 @@ async function openAssistantAction(actionId: string): Promise<void> {
     await selectPlanningRecommendation(action.target_id);
     return;
   }
+  if (action.target_type === "inbox_autopilot_group" && action.target_id) {
+    await openAutopilotGroup(action.target_id);
+    return;
+  }
   if (action.target_type === "approval_request" && action.target_id) {
     await selectApproval(action.target_id);
     return;
@@ -1864,6 +2141,116 @@ async function openAssistantAction(actionId: string): Promise<void> {
   render();
 }
 
+async function prepareInboxAutopilotGroupFromConsole(groupId: string): Promise<void> {
+  const payload = state.payload;
+  const group = payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ?? null;
+  if (!group) {
+    setFlash("That inbox autopilot group is no longer available. Refresh the console and try again.", "warn");
+    render();
+    return;
+  }
+  if (!confirm(`Prepare or refresh drafts for this ${group.kind === "needs_reply" ? "reply" : "follow-up"} block now?`)) {
+    return;
+  }
+  try {
+    const response = await postJson<{
+      inbox_autopilot_group: {
+        summary: string;
+        group: InboxAutopilotGroup;
+        failed_thread_ids: string[];
+      };
+    }>(`/v1/inbox/autopilot/groups/${encodeURIComponent(groupId)}/prepare`, {});
+    state.section = response.inbox_autopilot_group.group.review_required ? "drafts" : "worklist";
+    location.hash = state.section;
+    setFlash(
+      response.inbox_autopilot_group.failed_thread_ids.length > 0
+        ? `${response.inbox_autopilot_group.summary} Some threads still need manual follow-up.`
+        : response.inbox_autopilot_group.summary,
+      response.inbox_autopilot_group.failed_thread_ids.length > 0 ? "warn" : "good",
+    );
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run personal-ops inbox autopilot for the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function openReviewFromConsole(reviewId: string): Promise<void> {
+  try {
+    await postJson<{ review_item: ReviewItem; gmail_review_url: string }>(
+      `/v1/review-queue/${encodeURIComponent(reviewId)}/open`,
+      {},
+    );
+    setFlash("Draft review opened. Gmail review guidance has been opened separately if available.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops review open ${reviewId} if needed.`, "critical");
+    render();
+  }
+}
+
+async function resolveReviewFromConsole(reviewId: string): Promise<void> {
+  const note = window.prompt("Add a short review note before resolving this draft review.", "Reviewed");
+  if (note === null) {
+    return;
+  }
+  try {
+    await postJson<{ review_item: ReviewItem }>(`/v1/review-queue/${encodeURIComponent(reviewId)}/resolve`, {
+      note,
+    });
+    setFlash("Draft review resolved.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops review resolve ${reviewId} if needed.`, "critical");
+    render();
+  }
+}
+
+async function requestApprovalFromConsole(artifactId: string): Promise<void> {
+  const note = window.prompt("Optional approval note for this prepared draft.", "Prepared for operator review");
+  if (note === null) {
+    return;
+  }
+  if (!confirm("Request approval for this prepared draft now? Send will still remain gated.")) {
+    return;
+  }
+  try {
+    await postJson<{ approval_request: ApprovalRequest }>(
+      `/v1/mail/drafts/${encodeURIComponent(artifactId)}/request-approval`,
+      { note },
+    );
+    state.section = "approvals";
+    location.hash = state.section;
+    setFlash("Approval requested. Decisions and send still stay in the gated approval flow.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run personal-ops approval show or personal-ops review commands if needed.`,
+      "critical",
+    );
+    render();
+  }
+}
+
 async function runAssistantActionFromConsole(actionId: string): Promise<void> {
   const payload = state.payload;
   const action = payload?.assistantQueue.actions.find((item) => item.action_id === actionId) ?? null;
@@ -1876,6 +2263,11 @@ async function runAssistantActionFromConsole(actionId: string): Promise<void> {
     ? "Refresh mailbox, calendar, GitHub, and Drive context where available?"
     : `Run "${action.title}" now?`;
   if (!confirm(confirmation)) {
+    return;
+  }
+  if (actionId.startsWith("assistant.prepare-reply-group:") || actionId.startsWith("assistant.prepare-followup-group:")) {
+    const groupId = actionId.split(":").slice(1).join(":");
+    await prepareInboxAutopilotGroupFromConsole(groupId);
     return;
   }
   try {
@@ -2107,6 +2499,36 @@ document.addEventListener("click", async (event) => {
   const worklistButton = target.closest<HTMLButtonElement>("[data-worklist-item]");
   if (worklistButton?.dataset.worklistItem) {
     await selectWorklistItem(worklistButton.dataset.worklistItem);
+    return;
+  }
+
+  const autopilotPrepareButton = target.closest<HTMLButtonElement>("[data-autopilot-prepare]");
+  if (autopilotPrepareButton?.dataset.autopilotPrepare) {
+    await prepareInboxAutopilotGroupFromConsole(autopilotPrepareButton.dataset.autopilotPrepare);
+    return;
+  }
+
+  const autopilotOpenButton = target.closest<HTMLButtonElement>("[data-autopilot-open]");
+  if (autopilotOpenButton?.dataset.autopilotOpen) {
+    await openAutopilotGroup(autopilotOpenButton.dataset.autopilotOpen);
+    return;
+  }
+
+  const reviewOpenButton = target.closest<HTMLButtonElement>("[data-review-open]");
+  if (reviewOpenButton?.dataset.reviewOpen) {
+    await openReviewFromConsole(reviewOpenButton.dataset.reviewOpen);
+    return;
+  }
+
+  const reviewResolveButton = target.closest<HTMLButtonElement>("[data-review-resolve]");
+  if (reviewResolveButton?.dataset.reviewResolve) {
+    await resolveReviewFromConsole(reviewResolveButton.dataset.reviewResolve);
+    return;
+  }
+
+  const draftApprovalButton = target.closest<HTMLButtonElement>("[data-draft-approval]");
+  if (draftApprovalButton?.dataset.draftApproval) {
+    await requestApprovalFromConsole(draftApprovalButton.dataset.draftApproval);
     return;
   }
 

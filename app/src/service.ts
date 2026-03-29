@@ -69,6 +69,7 @@ import {
 } from "./secrets.js";
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
 import { buildAssistantActionQueueReport, runAssistantAction } from "./service/assistant.js";
+import { buildInboxAutopilotReport, prepareInboxAutopilotGroup } from "./service/inbox-autopilot.js";
 import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
@@ -125,6 +126,7 @@ import {
   GmailMessageMetadata,
   FreeTimeWindow,
   InboxStatusReport,
+  InboxAutopilotReport,
   InboxThreadKind,
   InboxThreadSummary,
   MailMessage,
@@ -644,6 +646,10 @@ export class PersonalOpsService {
     return buildFollowUpBlockWorkflowReport(this, options);
   }
 
+  async getInboxAutopilotReport(options: { httpReachable: boolean }): Promise<InboxAutopilotReport> {
+    return buildInboxAutopilotReport(this, options);
+  }
+
   async getPrepMeetingsWorkflowReport(options: { httpReachable: boolean; scope: "today" | "next_24h" }) {
     return buildPrepMeetingsWorkflowReport(this, options);
   }
@@ -670,6 +676,10 @@ export class PersonalOpsService {
     this.assertOperatorOnly(identity, "run this assistant action");
     this.db.registerClient(identity);
     return runAssistantAction(this, identity, actionId);
+  }
+
+  async prepareInboxAutopilotGroup(identity: ClientIdentity, groupId: string) {
+    return prepareInboxAutopilotGroup(this, identity, groupId);
   }
 
   async runDoctor(options: DoctorOptions): Promise<DoctorReport> {
@@ -3068,11 +3078,22 @@ export class PersonalOpsService {
     return this.db.listDraftArtifacts();
   }
 
-  async createDraft(identity: ClientIdentity, input: DraftInput): Promise<DraftArtifact> {
+  async createDraft(
+    identity: ClientIdentity,
+    input: DraftInput,
+    options: {
+      assistantMetadata?: {
+        assistant_generated?: boolean;
+        assistant_source_thread_id?: string;
+        assistant_group_id?: string;
+        assistant_why_now?: string;
+      };
+    } = {},
+  ): Promise<DraftArtifact> {
     this.db.registerClient(identity);
     const stored = await this.dependencies.loadStoredGmailTokens(this.config, this.db);
     const providerDraftId = await this.dependencies.createGmailDraft(stored.tokensJson, stored.clientConfig, stored.email, input);
-    const draft = this.db.createDraftArtifact(identity, stored.email, providerDraftId, input);
+    const draft = this.db.createDraftArtifact(identity, stored.email, providerDraftId, input, options.assistantMetadata);
     const review = this.db.createReviewItem(draft.artifact_id);
     this.db.recordAuditEvent({
       client_id: identity.client_id,
@@ -3099,7 +3120,19 @@ export class PersonalOpsService {
     return draft;
   }
 
-  async updateDraft(identity: ClientIdentity, artifactId: string, input: DraftInput): Promise<DraftArtifact> {
+  async updateDraft(
+    identity: ClientIdentity,
+    artifactId: string,
+    input: DraftInput,
+    options: {
+      assistantMetadata?: {
+        assistant_generated?: boolean;
+        assistant_source_thread_id?: string | null;
+        assistant_group_id?: string | null;
+        assistant_why_now?: string | null;
+      };
+    } = {},
+  ): Promise<DraftArtifact> {
     this.db.registerClient(identity);
     const existing = this.db.getDraftArtifact(artifactId);
     if (!existing) {
@@ -3113,7 +3146,7 @@ export class PersonalOpsService {
       existing.provider_draft_id,
       input,
     );
-    const updated = this.db.updateDraftArtifact(artifactId, input);
+    const updated = this.db.updateDraftArtifact(artifactId, input, options.assistantMetadata);
     if (!updated) {
       throw new Error(`Draft artifact ${artifactId} could not be updated locally.`);
     }
@@ -3144,6 +3177,23 @@ export class PersonalOpsService {
       });
     }
 
+    const latestReview = this.db.getLatestReviewItemForArtifact(artifactId);
+    const review =
+      !latestReview || latestReview.state === "resolved"
+        ? this.db.createReviewItem(artifactId)
+        : latestReview;
+    this.db.updateDraftLifecycle(
+      artifactId,
+      activeApproval
+        ? {
+            review_state: review.state === "opened" ? "opened" : "pending",
+            status: "draft",
+          }
+        : {
+            review_state: review.state === "opened" ? "opened" : "pending",
+          },
+    );
+
     this.db.recordAuditEvent({
       client_id: identity.client_id,
       action: "mail_draft_update",
@@ -3154,8 +3204,18 @@ export class PersonalOpsService {
         mailbox: stored.email,
         subject: updated.subject,
         invalidated_approval_id: activeApproval?.approval_id ?? null,
+        review_id: review.review_id,
       },
     });
+    sendMacNotification(
+      this.db,
+      this.logger,
+      this.policy,
+      `draft-review:${artifactId}:${review.review_id}`,
+      "Draft Updated",
+      updated.subject || "A Gmail draft was updated and is ready for review.",
+      artifactId,
+    );
     this.logger.info("draft_updated", { artifact_id: updated.artifact_id, client_id: identity.client_id });
     return this.db.getDraftArtifact(artifactId)!;
   }
@@ -3198,6 +3258,7 @@ export class PersonalOpsService {
     if (!review) {
       throw new Error(`Review item ${reviewId} was not found.`);
     }
+    this.db.updateDraftLifecycle(review.artifact_id, { review_state: "opened" });
     this.dependencies.openExternalUrl(this.config.gmailReviewUrl);
     this.db.recordAuditEvent({
       client_id: identity.client_id,
@@ -3229,6 +3290,7 @@ export class PersonalOpsService {
       throw new Error(`Review item ${reviewId} cannot be resolved from state ${review.state}.`);
     }
     const resolved = this.db.markReviewResolved(reviewId);
+    this.db.updateDraftLifecycle(review.artifact_id, { review_state: "resolved" });
     this.db.recordAuditEvent({
       client_id: identity.client_id,
       action: "review_queue_resolve",

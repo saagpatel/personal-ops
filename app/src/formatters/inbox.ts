@@ -1,5 +1,5 @@
-import type { InboxStatusReport, InboxThreadSummary, MailThreadDetail } from "../types.js";
-import { formatAge, humanizeKind, line, truncate, yesNo } from "./shared.js";
+import type { InboxAutopilotReport, InboxStatusReport, InboxThreadSummary, MailThreadDetail } from "../types.js";
+import { formatAge, formatStateLabel, humanizeKind, line, truncate, yesNo } from "./shared.js";
 
 export function formatInboxStatus(report: InboxStatusReport): string {
   const lines: string[] = [];
@@ -78,6 +78,34 @@ export function formatInboxThreadDetail(detail: MailThreadDetail): string {
       lines.push(`  to: ${truncate(message.to_header, 96)}`);
     }
     lines.push(`  labels: ${message.label_ids.join(", ") || "(none)"}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatInboxAutopilot(report: InboxAutopilotReport): string {
+  const lines: string[] = [];
+  lines.push(`Inbox Autopilot: ${formatStateLabel(report.readiness)}`);
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Summary", report.summary));
+  lines.push(line("Prepared drafts", String(report.prepared_draft_count)));
+  if (report.top_item_summary) {
+    lines.push(line("Top item", report.top_item_summary));
+  }
+  lines.push("");
+  lines.push("Groups");
+  if (report.groups.length === 0) {
+    lines.push("- No inbox autopilot groups are ready right now.");
+    return lines.join("\n");
+  }
+  for (const group of report.groups) {
+    lines.push(`- ${group.group_id} | ${group.kind} | ${group.state} | ${group.summary}`);
+    lines.push(`  why now: ${group.why_now}`);
+    lines.push(`  drafts: ${group.draft_artifact_ids.length} | score: ${group.score_band}`);
+    lines.push(`  signals: ${group.signals.join(", ")}`);
+    for (const thread of group.threads) {
+      lines.push(`  thread ${thread.thread_id} | ${truncate(thread.subject)} | ${truncate(thread.counterparty_summary, 64)}`);
+      lines.push(`    next: ${thread.suggested_command}`);
+    }
   }
   return lines.join("\n");
 }

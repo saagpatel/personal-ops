@@ -41,6 +41,7 @@ Use this path if you want to:
 - install or move the system to another Mac
 - understand the single-primary-machine model before using backups to migrate state
 - use the local operator console for daily visibility plus narrow browser-safe actions
+- use inbox autopilot to stage grouped reply and follow-up drafts before asking for approval
 - use the new day-start workflow bundle before dropping into narrower commands
 - optionally add narrow GitHub PR and review context
 - optionally add narrow Google Docs and Drive metadata context
@@ -84,7 +85,7 @@ Use this path if you want to:
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The next initiative after the completed post-launch track, starting with the assistant action queue and console-first workflow execution.
+  The assistant-led initiative, now through Phase 2 with the inbox autopilot and grouped draft review path.
 
 ## History and deep context
 
@@ -111,8 +112,9 @@ If you are a new operator:
 
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
-3. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
-4. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
+3. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
+4. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
+5. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 
 If you are a new assistant or contributor:
 

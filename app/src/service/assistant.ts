@@ -6,6 +6,7 @@ import type {
   AssistantActionRunResult,
   AssistantActionState,
   DraftArtifact,
+  InboxAutopilotGroup,
   WorkflowBundleAction,
 } from "../types.js";
 
@@ -188,9 +189,11 @@ async function buildCandidates(
   const [
     worklist,
     nowNext,
+    inboxAutopilot,
   ] = await Promise.all([
     service.getWorklistReport(options),
     service.getNowNextWorkflowReport(options),
+    service.getInboxAutopilotReport(options),
   ]);
   const inbox = service.getInboxStatusReport();
   const calendar = service.getCalendarStatusReport();
@@ -352,6 +355,34 @@ async function buildCandidates(
     });
   }
 
+  for (const group of inboxAutopilot.groups) {
+    const isReplyGroup = group.kind === "needs_reply";
+    const reviewReady = group.state === "awaiting_review";
+    candidates.push({
+      action_id: group.assistant_action_id,
+      title: reviewReady
+        ? isReplyGroup
+          ? "Review prepared reply block"
+          : "Review prepared follow-up block"
+        : isReplyGroup
+          ? "Prepare reply block"
+          : "Prepare follow-up block",
+      summary: group.summary,
+      section: reviewReady ? "drafts" : "worklist",
+      batch: true,
+      one_click: group.one_click,
+      review_required: group.review_required,
+      why_now: group.why_now,
+      command: reviewReady ? "personal-ops mail draft list" : "personal-ops inbox autopilot",
+      target_type: "inbox_autopilot_group",
+      target_id: group.group_id,
+      signals: group.signals,
+      ...(group.state === "blocked" ? { blocking_reason: "Mailbox auth or sync needs repair before drafts can be prepared." } : {}),
+      satisfied: false,
+      priority: reviewReady ? (isReplyGroup ? 4 : 6) : isReplyGroup ? 8 : 12,
+    });
+  }
+
   const latestRuns = latestRunMap(service);
   return candidates
     .map((candidate) => {
@@ -508,6 +539,10 @@ export async function runAssistantAction(
 
   const startedAt = new Date().toISOString();
   const result = await service.runTrackedAssistantAction(actionId, async () => {
+    if (actionId.startsWith("assistant.prepare-reply-group:") || actionId.startsWith("assistant.prepare-followup-group:")) {
+      const groupId = actionId.split(":").slice(1).join(":");
+      return await service.prepareInboxAutopilotGroup(identity, groupId);
+    }
     if (actionId === ACTION_SYNC_WORKSPACE) {
       return await runWorkspaceSync(service, identity);
     }

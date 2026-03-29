@@ -40,6 +40,8 @@ Keep these pieces separate:
   Shows the current assistant-prepared action queue.
 - `personal-ops assistant run <actionId>`
   Runs a safe assistant action like local refresh or snapshot creation.
+- `personal-ops inbox autopilot`
+  Shows grouped reply and follow-up work plus the current staged-draft state.
 - `personal-ops version`
   Shows the current product version and the official source-first upgrade path.
 - `personal-ops workflow now-next`
@@ -75,7 +77,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. It can also surface GitHub PR and review attention plus related Google Docs context when those optional integrations are configured, while still keeping higher-trust flows in the CLI.
+The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. Drafts is now the grouped inbox autopilot review workspace, where the assistant can stage reply and follow-up drafts, the operator can review them, and approval can be requested without dropping into the CLI for ordinary inbox prep. Higher-trust flows like send and approval decisions still stay gated in the CLI.
 
 Read next:
 

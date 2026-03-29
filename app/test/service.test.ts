@@ -13,7 +13,11 @@ import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, writeRestoreProvenance } from "../src/machine.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
-import { buildNowNextWorkflowReport, buildPrepDayWorkflowReport } from "../src/service/workflows.js";
+import {
+  buildFollowUpBlockWorkflowReport,
+  buildNowNextWorkflowReport,
+  buildPrepDayWorkflowReport,
+} from "../src/service/workflows.js";
 import { PersonalOpsService } from "../src/service.js";
 import {
   GoogleCalendarEventsPage,
@@ -403,6 +407,17 @@ function buildCalendarEventMetadata(
   };
 }
 
+function seedMailboxReadyState(service: PersonalOpsService, accountEmail: string, historyId = "ready-1"): void {
+  service.db.upsertMailSyncState(accountEmail, "gmail", {
+    status: "ready",
+    last_history_id: historyId,
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    last_sync_refreshed_count: 0,
+    last_sync_deleted_count: 0,
+  });
+}
+
 const cliIdentity: ClientIdentity = { client_id: "operator-cli", requested_by: "operator", auth_role: "operator" };
 const mcpIdentity: ClientIdentity = {
   client_id: "codex-mcp",
@@ -552,6 +567,184 @@ test("assistant queue runs safe snapshot actions and keeps review actions gated"
     () => service.runAssistantQueueAction(cliIdentity, "assistant.review-top-attention"),
     /requires operator review/i,
   );
+});
+
+test("assistant-led phase 2 inbox autopilot groups reply and follow-up work into bounded blocks", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "autopilot-groups");
+  const syncedAt = new Date().toISOString();
+  const now = Date.now();
+
+  for (let index = 0; index < 4; index += 1) {
+    service.db.upsertMailMessage(
+      accountEmail,
+      buildMessage(`reply-${index}`, accountEmail, {
+        thread_id: `thread-reply-${index}`,
+        history_id: `reply-h-${index}`,
+        internal_date: String(now - (index + 2) * 60 * 60 * 1000),
+        label_ids: ["INBOX", "UNREAD"],
+        from_header: `Reply ${index} <reply-${index}@example.com>`,
+        subject: `Need reply ${index}`,
+      }),
+      syncedAt,
+    );
+  }
+
+  for (let index = 0; index < 4; index += 1) {
+    service.db.upsertMailMessage(
+      accountEmail,
+      buildMessage(`followup-${index}`, accountEmail, {
+        thread_id: `thread-followup-${index}`,
+        history_id: `followup-h-${index}`,
+        internal_date: String(now - (96 + index) * 60 * 60 * 1000),
+        label_ids: ["SENT"],
+        from_header: `Machine <${accountEmail}>`,
+        to_header: `followup-${index}@example.com`,
+        subject: `Follow up ${index}`,
+      }),
+      syncedAt,
+    );
+  }
+
+  const report = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroups = report.groups.filter((group) => group.kind === "needs_reply");
+  const followupGroups = report.groups.filter((group) => group.kind === "waiting_to_nudge");
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+
+  assert.equal(replyGroups.length, 2);
+  assert.equal(followupGroups.length, 2);
+  assert.equal(report.groups.every((group) => group.threads.length <= 3), true);
+  assert.equal(new Set(report.groups.flatMap((group) => group.threads.map((thread) => thread.thread_id))).size, 8);
+  assert.equal(
+    queue.actions.some((action) => action.action_id.startsWith("assistant.prepare-reply-group:")),
+    true,
+  );
+  assert.equal(
+    queue.actions.some((action) => action.action_id.startsWith("assistant.prepare-followup-group:")),
+    true,
+  );
+});
+
+test("assistant-led phase 2 inbox autopilot reuses drafts and refreshes them after new inbound mail", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "autopilot-reuse");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("reply-source-1", accountEmail, {
+      thread_id: "thread-reply-refresh",
+      history_id: "reply-refresh-1",
+      internal_date: String(now - 2 * 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Initial reply needed",
+    }),
+    new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+  );
+
+  const initialReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const initialGroup = initialReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(initialGroup);
+
+  const firstPrepare = await service.prepareInboxAutopilotGroup(cliIdentity, initialGroup!.group_id);
+  assert.equal(firstPrepare.success, true);
+  assert.equal(firstPrepare.drafts.length, 1);
+  const firstDraft = firstPrepare.drafts[0]!;
+  assert.equal(firstDraft.assistant_generated, true);
+  assert.equal(firstDraft.assistant_source_thread_id, "thread-reply-refresh");
+  assert.equal(firstDraft.assistant_group_id, initialGroup!.group_id);
+
+  const secondPrepare = await service.prepareInboxAutopilotGroup(cliIdentity, initialGroup!.group_id);
+  assert.equal(secondPrepare.success, true);
+  assert.equal(secondPrepare.drafts[0]?.artifact_id, firstDraft.artifact_id);
+  assert.equal(service.db.listDraftArtifactsByAssistantSourceThread("thread-reply-refresh").length, 1);
+
+  const approval = service.requestApproval(cliIdentity, firstDraft.artifact_id, "Ready for approval");
+  assert.equal(approval.state, "pending");
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("reply-source-2", accountEmail, {
+      thread_id: "thread-reply-refresh",
+      history_id: "reply-refresh-2",
+      internal_date: String(now + 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Updated reply needed",
+    }),
+    new Date(now + 60 * 1000).toISOString(),
+  );
+
+  const refreshedReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const refreshedGroup = refreshedReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(refreshedGroup);
+  const refreshed = await service.prepareInboxAutopilotGroup(cliIdentity, refreshedGroup!.group_id);
+  const refreshedDraft = refreshed.drafts[0]!;
+
+  assert.equal(refreshedDraft.artifact_id, firstDraft.artifact_id);
+  assert.equal(refreshedDraft.subject, "Updated reply needed");
+  assert.equal(service.db.listDraftArtifactsByAssistantSourceThread("thread-reply-refresh").length, 1);
+  assert.equal(service.db.getApprovalRequest(approval.approval_id)?.state, "expired");
+  assert.equal(service.db.getDraftArtifact(firstDraft.artifact_id)?.review_state, "pending");
+});
+
+test("assistant-led phase 2 workflows prefer staged inbox autopilot work over raw thread inspection", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "autopilot-workflows");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("reply-workflow", accountEmail, {
+      thread_id: "thread-workflow-reply",
+      history_id: "workflow-reply-1",
+      internal_date: String(now - 90 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Workflow reply needed",
+    }),
+    new Date(now - 90 * 60 * 1000).toISOString(),
+  );
+
+  const report = await service.getInboxAutopilotReport({ httpReachable: true });
+  const group = report.groups[0];
+  assert.ok(group);
+  await service.prepareInboxAutopilotGroup(cliIdentity, group!.group_id);
+
+  const fakeService = {
+    getStatusReport: async () => ({
+      state: "ready",
+      mailbox: { connected: accountEmail, configured: accountEmail },
+    }),
+    getWorklistReport: async () => ({
+      generated_at: new Date().toISOString(),
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      items: [],
+    }),
+    listPlanningRecommendations: service.listPlanningRecommendations.bind(service),
+    listNeedsReplyThreads: service.listNeedsReplyThreads.bind(service),
+    listFollowupThreads: service.listFollowupThreads.bind(service),
+    listUpcomingCalendarEvents: service.listUpcomingCalendarEvents.bind(service),
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: service.getPlanningRecommendationDetail.bind(service),
+    getInboxAutopilotReport: service.getInboxAutopilotReport.bind(service),
+    getRelatedDocsForTarget: service.getRelatedDocsForTarget.bind(service),
+  };
+
+  const followUpBlock = await buildFollowUpBlockWorkflowReport(fakeService, { httpReachable: true });
+  const nowNext = await buildNowNextWorkflowReport(fakeService, { httpReachable: true });
+  const prepDay = await buildPrepDayWorkflowReport(fakeService, { httpReachable: true });
+
+  assert.equal(followUpBlock.sections[0]?.items[0]?.target_type, "inbox_autopilot_group");
+  assert.equal(nowNext.actions[0]?.target_type, "inbox_autopilot_group");
+  assert.equal(prepDay.actions[0]?.target_type, "inbox_autopilot_group");
 });
 
 test("approval request resolves review items and moves draft into approval pending", () => {
@@ -5981,9 +6174,10 @@ test("phase-5 follow-up workflow bundles needs-reply and stale follow-up pressur
   const waitingSection = report.sections.find((section) => section.title === "Waiting To Nudge");
 
   assert.equal(report.workflow, "follow-up-block");
-  assert.match(JSON.stringify(needsReplySection?.items ?? []), /Need an operator reply/);
-  assert.match(JSON.stringify(waitingSection?.items ?? []), /Checking back in|follow-up/i);
-  assert.ok(report.actions.some((action) => action.command.startsWith("personal-ops inbox thread ")));
+  assert.equal(needsReplySection?.items[0]?.target_type, "inbox_autopilot_group");
+  assert.match(JSON.stringify(needsReplySection?.items ?? []), /Prepare reply block|reply draft/i);
+  assert.match(JSON.stringify(waitingSection?.items ?? []), /Checking back in|follow-up|Prepare follow-up block/i);
+  assert.ok(report.actions.some((action) => action.target_type === "inbox_autopilot_group"));
 });
 
 test("phase-5 meeting workflow respects today vs next-24h scope", async () => {
@@ -7019,11 +7213,20 @@ test("phase-7 workflows rank github pull request work above governance noise in 
       ],
     }),
     listPlanningRecommendations: () => [],
+    getInboxAutopilotReport: async () => ({
+      generated_at: "2026-03-29T12:00:00.000Z",
+      readiness: "ready",
+      summary: "No inbox autopilot groups are active.",
+      top_item_summary: null,
+      prepared_draft_count: 0,
+      groups: [],
+    }),
     listNeedsReplyThreads: () => [],
     listFollowupThreads: () => [],
     listUpcomingCalendarEvents: () => [],
     compareNextActionableRecommendations: () => 0,
     getPlanningRecommendationDetail: () => null,
+    getRelatedDocsForTarget: () => [],
   };
 
   const nowNext = await buildNowNextWorkflowReport(fakeService, { httpReachable: true });

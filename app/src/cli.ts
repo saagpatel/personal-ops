@@ -40,6 +40,7 @@ import {
   formatDoctorReport,
   formatInstallCheckReport,
   formatInstallManifest,
+  formatInboxAutopilot,
   formatInboxStatus,
   formatInboxThreadDetail,
   formatInboxThreads,
@@ -287,6 +288,14 @@ inbox
     }
     const response = await requestJson<{ inbox: unknown }>("POST", "/v1/inbox/sync");
     printOutput(response, (value) => formatInboxStatus(value.inbox), options.json);
+  });
+
+inbox
+  .command("autopilot")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const response = await requestJson<{ inbox_autopilot: unknown }>("GET", "/v1/inbox/autopilot");
+    printOutput(response, (value) => formatInboxAutopilot(value.inbox_autopilot), options.json);
   });
 
 inbox

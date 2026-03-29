@@ -12,7 +12,7 @@ import { PersonalOpsDb } from "../src/db.js";
 import { createHttpServer } from "../src/http.js";
 import { Logger } from "../src/logger.js";
 import { PersonalOpsService } from "../src/service.js";
-import type { ClientIdentity, Config, Paths } from "../src/types.js";
+import type { ClientIdentity, Config, GmailClientConfig, GmailMessageMetadata, Paths } from "../src/types.js";
 
 const TEST_IDENTITY: ClientIdentity = {
   client_id: "console-test",
@@ -62,7 +62,7 @@ async function reservePort(): Promise<number> {
   return port;
 }
 
-function writeConfig(paths: Paths, port: number): void {
+function writeConfig(paths: Paths, port: number, mailbox = ""): void {
   fs.writeFileSync(
     paths.configFile,
     `[service]
@@ -73,7 +73,7 @@ port = ${port}
 allowed_origins = []
 
 [gmail]
-account_email = ""
+account_email = "${mailbox}"
 review_url = "https://mail.google.com/mail/u/0/#drafts"
 
 [calendar]
@@ -97,7 +97,20 @@ oauth_client_file = "${paths.oauthClientFile}"
   );
 }
 
-async function createConsoleFixture() {
+function buildMessage(messageId: string, accountEmail: string, overrides: Partial<GmailMessageMetadata> = {}): GmailMessageMetadata {
+  return {
+    message_id: messageId,
+    thread_id: overrides.thread_id ?? `thread-${messageId}`,
+    history_id: overrides.history_id ?? "2001",
+    internal_date: overrides.internal_date ?? String(Date.now()),
+    label_ids: overrides.label_ids ?? ["INBOX"],
+    from_header: overrides.from_header ?? "Sender <sender@example.com>",
+    to_header: overrides.to_header ?? accountEmail,
+    subject: overrides.subject ?? `Subject ${messageId}`,
+  };
+}
+
+async function createConsoleFixture(options: { mailbox?: string } = {}) {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-console-test-"));
   const homeDir = path.join(baseDir, "home");
   fs.mkdirSync(homeDir, { recursive: true });
@@ -111,11 +124,28 @@ async function createConsoleFixture() {
   });
   const paths = withRuntimeEnv(env, () => ensureRuntimeFiles());
   const port = await reservePort();
-  writeConfig(paths, port);
+  const mailbox = options.mailbox ?? "";
+  writeConfig(paths, port, mailbox);
   const config = withRuntimeEnv(env, () => loadConfig(paths));
   const policy = withRuntimeEnv(env, () => loadPolicy(paths));
   const logger = new Logger(paths);
-  const service = new PersonalOpsService(paths, config, policy, logger);
+  const clientConfig: GmailClientConfig = {
+    client_id: "client-id",
+    client_secret: "client-secret",
+    auth_uri: "https://accounts.google.com/o/oauth2/auth",
+    token_uri: "https://oauth2.googleapis.com/token",
+    redirect_uris: ["http://127.0.0.1"],
+  };
+  const service = new PersonalOpsService(paths, config, policy, logger, {
+    loadStoredGmailTokens: async () => ({
+      email: mailbox,
+      clientConfig,
+      tokensJson: JSON.stringify({ refresh_token: "refresh-token" }),
+    }),
+    createGmailDraft: async () => "provider-draft-1",
+    updateGmailDraft: async () => "provider-draft-1",
+    openExternalUrl: () => {},
+  });
   const server = createHttpServer(service, config, policy);
   await new Promise<void>((resolve) => server.listen(config.servicePort, config.serviceHost, () => resolve()));
   return {
@@ -125,6 +155,36 @@ async function createConsoleFixture() {
     service,
     server,
   };
+}
+
+function seedInboxAutopilotFixture(paths: Paths, mailbox: string): void {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    db.upsertMailAccount(mailbox, "personal-ops.gmail.console-test", JSON.stringify({ emailAddress: mailbox }));
+    db.upsertMailSyncState(mailbox, "gmail", {
+      status: "ready",
+      last_history_id: "console-autopilot",
+      last_synced_at: new Date().toISOString(),
+      last_seeded_at: new Date().toISOString(),
+      last_sync_refreshed_count: 1,
+      last_sync_deleted_count: 0,
+    });
+    const now = Date.now();
+    db.upsertMailMessage(
+      mailbox,
+      buildMessage("reply-console", mailbox, {
+        thread_id: "thread-console-reply",
+        history_id: "reply-console-1",
+        internal_date: String(now - 2 * 60 * 60 * 1000),
+        label_ids: ["INBOX", "UNREAD"],
+        from_header: "Client <client@example.com>",
+        subject: "Console reply needed",
+      }),
+      new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+    );
+  } finally {
+    db.close();
+  }
 }
 
 function seedPlanningFixture(paths: Paths): { recommendationId: string } {
@@ -325,6 +385,118 @@ test("assistant-led Phase 1 console sessions can read the assistant queue and ru
     assert.equal(reviewRunResponse.status, 400);
     const reviewRunPayload = (await reviewRunResponse.json()) as { error?: string };
     assert.match(reviewRunPayload.error ?? "", /requires operator review/i);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("assistant-led Phase 2 console sessions can prepare inbox autopilot drafts, review them, and request approval", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const autopilotResponse = await fetch(`${baseUrl}/v1/inbox/autopilot`, {
+      headers: { cookie },
+    });
+    assert.equal(autopilotResponse.status, 200);
+    const autopilotPayload = (await autopilotResponse.json()) as {
+      inbox_autopilot: { groups: Array<{ group_id: string; kind: string }> };
+    };
+    assert.equal(autopilotPayload.inbox_autopilot.groups.length > 0, true);
+    const groupId = autopilotPayload.inbox_autopilot.groups[0]?.group_id;
+    assert.ok(groupId);
+
+    const prepareResponse = await fetch(
+      `${baseUrl}/v1/inbox/autopilot/groups/${encodeURIComponent(groupId)}/prepare`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(prepareResponse.status, 200);
+    const preparePayload = (await prepareResponse.json()) as {
+      inbox_autopilot_group: { drafts: Array<{ artifact_id: string; review_state: string }> };
+    };
+    const draftId = preparePayload.inbox_autopilot_group.drafts[0]?.artifact_id;
+    assert.ok(draftId);
+
+    const draftsResponse = await fetch(`${baseUrl}/v1/mail/drafts`, {
+      headers: { cookie },
+    });
+    const draftsPayload = (await draftsResponse.json()) as { drafts: Array<{ artifact_id: string }> };
+    assert.equal(draftsPayload.drafts.some((draft) => draft.artifact_id === draftId), true);
+
+    const reviewsResponse = await fetch(`${baseUrl}/v1/review-queue`, {
+      headers: { cookie },
+    });
+    assert.equal(reviewsResponse.status, 200);
+    const reviewsPayload = (await reviewsResponse.json()) as {
+      review_items: Array<{ review_id: string; artifact_id: string; state: string }>;
+    };
+    const reviewId = reviewsPayload.review_items.find((review) => review.artifact_id === draftId)?.review_id;
+    assert.ok(reviewId);
+
+    const openResponse = await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/open`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(openResponse.status, 200);
+
+    const resolveResponse = await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/resolve`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "Reviewed in console test" }),
+    });
+    assert.equal(resolveResponse.status, 200);
+
+    const approvalResponse = await fetch(`${baseUrl}/v1/mail/drafts/${encodeURIComponent(draftId!)}/request-approval`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "Ready for approval" }),
+    });
+    assert.equal(approvalResponse.status, 200);
+    const approvalPayload = (await approvalResponse.json()) as {
+      approval_request: { artifact_id: string; state: string };
+    };
+    assert.equal(approvalPayload.approval_request.artifact_id, draftId);
+    assert.equal(approvalPayload.approval_request.state, "pending");
+
+    const sendResponse = await fetch(`${baseUrl}/v1/approval-queue/test-approval/send`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "still blocked" }),
+    });
+    assert.equal(sendResponse.status, 403);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

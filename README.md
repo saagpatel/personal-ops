@@ -15,6 +15,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - assistant-safe audit history
 - shared status and worklist views for humans and assistants
 - a local operator console with narrow browser-safe actions
+- grouped inbox autopilot that prepares reply and follow-up drafts for review
 - machine-aware backups and restore guardrails
 
 In practice, that means it can:
@@ -78,6 +79,7 @@ Today, the repo includes:
 - local install commands for wrappers, LaunchAgent setup, and install checks
 - CLI, local HTTP API, and MCP bridge access
 - a local operator console opened with `personal-ops console`
+- `personal-ops inbox autopilot` for grouped inbox draft preparation and review handoff
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

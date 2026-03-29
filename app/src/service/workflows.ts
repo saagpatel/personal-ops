@@ -1,6 +1,8 @@
 import type {
   AttentionItem,
   CalendarEvent,
+  InboxAutopilotGroup,
+  InboxAutopilotReport,
   InboxThreadSummary,
   PlanningRecommendationDetail,
   ServiceState,
@@ -27,6 +29,7 @@ interface WorkflowContext {
   status: any;
   worklist: WorklistReport;
   recommendationDetails: PlanningRecommendationDetail[];
+  inboxAutopilot: InboxAutopilotReport;
   needsReplyThreads: InboxThreadSummary[];
   staleFollowupThreads: InboxThreadSummary[];
   upcomingEvents: CalendarEvent[];
@@ -510,6 +513,33 @@ function threadCandidate(summary: InboxThreadSummary): WorkflowCandidate {
   };
 }
 
+function autopilotGroupCandidate(group: InboxAutopilotGroup): WorkflowCandidate {
+  const replyGroup = group.kind === "needs_reply";
+  const staged = group.state === "awaiting_review";
+  let score = replyGroup ? 710 : 620;
+  if (staged) {
+    score += 60;
+  }
+  return {
+    label: staged
+      ? replyGroup
+        ? "Review prepared reply block"
+        : "Review prepared follow-up block"
+      : replyGroup
+        ? "Prepare reply block"
+        : "Prepare follow-up block",
+    summary: group.summary,
+    command: staged ? "personal-ops mail draft list" : "personal-ops inbox autopilot",
+    target_type: "inbox_autopilot_group",
+    target_id: group.group_id,
+    why_now: group.why_now,
+    signals: group.signals,
+    score,
+    category: "followup",
+    source_key: `autopilot:${group.group_id}`,
+  };
+}
+
 function eventCandidate(event: CalendarEvent): WorkflowCandidate | null {
   const hoursUntilEvent = maybeHoursUntil(event.start_at);
   if (hoursUntilEvent === null || hoursUntilEvent > 6 || hoursUntilEvent <= 0) {
@@ -571,10 +601,11 @@ function attachRelatedDocs(
 }
 
 async function loadWorkflowContext(service: any, options: { httpReachable: boolean }): Promise<WorkflowContext> {
-  const [status, worklist, recommendations, needsReplyThreads, staleFollowupThreads, upcomingEvents] = await Promise.all([
+  const [status, worklist, recommendations, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents] = await Promise.all([
     service.getStatusReport(options),
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
+    service.getInboxAutopilotReport(options),
     Promise.resolve(service.listNeedsReplyThreads(10)),
     Promise.resolve(service.listFollowupThreads(10)),
     Promise.resolve(service.listUpcomingCalendarEvents(1, 20)),
@@ -589,6 +620,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     status,
     worklist,
     recommendationDetails,
+    inboxAutopilot,
     needsReplyThreads,
     staleFollowupThreads,
     upcomingEvents,
@@ -598,6 +630,9 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
 function buildIntelligenceCandidates(service: any, context: WorkflowContext): WorkflowCandidate[] {
   const candidates: WorkflowCandidate[] = [];
   const recommendationSourceKeys = new Set<string>();
+  const autopilotThreadKeys = new Set(
+    context.inboxAutopilot.groups.flatMap((group) => group.threads.map((thread) => `thread:${thread.thread_id}`)),
+  );
 
   for (const detail of context.recommendationDetails) {
     const candidate = attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: true });
@@ -616,9 +651,13 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     pushUniqueCandidate(candidates, attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true }));
   }
 
+  for (const group of context.inboxAutopilot.groups) {
+    pushUniqueCandidate(candidates, autopilotGroupCandidate(group));
+  }
+
   for (const thread of context.needsReplyThreads) {
     const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
-    if (recommendationSourceKeys.has(candidate.source_key)) {
+    if (recommendationSourceKeys.has(candidate.source_key) || autopilotThreadKeys.has(candidate.source_key)) {
       continue;
     }
     pushUniqueCandidate(candidates, candidate);
@@ -626,7 +665,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
 
   for (const thread of context.staleFollowupThreads) {
     const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
-    if (recommendationSourceKeys.has(candidate.source_key)) {
+    if (recommendationSourceKeys.has(candidate.source_key) || autopilotThreadKeys.has(candidate.source_key)) {
       continue;
     }
     pushUniqueCandidate(candidates, candidate);
@@ -794,44 +833,56 @@ export async function buildFollowUpBlockWorkflowReport(
   options: { httpReachable: boolean },
 ): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
-  const needsReplyKeys = new Set(context.needsReplyThreads.map((thread) => `thread:${thread.thread.thread_id}`));
-  const staleFollowupKeys = new Set(context.staleFollowupThreads.map((thread) => `thread:${thread.thread.thread_id}`));
+  const needsReplyGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "needs_reply");
+  const staleFollowupGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "waiting_to_nudge");
   const recommendationSourceKeys = new Set(
     context.recommendationDetails
       .filter((detail) => detail.recommendation.kind === "schedule_thread_followup")
       .map((detail) => `thread:${detail.recommendation.source_thread_id}`),
   );
   const candidates = dedupeAndSortCandidates([
+    ...context.inboxAutopilot.groups.map((group) => autopilotGroupCandidate(group)),
     ...context.recommendationDetails
       .filter((detail) => detail.recommendation.kind === "schedule_thread_followup")
       .map((detail) => attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: false })),
     ...context.needsReplyThreads
       .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
-      .filter((candidate) => !recommendationSourceKeys.has(candidate.source_key)),
+      .filter(
+        (candidate) =>
+          !recommendationSourceKeys.has(candidate.source_key) &&
+          !needsReplyGroups.some((group) => group.threads.some((thread) => `thread:${thread.thread_id}` === candidate.source_key)),
+      ),
     ...context.staleFollowupThreads
       .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
-      .filter((candidate) => !recommendationSourceKeys.has(candidate.source_key)),
+      .filter(
+        (candidate) =>
+          !recommendationSourceKeys.has(candidate.source_key) &&
+          !staleFollowupGroups.some((group) => group.threads.some((thread) => `thread:${thread.thread_id}` === candidate.source_key)),
+      ),
     ...context.worklist.items
       .filter((item) => ["task_overdue", "task_due_soon", "task_reminder_due"].includes(item.kind))
       .map((item) => attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true })),
   ]);
   const topScore = candidates[0]?.score ?? 0;
-  const needsReplyItems = candidates
-    .filter((candidate) => candidate.category === "followup" && needsReplyKeys.has(candidate.source_key))
+  const needsReplyItems = [
+    ...needsReplyGroups.map((group) => toBundleItem(autopilotGroupCandidate(group), topScore)),
+    ...candidates
+      .filter((candidate) => candidate.category === "followup" && candidate.source_key.startsWith("thread:"))
+      .slice(0, MAX_SECTION_ITEMS),
+  ]
     .slice(0, MAX_SECTION_ITEMS)
-    .map((candidate) => toBundleItem(candidate, topScore));
-  const waitingToNudgeItems = candidates
-    .filter(
-      (candidate) =>
-        (candidate.category === "followup" && staleFollowupKeys.has(candidate.source_key)) || candidate.category === "task",
-    )
+    .map((item) => ("label" in item && "summary" in item && "command" in item ? item : toBundleItem(item as WorkflowCandidate, topScore)));
+  const waitingToNudgeItems = [
+    ...staleFollowupGroups.map((group) => toBundleItem(autopilotGroupCandidate(group), topScore)),
+    ...candidates.filter((candidate) => candidate.category === "task").slice(0, MAX_SECTION_ITEMS),
+  ]
     .slice(0, MAX_SECTION_ITEMS)
-    .map((candidate) => toBundleItem(candidate, topScore));
+    .map((item) => ("label" in item && "summary" in item && "command" in item ? item : toBundleItem(item as WorkflowCandidate, topScore)));
 
   return buildWorkflowReport({
     workflow: "follow-up-block",
     readiness: context.status.state,
-    summary: `Follow-up block: ${context.needsReplyThreads.length} threads may need reply, ${context.staleFollowupThreads.length} stale follow-ups are waiting, and ${context.recommendationDetails.filter((detail) => detail.recommendation.kind === "schedule_thread_followup").length} follow-up recommendations are open.`,
+    summary: `Follow-up block: ${needsReplyGroups.length} reply block${needsReplyGroups.length === 1 ? "" : "s"} and ${staleFollowupGroups.length} follow-up block${staleFollowupGroups.length === 1 ? "" : "s"} are staged or ready to prepare.`,
     sections: [
       {
         title: "Needs Reply",

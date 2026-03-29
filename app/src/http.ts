@@ -674,6 +674,26 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/inbox/autopilot") {
+        sendJson(response, 200, {
+          inbox_autopilot: await service.getInboxAutopilotReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/inbox/autopilot/groups/") && url.pathname.endsWith("/prepare")) {
+        const groupId = decodeURIComponent(url.pathname.slice("/v1/inbox/autopilot/groups/".length, -"/prepare".length));
+        if (groupId && !groupId.includes("/")) {
+          sendJson(response, 200, {
+            inbox_autopilot_group: await service.prepareInboxAutopilotGroup(
+              extractIdentity(request, auth?.role ?? "operator"),
+              groupId,
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/inbox/unread") {
         sendJson(response, 200, {
           threads: service.listUnreadInboxThreads(parseLimit(url.searchParams.get("limit"))),

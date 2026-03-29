@@ -29,15 +29,15 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 
 | Phase | Title | Goal | Status |
 | --- | --- | --- | --- |
-| 1 | Assistant Action Queue and Console-First Workflow Execution | Make the console the main working surface with a first-class assistant queue and safe one-click actions | In progress |
-| 2 | Inbox and Follow-Up Autopilot | Reduce reply and follow-up labor through assistant-prepared drafts, grouped thread handling, and queue shaping | Planned |
+| 1 | Assistant Action Queue and Console-First Workflow Execution | Make the console the main working surface with a first-class assistant queue and safe one-click actions | Complete |
+| 2 | Inbox and Follow-Up Autopilot | Reduce reply and follow-up labor through assistant-prepared drafts, grouped thread handling, and queue shaping | Complete |
 | 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Planned |
 | 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Planned |
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Planned |
 
 ## Phase 1
 
-Phase 1 is now the active implementation track.
+Phase 1 is complete and remains the baseline layer for the rest of the initiative.
 
 ### Goal
 
@@ -79,14 +79,16 @@ The operator opens the console and sees:
 
 ## Phase 2
 
-This phase should make message handling the first place where the operator feels real labor reduction.
+Phase 2 is now complete.
 
-Expected direction:
+Delivered shape:
 
-- grouped reply and follow-up work
-- assistant-prepared draft suggestions
-- better queue shaping around stale threads and urgent replies
-- stronger console-first handling for inbox work while keeping send review-gated
+- grouped reply and follow-up blocks
+- assistant-prepared draft staging with provenance reuse
+- grouped draft review in the console
+- browser-safe review handling plus approval request handoff
+- workflow bundles that prefer staged inbox work over raw thread inspection
+- send and approval decisions still review-gated outside browser execution
 
 ## Phase 3
 
@@ -124,7 +126,7 @@ Expected direction:
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phase 1 is the only phase being implemented right now
+- Phases 1 and 2 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

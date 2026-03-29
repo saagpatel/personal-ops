@@ -63,7 +63,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -332,7 +332,18 @@ export class PersonalOpsDb {
     };
   }
 
-  createDraftArtifact(identity: ClientIdentity, mailbox: string, providerDraftId: string, input: DraftInput): DraftArtifact {
+  createDraftArtifact(
+    identity: ClientIdentity,
+    mailbox: string,
+    providerDraftId: string,
+    input: DraftInput,
+    assistantMetadata: {
+      assistant_generated?: boolean;
+      assistant_source_thread_id?: string;
+      assistant_group_id?: string;
+      assistant_why_now?: string;
+    } = {},
+  ): DraftArtifact {
     const now = nowIso();
     const artifactId = randomUUID();
     this.db
@@ -340,9 +351,10 @@ export class PersonalOpsDb {
         `INSERT INTO draft_artifacts (
           artifact_id, provider, provider_draft_id, mailbox, to_json, cc_json, bcc_json, subject,
           body_text, body_html, status, review_state, created_by_client, created_at, updated_at,
-          provider_message_id, provider_thread_id, approved_at, approved_by_client, sent_at, sent_by_client,
+          provider_message_id, provider_thread_id, assistant_generated, assistant_source_thread_id, assistant_group_id, assistant_why_now,
+          approved_at, approved_by_client, sent_at, sent_by_client,
           send_attempt_count, last_send_attempt_at, last_send_error_code, last_send_error_message
-        ) VALUES (?, 'gmail', ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'pending', ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL)`,
+        ) VALUES (?, 'gmail', ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'pending', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL)`,
       )
       .run(
         artifactId,
@@ -357,16 +369,31 @@ export class PersonalOpsDb {
         identity.client_id,
         now,
         now,
+        assistantMetadata.assistant_generated ? 1 : 0,
+        assistantMetadata.assistant_source_thread_id ?? null,
+        assistantMetadata.assistant_group_id ?? null,
+        assistantMetadata.assistant_why_now ?? null,
       );
     return this.getDraftArtifact(artifactId)!;
   }
 
-  updateDraftArtifact(artifactId: string, input: DraftInput): DraftArtifact | null {
+  updateDraftArtifact(
+    artifactId: string,
+    input: DraftInput,
+    assistantMetadata: {
+      assistant_generated?: boolean;
+      assistant_source_thread_id?: string | null;
+      assistant_group_id?: string | null;
+      assistant_why_now?: string | null;
+    } = {},
+  ): DraftArtifact | null {
     const now = nowIso();
     this.db
       .prepare(
         `UPDATE draft_artifacts
-         SET to_json = ?, cc_json = ?, bcc_json = ?, subject = ?, body_text = ?, body_html = ?, updated_at = ?
+         SET to_json = ?, cc_json = ?, bcc_json = ?, subject = ?, body_text = ?, body_html = ?,
+             assistant_generated = ?, assistant_source_thread_id = ?, assistant_group_id = ?, assistant_why_now = ?,
+             updated_at = ?
          WHERE artifact_id = ?`,
       )
       .run(
@@ -376,6 +403,10 @@ export class PersonalOpsDb {
         input.subject,
         input.body_text ?? null,
         input.body_html ?? null,
+        assistantMetadata.assistant_generated ? 1 : 0,
+        assistantMetadata.assistant_source_thread_id ?? null,
+        assistantMetadata.assistant_group_id ?? null,
+        assistantMetadata.assistant_why_now ?? null,
         now,
         artifactId,
       );
@@ -396,6 +427,20 @@ export class PersonalOpsDb {
 
   listDraftArtifacts(): DraftArtifact[] {
     const rows = this.db.prepare(`SELECT * FROM draft_artifacts ORDER BY updated_at DESC`).all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapDraft(row));
+  }
+
+  listDraftArtifactsByAssistantSourceThread(threadId: string): DraftArtifact[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM draft_artifacts WHERE assistant_source_thread_id = ? ORDER BY updated_at DESC`)
+      .all(threadId) as Record<string, unknown>[];
+    return rows.map((row) => this.mapDraft(row));
+  }
+
+  listDraftArtifactsByAssistantGroup(groupId: string): DraftArtifact[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM draft_artifacts WHERE assistant_group_id = ? ORDER BY updated_at DESC`)
+      .all(groupId) as Record<string, unknown>[];
     return rows.map((row) => this.mapDraft(row));
   }
 
@@ -488,6 +533,21 @@ export class PersonalOpsDb {
       )
       .all() as Record<string, unknown>[];
     return rows.map((row) => this.mapReview(row));
+  }
+
+  getLatestReviewItemForArtifact(artifactId: string): ReviewItem | null {
+    const row = this.db
+      .prepare(
+        `SELECT review_items.review_id, review_items.artifact_id, review_items.kind, review_items.state, review_items.created_at,
+                review_items.opened_at, review_items.resolved_at, draft_artifacts.subject
+         FROM review_items
+         JOIN draft_artifacts ON draft_artifacts.artifact_id = review_items.artifact_id
+         WHERE review_items.artifact_id = ?
+         ORDER BY review_items.created_at DESC
+         LIMIT 1`,
+      )
+      .get(artifactId) as Record<string, unknown> | undefined;
+    return row ? this.mapReview(row) : null;
   }
 
   markReviewOpened(reviewId: string): ReviewItem | null {
@@ -2554,6 +2614,10 @@ export class PersonalOpsDb {
         provider_draft_id TEXT NOT NULL UNIQUE,
         provider_message_id TEXT,
         provider_thread_id TEXT,
+        assistant_generated INTEGER NOT NULL DEFAULT 0,
+        assistant_source_thread_id TEXT,
+        assistant_group_id TEXT,
+        assistant_why_now TEXT,
         mailbox TEXT NOT NULL,
         to_json TEXT NOT NULL,
         cc_json TEXT NOT NULL,
@@ -3125,6 +3189,10 @@ export class PersonalOpsDb {
       } else if (version === 15) {
         this.migrateToV16();
         version = 16;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 16) {
+        this.migrateToV17();
+        version = 17;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -3757,6 +3825,13 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV17() {
+    this.addColumnIfMissing("draft_artifacts", "assistant_generated", `INTEGER NOT NULL DEFAULT 0`);
+    this.addColumnIfMissing("draft_artifacts", "assistant_source_thread_id", `TEXT`);
+    this.addColumnIfMissing("draft_artifacts", "assistant_group_id", `TEXT`);
+    this.addColumnIfMissing("draft_artifacts", "assistant_why_now", `TEXT`);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -3905,6 +3980,10 @@ export class PersonalOpsDb {
       provider_draft_id: String(row.provider_draft_id),
       provider_message_id: row.provider_message_id ? String(row.provider_message_id) : undefined,
       provider_thread_id: row.provider_thread_id ? String(row.provider_thread_id) : undefined,
+      assistant_generated: Boolean(row.assistant_generated),
+      assistant_source_thread_id: row.assistant_source_thread_id ? String(row.assistant_source_thread_id) : undefined,
+      assistant_group_id: row.assistant_group_id ? String(row.assistant_group_id) : undefined,
+      assistant_why_now: row.assistant_why_now ? String(row.assistant_why_now) : undefined,
       mailbox: String(row.mailbox),
       to: fromJsonArray(String(row.to_json)),
       cc: fromJsonArray(String(row.cc_json)),

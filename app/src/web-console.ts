@@ -80,6 +80,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/status" ||
       pathname === "/v1/worklist" ||
       pathname === "/v1/assistant/actions" ||
+      pathname === "/v1/inbox/autopilot" ||
       pathname === "/v1/workflows/now-next" ||
       pathname === "/v1/workflows/prep-day" ||
       pathname === "/v1/workflows/follow-up-block" ||
@@ -92,6 +93,9 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/approval-queue" ||
       pathname.startsWith("/v1/approval-queue/") ||
       pathname === "/v1/mail/drafts" ||
+      pathname === "/v1/review-queue" ||
+      pathname === "/v1/review-queue/pending" ||
+      pathname.startsWith("/v1/review-queue/") ||
       pathname === "/v1/planning-recommendations/summary" ||
       pathname === "/v1/planning-recommendations/next" ||
       pathname.startsWith("/v1/planning-recommendations/") ||
@@ -108,7 +112,13 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
   if (method === "POST") {
     return (
       /^\/v1\/assistant\/actions\/[^/]+\/run$/.test(pathname) ||
+      /^\/v1\/inbox\/autopilot\/groups\/[^/]+\/prepare$/.test(pathname) ||
       pathname === "/v1/snapshots" ||
+      pathname === "/v1/mail/drafts" ||
+      /^\/v1\/mail\/drafts\/[^/]+$/.test(pathname) ||
+      /^\/v1\/mail\/drafts\/[^/]+\/request-approval$/.test(pathname) ||
+      /^\/v1\/review-queue\/[^/]+\/open$/.test(pathname) ||
+      /^\/v1\/review-queue\/[^/]+\/resolve$/.test(pathname) ||
       (/^\/v1\/planning-recommendations\/[^/]+\/(apply|snooze|reject)$/.test(pathname) &&
         !pathname.includes("/hygiene/") &&
         !pathname.includes("/policy/")) ||
