@@ -57,7 +57,7 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
 
   const backup = program
     .command("backup")
-    .description("Create, inspect, and restore same-machine recovery snapshots.");
+    .description("Create, inspect, and restore recovery snapshots with explicit cross-machine guardrails.");
   backup
     .command("create")
     .option("--json", "Print raw JSON")
@@ -89,12 +89,14 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .requiredOption("--yes", "Confirm the restore")
     .option("--with-config", "Restore config.toml from the snapshot")
     .option("--with-policy", "Restore policy.toml from the snapshot")
+    .option("--allow-cross-machine", "Allow restoring a snapshot created on a different machine")
     .option("--json", "Print raw JSON")
     .action(async (snapshotId, options) => {
       const result = await restoreSnapshot(paths, snapshotId, {
         confirm: Boolean(options.yes),
         withConfig: Boolean(options.withConfig),
         withPolicy: Boolean(options.withPolicy),
+        allowCrossMachine: Boolean(options.allowCrossMachine),
       });
       context.printOutput({ restore: result }, (value) => formatRestoreResult(value.restore), options.json);
     });

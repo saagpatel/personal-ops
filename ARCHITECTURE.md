@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-This document describes the current `personal-ops` system shape after Phases 1 to 4.
+This document describes the current `personal-ops` system shape after Phases 1 to 7.
 
 ## Purpose
 
@@ -12,6 +12,7 @@ The trust model is intentional:
 
 - assistants are clients of `personal-ops`
 - the operator stays in charge of risky or externally mutating flows
+- one primary machine owns the active local state
 
 ## Runtime components
 
@@ -56,8 +57,17 @@ Important runtime artifacts:
 - OAuth client JSON
 - local API token files
 - SQLite database
+- machine identity metadata
+- restore provenance metadata
 - generated install manifest
 - recovery snapshots
+
+Machine model:
+
+- the local machine owns the active state by default
+- backups are the supported recovery and intentional migration mechanism
+- restore replaces local state; it does not merge state
+- no live sync or multi-writer model is supported
 
 ## Interface surfaces
 
@@ -155,6 +165,8 @@ Use these rules for future changes:
   update `START-HERE.md`, `QUICK-GUIDE.md`, `OPERATIONS.md`, and `ARCHITECTURE.md`
 - operational install, auth, bootstrap, restore, and troubleshooting changes
   update `OPERATIONS.md` first, then supporting setup docs if needed
+- machine ownership and backup portability rules
+  update `OPERATIONS.md`, `ARCHITECTURE.md`, and the active phase docs together
 - trust model or client contract changes
   update `CLIENTS.md` and the relevant rollout docs
 - architecture or subsystem shape changes

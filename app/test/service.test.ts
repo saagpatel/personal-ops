@@ -10,6 +10,7 @@ import {
 } from "../src/formatters.js";
 import { createHttpServer } from "../src/http.js";
 import { Logger } from "../src/logger.js";
+import { ensureMachineIdentity, writeRestoreProvenance } from "../src/machine.js";
 import { resolvePaths } from "../src/paths.js";
 import { PersonalOpsService } from "../src/service.js";
 import {
@@ -846,6 +847,30 @@ test("task and suggestion lists default to active items and support pruning hist
   assert.equal(suggestionPrune.removed_count, 2);
   assert.equal(service.db.getTask(done.task_id), null);
   assert.equal(service.db.getTaskSuggestion(acceptedSuggestion.suggestion_id), null);
+});
+
+test("Phase 7 status and doctor surface cross-machine restore provenance", async () => {
+  const { service, paths } = createFixture();
+  const machine = ensureMachineIdentity(paths);
+  writeRestoreProvenance(paths, {
+    restored_at: "2026-03-29T08:10:00.000Z",
+    restored_snapshot_id: "snapshot-cross-machine",
+    local_machine_id: machine.machine_id,
+    local_machine_label: machine.machine_label,
+    source_machine_id: "remote-machine",
+    source_machine_label: "remote-machine",
+    source_hostname: "remote-host",
+    cross_machine: true,
+    snapshot_created_at: "2026-03-29T08:00:00.000Z",
+  });
+
+  const status = await service.getStatusReport({ httpReachable: true });
+  assert.equal(status.machine.machine_id, machine.machine_id);
+  assert.equal(status.machine.state_origin, "restored_cross_machine");
+  assert.equal(status.machine.last_restore?.source_machine_label, "remote-machine");
+
+  const doctor = await service.runDoctor({ deep: false, httpReachable: true });
+  assert.equal(doctor.checks.some((check) => check.id === "state_origin_safe" && check.severity === "warn"), true);
 });
 
 test("inbox thread detail and status expose derived mailbox state", async () => {

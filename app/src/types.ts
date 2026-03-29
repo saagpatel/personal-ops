@@ -7,6 +7,8 @@ export interface Paths {
   logDir: string;
   appDir: string;
   snapshotsDir: string;
+  machineIdentityFile: string;
+  restoreProvenanceFile: string;
   configFile: string;
   policyFile: string;
   oauthClientFile: string;
@@ -1111,6 +1113,35 @@ export interface InboxStatusReport {
 export type ServiceState = "ready" | "setup_required" | "degraded";
 export type DoctorCheckSeverity = "pass" | "warn" | "fail";
 export type AssistantKind = "codex" | "claude";
+export type RestoreMode = "same_machine" | "cross_machine" | "legacy_unknown";
+export type MachineStateOrigin =
+  | "native"
+  | "restored_same_machine"
+  | "restored_cross_machine"
+  | "unknown_legacy_restore";
+
+export interface MachineDescriptor {
+  machine_id: string;
+  machine_label: string;
+  hostname: string;
+}
+
+export interface MachineIdentity extends MachineDescriptor {
+  initialized_at: string;
+  app_dir: string;
+}
+
+export interface RestoreProvenance {
+  restored_at: string;
+  restored_snapshot_id: string;
+  local_machine_id: string;
+  local_machine_label: string;
+  source_machine_id: string | null;
+  source_machine_label: string | null;
+  source_hostname: string | null;
+  cross_machine: boolean;
+  snapshot_created_at: string;
+}
 
 export interface DoctorCheck {
   id: string;
@@ -1131,6 +1162,8 @@ export interface InstallManifest {
   generated_at: string;
   node_executable: string;
   app_dir: string;
+  machine_id: string;
+  machine_label: string;
   launch_agent_label: string;
   launch_agent_plist_path: string;
   assistant_wrappers: AssistantKind[];
@@ -1162,6 +1195,11 @@ export interface RestoreResult {
   restored_policy: boolean;
   launch_agent_was_running: boolean;
   launch_agent_restarted: boolean;
+  restore_mode: RestoreMode;
+  cross_machine: boolean;
+  source_machine: MachineDescriptor | null;
+  local_machine: MachineDescriptor;
+  provenance_warning: string | null;
 }
 
 export interface ServiceStatusReport {
@@ -1186,6 +1224,14 @@ export interface ServiceStatusReport {
     exists: boolean;
     loaded: boolean;
     label: string;
+  };
+  machine: {
+    machine_id: string | null;
+    machine_label: string | null;
+    hostname: string | null;
+    state_origin: MachineStateOrigin;
+    last_restore: RestoreProvenance | null;
+    last_snapshot_source_machine: MachineDescriptor | null;
   };
   schema: {
     current_version: number;
@@ -1326,6 +1372,9 @@ export interface SnapshotManifest {
   snapshot_id: string;
   created_at: string;
   service_version: string;
+  schema_version?: number | undefined;
+  backup_intent?: "recovery" | undefined;
+  source_machine?: MachineDescriptor | undefined;
   mailbox: string | null;
   db_backup_path: string;
   config_paths: string[];

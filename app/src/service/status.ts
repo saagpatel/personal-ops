@@ -1,6 +1,7 @@
 import type { DoctorReport, ServiceStatusReport } from "../types.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
+import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
 
 export async function buildStatusReport(service: any, options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
   const checks = await service.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
@@ -9,6 +10,8 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const mailAccount = service.db.getMailAccount();
   const launchAgent = service.inspectLaunchAgent();
   const launchAgentLabel = getLaunchAgentLabel();
+  const machineIdentity = readMachineIdentity(service.paths);
+  const restoreProvenance = readRestoreProvenance(service.paths);
   const reviewItems = service.db.listReviewItems();
   const approvals = service.listApprovalQueue({ limit: 500 });
   const approvalCounts = service.summarizeApprovalQueue(approvals);
@@ -64,6 +67,10 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   }
   const totalPlanningCount = service.db.listPlanningRecommendations({ include_resolved: true }).length;
   const openPlanningCount = planningAnalytics.summary.open_count;
+  const latestSnapshot = service.getLatestSnapshotSummary();
+  const latestSnapshotManifest = latestSnapshot ? service.readSnapshotManifest(latestSnapshot.snapshot_id) : null;
+  const machine = machineIdentity.status === "configured" ? machineIdentity.identity : null;
+  const provenance = restoreProvenance.status === "configured" ? restoreProvenance.provenance : null;
   return {
     generated_at: new Date().toISOString(),
     state: service.classifyState(checks),
@@ -88,6 +95,14 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
       exists: launchAgent.exists,
       loaded: launchAgent.loaded,
       label: launchAgentLabel,
+    },
+    machine: {
+      machine_id: machine?.machine_id ?? null,
+      machine_label: machine?.machine_label ?? null,
+      hostname: machine?.hostname ?? null,
+      state_origin: describeStateOrigin(provenance),
+      last_restore: provenance,
+      last_snapshot_source_machine: latestSnapshotManifest?.source_machine ?? null,
     },
     schema: {
       current_version: schemaCompatibility.current_version,
@@ -195,7 +210,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
       top_policy_attention_summary: planningPolicyReport.policy_attention_summary,
       pending_by_group: pendingByGroup,
     },
-    snapshot_latest: service.getLatestSnapshotSummary(),
+    snapshot_latest: latestSnapshot,
     checks_summary: summary,
     worklist_summary: {
       critical_count: worklist.counts_by_severity.critical,

@@ -10,6 +10,8 @@ This is the shortest role-based way to get oriented in `personal-ops`.
 
 It lets assistants help with your workflow without giving them direct control over Gmail, Google Calendar, or other risky actions.
 
+It is single-primary-machine by default. Use backups for intentional recovery or migration, not sync.
+
 ### Fastest verified setup path
 
 1. Clone the repo to `~/.local/share/personal-ops`.
@@ -26,6 +28,7 @@ Keep these pieces separate:
 - `gmail-oauth-client.json` is the Google Desktop OAuth client
 - the local API token files gate local CLI and assistant access
 - the Gmail refresh token lives in Keychain and is never restored from snapshots
+- backups may move state intentionally, but auth and secrets still stay machine-local
 
 ### Daily commands
 

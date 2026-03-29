@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { ensureMachineIdentity, machineDescriptorFromIdentity } from "../machine.js";
 import { createSnapshotId } from "../snapshots.js";
 import type { SnapshotInspection, SnapshotManifest, SnapshotSummary } from "../types.js";
 
@@ -25,10 +26,14 @@ export async function createSnapshot(service: any, stateOverride?: any): Promise
   const mailAccount = service.db.getMailAccount();
   const daemonState = stateOverride ?? "ready";
   const notes = daemonState === "ready" ? [] : [`Snapshot created while service state was ${daemonState}.`];
+  const machineIdentity = ensureMachineIdentity(service.paths);
   const manifest: SnapshotManifest = {
     snapshot_id: snapshotId,
     created_at: new Date().toISOString(),
     service_version: service.getServiceVersion(),
+    schema_version: service.db.getSchemaVersion(),
+    backup_intent: "recovery",
+    source_machine: machineDescriptorFromIdentity(machineIdentity),
     mailbox: mailAccount?.email ?? null,
     db_backup_path: dbBackupPath,
     config_paths: [configCopy, policyCopy],
@@ -87,6 +92,9 @@ export function inspectSnapshot(service: any, snapshotId: string): SnapshotInspe
   const warnings = [...manifest.notes];
   if (manifest.daemon_state !== "ready") {
     warnings.push(`Snapshot ${snapshotId} was created while service state was ${manifest.daemon_state}.`);
+  }
+  if (!manifest.source_machine) {
+    warnings.push(`Snapshot ${snapshotId} does not include machine provenance because it predates Phase 7.`);
   }
   return {
     manifest,

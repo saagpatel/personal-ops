@@ -28,6 +28,12 @@ You should **not** move live machine state or secrets:
 
 The new machine should create its own runtime state locally.
 
+Default supported model:
+
+- bootstrap fresh on the new machine
+- use backup restore only when you intentionally mean to migrate or recover state
+- there is no live sync or merge behavior between two machines
+
 ## Recommended clone location
 
 Clone the repo to:
@@ -116,6 +122,7 @@ Important:
 - `config.toml` mailbox and the signed-in Google account should match
 - if install-check says the OAuth file is placeholder, malformed, or not a Desktop OAuth client, replace it before continuing
 - if deep doctor later says the grant is stale or missing required access, rerun both auth login commands
+- if you intentionally restore a snapshot from another machine later, use `--allow-cross-machine` and rerun local auth checks on this Mac
 
 ## 5. Verify the install
 

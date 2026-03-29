@@ -22,7 +22,7 @@ The current roadmap starts after that completed program. It focuses on productiz
 | 4 | Improve Daily Operator Experience | Make CLI help, diagnostics, errors, logs, and operator shortcuts clearer | Completed | `docs/PHASE-4-PLAN.md`, `docs/PHASE-4-ROLLOUT.md` |
 | 5 | Create Better Documentation Layers | Add stronger onboarding, operations, and architecture docs | Completed | `docs/PHASE-5-PLAN.md`, `docs/PHASE-5-ROLLOUT.md` |
 | 6 | Strengthen Secrets and Safety Operations | Improve secret bootstrap, validation, recovery, and rotation guidance | Completed | `docs/PHASE-6-PLAN.md`, `docs/PHASE-6-ROLLOUT.md` |
-| 7 | Decide the Multi-Machine Strategy | Make machine ownership and portability intentional instead of accidental | Planned | `docs/PHASE-7-PLAN.md` |
+| 7 | Decide the Multi-Machine Strategy | Make machine ownership and portability intentional instead of accidental | Completed | `docs/PHASE-7-PLAN.md`, `docs/PHASE-7-ROLLOUT.md` |
 | 8 | Build a Lightweight Operator Console | Add a local web console on top of the stable backend surfaces | Planned | `docs/PHASE-8-PLAN.md` |
 
 ## Phase 1
@@ -106,12 +106,13 @@ Phase 6 completed a conservative secrets-and-auth hardening pass:
 
 ## Phase 7
 
-Phase 7 should define the multi-machine model:
+Phase 7 completed the machine-ownership decision:
 
-- whether state is single-machine or portable
-- whether backups are the supported transfer mechanism
-- whether one machine is primary
-- how split-brain is prevented
+- `personal-ops` is single-primary-machine by default
+- backups are the supported recovery and intentional migration mechanism
+- cross-machine restore requires explicit operator confirmation
+- legacy snapshots remain restorable with provenance warnings
+- no live sync or multi-writer model is supported
 
 ## Phase 8
 
@@ -129,7 +130,7 @@ Phase 8 should add a lightweight operator console backed by the existing local H
 
 ### Current Goal
 
-Phase 6 is complete. The repo now has stronger secret and auth diagnostics on top of the verified product baseline, and the next improvement target is Phase 7 multi-machine strategy.
+Phase 7 is complete. The repo now has an explicit machine-ownership model on top of the verified baseline, and the next improvement target is Phase 8 operator console work.
 
 ### Guardrails
 
@@ -151,6 +152,7 @@ Phase 6 is complete. The repo now has stronger secret and auth diagnostics on to
 - Phase 4 improved human-readable operator guidance without changing JSON, HTTP, MCP, audit, governance, or schema contracts
 - Phase 5 added the new primary onboarding and reference docs without changing behavior contracts
 - Phase 6 improved secret bootstrap, validation, Keychain diagnostics, and auth recovery guidance without widening permissions
+- Phase 7 made the machine model explicit: single primary machine, backup-based portability, and explicit cross-machine restore guardrails
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
 
 ### Required End-of-Phase Verification
@@ -173,6 +175,7 @@ Phase 6 is complete. The repo now has stronger secret and auth diagnostics on to
 - Phase 5 completed the main docs layer with `START-HERE`, `OPERATIONS`, `ARCHITECTURE`, and `QUICK-GUIDE`
 - Phase 6 completed the conservative secrets-and-safety hardening pass with stronger auth diagnostics and docs
 - Phase 6 also made snapshot ids collision-safe after a closeout-discovered restore edge
+- Phase 7 completed the explicit single-primary-machine strategy and cross-machine restore guardrails
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule

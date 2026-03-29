@@ -709,8 +709,10 @@ export async function runFullVerification(): Promise<void> {
     const snapshotResponse = await runCliJson<{ snapshot: SnapshotManifest }>(env, ["backup", "create", "--json"]);
     const snapshotId = snapshotResponse.snapshot.snapshot_id;
     assert.ok(snapshotId);
+    assert.ok(snapshotResponse.snapshot.source_machine?.machine_id, "snapshot should record source machine id.");
     const snapshotInspect = await runCliJson<{ snapshot: SnapshotInspection }>(env, ["backup", "inspect", snapshotId, "--json"]);
     assert.equal(snapshotInspect.snapshot.manifest.snapshot_id, snapshotId);
+    assert.equal(snapshotInspect.snapshot.manifest.source_machine?.machine_id, snapshotResponse.snapshot.source_machine?.machine_id);
 
     await stopDaemonProcess(daemon);
     daemon = null;
@@ -726,6 +728,8 @@ export async function runFullVerification(): Promise<void> {
       "--json",
     ]);
     assert.equal(restoreResponse.restore.restored_snapshot_id, snapshotId);
+    assert.equal(restoreResponse.restore.restore_mode, "same_machine");
+    assert.equal(restoreResponse.restore.cross_machine, false);
     assertFixtureRestored(env.paths, snapshotId, restoreResponse.restore);
 
     daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "post-restore daemon wrapper");

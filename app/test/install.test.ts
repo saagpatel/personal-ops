@@ -8,10 +8,11 @@ import { PersonalOpsDb } from "../src/db.js";
 import { buildInstallCheckReport, getInstallArtifactPaths, installAll, installWrapper } from "../src/install.js";
 import { getLaunchAgentLabel, renderLaunchAgentPlist } from "../src/launchagent.js";
 import { Logger } from "../src/logger.js";
+import { ensureMachineIdentity, readRestoreProvenance, writeRestoreProvenance } from "../src/machine.js";
 import { restoreSnapshot } from "../src/restore.js";
 import { createSnapshotId } from "../src/snapshots.js";
 import { PersonalOpsService } from "../src/service.js";
-import { ClientIdentity, Paths } from "../src/types.js";
+import { ClientIdentity, MachineDescriptor, Paths } from "../src/types.js";
 
 const cliIdentity: ClientIdentity = {
   client_id: "operator-cli",
@@ -118,6 +119,7 @@ async function createSnapshot(
   draftSubject: string,
   configText: string,
   policyText: string,
+  sourceMachine?: MachineDescriptor,
 ) {
   const snapshotDir = path.join(paths.snapshotsDir, snapshotId);
   fs.mkdirSync(snapshotDir, { recursive: true });
@@ -145,6 +147,9 @@ async function createSnapshot(
         snapshot_id: snapshotId,
         created_at: new Date().toISOString(),
         service_version: "0.1.0",
+        schema_version: 14,
+        backup_intent: "recovery",
+        source_machine: sourceMachine,
         mailbox: "machine@example.com",
         db_backup_path: snapshotDbPath,
         config_paths: [configCopy, policyCopy],
@@ -173,8 +178,11 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
     });
     const artifacts = getInstallArtifactPaths(fixture.paths);
+    const machineIdentity = ensureMachineIdentity(fixture.paths);
 
     assert.equal(manifest.node_executable, "/custom/node");
+    assert.equal(manifest.machine_id, machineIdentity.machine_id);
+    assert.equal(manifest.machine_label, machineIdentity.machine_label);
     assert.equal(fs.existsSync(artifacts.cliWrapperPath), true);
     assert.equal(fs.existsSync(artifacts.daemonWrapperPath), true);
     assert.equal(fs.existsSync(artifacts.codexMcpWrapperPath), true);
@@ -182,6 +190,24 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
     assert.equal(fs.existsSync(artifacts.launchAgentPlistPath), true);
     assert.equal(report.state, "ready");
     assert.equal(report.checks.some((check) => check.id === "launch_agent_loaded" && check.severity === "pass"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("machine identity stays stable across rerun install", () => {
+  const fixture = createFixture();
+  const launchctl = createLaunchctlStub();
+  try {
+    const first = installAll(fixture.paths, "/custom/node", {
+      launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+    });
+    const second = installAll(fixture.paths, "/custom/node", {
+      launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
+    });
+
+    assert.equal(first.machine_id, second.machine_id);
+    assert.equal(first.machine_label, second.machine_label);
   } finally {
     fixture.restoreEnv();
   }
@@ -251,6 +277,31 @@ test("Phase 6 install check reports blank keychain service, empty tokens, and br
   }
 });
 
+test("Phase 7 install check surfaces missing machine identity and cross-machine provenance warnings", () => {
+  const fixture = createFixture();
+  try {
+    writeRestoreProvenance(fixture.paths, {
+      restored_at: "2026-03-29T08:00:00.000Z",
+      restored_snapshot_id: "snapshot-cross-machine",
+      local_machine_id: "local-machine",
+      local_machine_label: "local-machine",
+      source_machine_id: "remote-machine",
+      source_machine_label: "remote-machine",
+      source_hostname: "remote-host",
+      cross_machine: true,
+      snapshot_created_at: "2026-03-29T07:59:00.000Z",
+    });
+
+    const report = buildInstallCheckReport(fixture.paths);
+
+    assert.equal(report.checks.some((check) => check.id === "machine_identity_exists" && check.severity === "warn"), true);
+    assert.equal(report.checks.some((check) => check.id === "machine_identity_valid" && check.severity === "warn"), true);
+    assert.equal(report.checks.some((check) => check.id === "state_origin_safe" && check.severity === "warn"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
 test("restore requires explicit confirmation", async () => {
   const fixture = createFixture();
   try {
@@ -279,6 +330,7 @@ test("restore creates a rescue snapshot and restores db and config selectively",
   const fixture = createFixture();
   const launchctl = createLaunchctlStub(true);
   try {
+    const machineIdentity = ensureMachineIdentity(fixture.paths);
     const seededLiveDbPath = path.join(fixture.base, "seeded-live.db");
     const liveDb = new PersonalOpsDb(seededLiveDbPath);
     liveDb.createDraftArtifact(cliIdentity, "machine@example.com", "provider-live", {
@@ -300,6 +352,11 @@ test("restore creates a rescue snapshot and restores db and config selectively",
       "Snapshot draft",
       "[gmail]\naccount_email = \"restored@example.com\"\n",
       "[security]\nallow_send = true\n",
+      {
+        machine_id: machineIdentity.machine_id,
+        machine_label: machineIdentity.machine_label,
+        hostname: machineIdentity.hostname,
+      },
     );
     fs.writeFileSync(`${fixture.paths.databaseFile}-wal`, "stale wal", "utf8");
     fs.writeFileSync(`${fixture.paths.databaseFile}-shm`, "stale shm", "utf8");
@@ -322,6 +379,105 @@ test("restore creates a rescue snapshot and restores db and config selectively",
     assert.equal(fs.existsSync(path.join(fixture.paths.snapshotsDir, result.rescue_snapshot_id, "manifest.json")), true);
     assert.equal(result.launch_agent_was_running, true);
     assert.equal(result.launch_agent_restarted, true);
+    assert.equal(result.restore_mode, "same_machine");
+    assert.equal(result.cross_machine, false);
+    assert.equal(result.provenance_warning, null);
+    const provenance = readRestoreProvenance(fixture.paths);
+    assert.equal(provenance.provenance?.cross_machine, false);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("cross-machine restore requires explicit confirmation", async () => {
+  const fixture = createFixture();
+  try {
+    await createSnapshot(
+      fixture.paths,
+      "snapshot-cross-machine",
+      "Snapshot draft",
+      "[gmail]\naccount_email = \"remote@example.com\"\n",
+      "[security]\nallow_send = false\n",
+      {
+        machine_id: "remote-machine",
+        machine_label: "remote-machine",
+        hostname: "remote-host",
+      },
+    );
+
+    await assert.rejects(
+      restoreSnapshot(
+        fixture.paths,
+        "snapshot-cross-machine",
+        { confirm: true, withConfig: false, withPolicy: false, allowCrossMachine: false },
+        { launchAgentDependencies: { execFileSyncImpl: createLaunchctlStub().execFileSyncImpl } },
+      ),
+      /--allow-cross-machine/,
+    );
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("cross-machine restore succeeds with explicit confirmation and records provenance", async () => {
+  const fixture = createFixture();
+  try {
+    const localMachine = ensureMachineIdentity(fixture.paths);
+    await createSnapshot(
+      fixture.paths,
+      "snapshot-cross-machine-ok",
+      "Remote snapshot draft",
+      "[gmail]\naccount_email = \"remote@example.com\"\n",
+      "[security]\nallow_send = false\n",
+      {
+        machine_id: "remote-machine",
+        machine_label: "remote-machine",
+        hostname: "remote-host",
+      },
+    );
+
+    const result = await restoreSnapshot(
+      fixture.paths,
+      "snapshot-cross-machine-ok",
+      { confirm: true, withConfig: false, withPolicy: false, allowCrossMachine: true },
+      { launchAgentDependencies: { execFileSyncImpl: createLaunchctlStub().execFileSyncImpl } },
+    );
+
+    assert.equal(result.restore_mode, "cross_machine");
+    assert.equal(result.cross_machine, true);
+    assert.equal(result.local_machine.machine_id, localMachine.machine_id);
+    assert.match(result.provenance_warning ?? "", /does not merge state/i);
+    const provenance = readRestoreProvenance(fixture.paths);
+    assert.equal(provenance.provenance?.cross_machine, true);
+    assert.equal(provenance.provenance?.source_machine_id, "remote-machine");
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("legacy snapshots still restore and record unknown provenance", async () => {
+  const fixture = createFixture();
+  try {
+    await createSnapshot(
+      fixture.paths,
+      "snapshot-legacy",
+      "Legacy snapshot draft",
+      "[gmail]\naccount_email = \"legacy@example.com\"\n",
+      "[security]\nallow_send = false\n",
+    );
+
+    const result = await restoreSnapshot(
+      fixture.paths,
+      "snapshot-legacy",
+      { confirm: true, withConfig: false, withPolicy: false },
+      { launchAgentDependencies: { execFileSyncImpl: createLaunchctlStub().execFileSyncImpl } },
+    );
+
+    assert.equal(result.restore_mode, "legacy_unknown");
+    assert.equal(result.cross_machine, false);
+    assert.match(result.provenance_warning ?? "", /predates Phase 7/i);
+    const provenance = readRestoreProvenance(fixture.paths);
+    assert.equal(provenance.provenance?.source_machine_id, null);
   } finally {
     fixture.restoreEnv();
   }

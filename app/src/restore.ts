@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { CURRENT_SCHEMA_VERSION } from "./db.js";
 import { createSnapshotId } from "./snapshots.js";
+import {
+  ensureMachineIdentity,
+  machineDescriptorFromIdentity,
+  writeRestoreProvenance,
+} from "./machine.js";
 import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath,
@@ -8,7 +14,7 @@ import {
   startLaunchAgent,
   stopLaunchAgent,
 } from "./launchagent.js";
-import { Paths, RestoreResult, ServiceState, SnapshotManifest } from "./types.js";
+import { Paths, RestoreMode, RestoreResult, ServiceState, SnapshotManifest } from "./types.js";
 
 interface RestoreDependencies {
   launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
@@ -41,6 +47,7 @@ async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, note
   const snapshotId = createSnapshotId(paths.snapshotsDir);
   const snapshotDir = path.join(paths.snapshotsDir, snapshotId);
   fs.mkdirSync(snapshotDir, { recursive: true });
+  const machineIdentity = ensureMachineIdentity(paths);
 
   const dbBackupPath = path.join(snapshotDir, "personal-ops.db");
   if (fs.existsSync(paths.databaseFile)) {
@@ -73,6 +80,9 @@ async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, note
     snapshot_id: snapshotId,
     created_at: new Date().toISOString(),
     service_version: getServiceVersion(paths),
+    schema_version: CURRENT_SCHEMA_VERSION,
+    backup_intent: "recovery",
+    source_machine: machineDescriptorFromIdentity(machineIdentity),
     mailbox: null,
     db_backup_path: dbBackupPath,
     config_paths: [configCopy, policyCopy],
@@ -95,7 +105,7 @@ function findSnapshotConfigPath(manifest: SnapshotManifest, fileName: "config.to
 export async function restoreSnapshot(
   paths: Paths,
   snapshotId: string,
-  options: { confirm: boolean; withConfig: boolean; withPolicy: boolean },
+  options: { confirm: boolean; withConfig: boolean; withPolicy: boolean; allowCrossMachine?: boolean },
   dependencies: RestoreDependencies = {},
 ): Promise<RestoreResult> {
   if (!options.confirm) {
@@ -108,6 +118,26 @@ export async function restoreSnapshot(
   }
   if (!fs.existsSync(manifest.db_backup_path)) {
     throw new Error(`Snapshot ${snapshotId} is missing its database backup.`);
+  }
+  const localMachine = machineDescriptorFromIdentity(ensureMachineIdentity(paths));
+  let restoreMode: RestoreMode = "legacy_unknown";
+  let crossMachine = false;
+  let provenanceWarning: string | null = null;
+  if (!manifest.source_machine) {
+    provenanceWarning =
+      "Snapshot provenance is unknown because it predates Phase 7. Restore is allowed for compatibility, but treat it as intentional migration or recovery only.";
+  } else if (manifest.source_machine.machine_id === localMachine.machine_id) {
+    restoreMode = "same_machine";
+  } else {
+    restoreMode = "cross_machine";
+    crossMachine = true;
+    provenanceWarning =
+      `Snapshot came from ${manifest.source_machine.machine_label}. Restore replaces local state; it does not merge state. Rerun local auth after restore.`;
+    if (!options.allowCrossMachine) {
+      throw new Error(
+        `Snapshot ${snapshotId} came from ${manifest.source_machine.machine_label}. Re-run restore with --allow-cross-machine to confirm intentional migration or recovery.`,
+      );
+    }
   }
 
   const launchAgentPath = getLaunchAgentPlistPath();
@@ -143,6 +173,17 @@ export async function restoreSnapshot(
     startLaunchAgent(launchAgentPath, launchAgentLabel, dependencies.launchAgentDependencies);
     launchAgentRestarted = true;
   }
+  writeRestoreProvenance(paths, {
+    restored_at: new Date().toISOString(),
+    restored_snapshot_id: snapshotId,
+    local_machine_id: localMachine.machine_id,
+    local_machine_label: localMachine.machine_label,
+    source_machine_id: manifest.source_machine?.machine_id ?? null,
+    source_machine_label: manifest.source_machine?.machine_label ?? null,
+    source_hostname: manifest.source_machine?.hostname ?? null,
+    cross_machine: crossMachine,
+    snapshot_created_at: manifest.created_at,
+  });
 
   return {
     restored_snapshot_id: snapshotId,
@@ -152,5 +193,10 @@ export async function restoreSnapshot(
     restored_policy: options.withPolicy,
     launch_agent_was_running: launchAgent.loaded,
     launch_agent_restarted: launchAgentRestarted,
+    restore_mode: restoreMode,
+    cross_machine: crossMachine,
+    source_machine: manifest.source_machine ?? null,
+    local_machine: localMachine,
+    provenance_warning: provenanceWarning,
   };
 }

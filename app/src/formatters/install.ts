@@ -12,6 +12,9 @@ export function formatSnapshotManifest(manifest: SnapshotManifest): string {
   return [
     `Snapshot created: ${manifest.snapshot_id}`,
     line("Created", manifest.created_at),
+    line("Schema version", String(manifest.schema_version ?? "unknown")),
+    line("Backup intent", manifest.backup_intent ?? "legacy"),
+    line("Source machine", manifest.source_machine ? `${manifest.source_machine.machine_label} (${manifest.source_machine.machine_id.slice(0, 8)})` : "legacy snapshot"),
     line("Mailbox", manifest.mailbox ?? "not connected"),
     line("State", manifest.daemon_state),
     line("Database", manifest.db_backup_path),
@@ -30,6 +33,16 @@ export function formatSnapshotInspection(inspection: SnapshotInspection): string
   lines.push(`Snapshot: ${inspection.manifest.snapshot_id}`);
   lines.push(line("Created", inspection.manifest.created_at));
   lines.push(line("Version", inspection.manifest.service_version));
+  lines.push(line("Schema version", String(inspection.manifest.schema_version ?? "unknown")));
+  lines.push(line("Backup intent", inspection.manifest.backup_intent ?? "legacy"));
+  lines.push(
+    line(
+      "Source machine",
+      inspection.manifest.source_machine
+        ? `${inspection.manifest.source_machine.machine_label} (${inspection.manifest.source_machine.machine_id.slice(0, 8)}) on ${inspection.manifest.source_machine.hostname}`
+        : "legacy snapshot",
+    ),
+  );
   lines.push(line("Mailbox", inspection.manifest.mailbox ?? "not connected"));
   lines.push(line("State", inspection.manifest.daemon_state));
   lines.push("");
@@ -53,6 +66,7 @@ export function formatInstallManifest(manifest: InstallManifest): string {
   return [
     "Install updated",
     line("Generated", manifest.generated_at),
+    line("Machine", `${manifest.machine_label} (${manifest.machine_id.slice(0, 8)})`),
     line("Node", manifest.node_executable),
     line("CLI wrapper", manifest.wrapper_paths.cli),
     line("Daemon wrapper", manifest.wrapper_paths.daemon),
@@ -93,15 +107,31 @@ export function formatInstallCheckReport(report: InstallCheckReport): string {
 }
 
 export function formatRestoreResult(result: RestoreResult): string {
-  return [
+  const lines = [
     `Restore complete: ${result.restored_snapshot_id}`,
+    line("Restore mode", formatStateLabel(result.restore_mode)),
+    line("Local machine", `${result.local_machine.machine_label} (${result.local_machine.machine_id.slice(0, 8)})`),
+    line(
+      "Source machine",
+      result.source_machine
+        ? `${result.source_machine.machine_label} (${result.source_machine.machine_id.slice(0, 8)})`
+        : "legacy snapshot",
+    ),
     line("Rescue snapshot", result.rescue_snapshot_id),
     line("Database", result.restored_database_path),
     line("Config restored", yesNo(result.restored_config)),
     line("Policy restored", yesNo(result.restored_policy)),
     line("LaunchAgent was running", yesNo(result.launch_agent_was_running)),
     line("LaunchAgent restarted", yesNo(result.launch_agent_restarted)),
-    "",
-    "Next step: run `personal-ops status` or `personal-ops doctor` to confirm the recovered state looks right.",
-  ].join("\n");
+  ];
+  if (result.provenance_warning) {
+    lines.push(line("Warning", result.provenance_warning));
+  }
+  lines.push("");
+  lines.push(
+    result.cross_machine
+      ? "Next step: run `personal-ops doctor --deep` and the local auth flow before trusting live access on this machine."
+      : "Next step: run `personal-ops status` or `personal-ops doctor` to confirm the recovered state looks right.",
+  );
+  return lines.join("\n");
 }
