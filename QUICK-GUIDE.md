@@ -20,6 +20,13 @@ It lets assistants help with your workflow without giving them direct control ov
 6. Run `personal-ops auth google login`.
 7. Finish with `personal-ops doctor --deep`.
 
+Keep these pieces separate:
+
+- `config.toml` chooses the mailbox and local runtime paths
+- `gmail-oauth-client.json` is the Google Desktop OAuth client
+- the local API token files gate local CLI and assistant access
+- the Gmail refresh token lives in Keychain and is never restored from snapshots
+
 ### Daily commands
 
 - `personal-ops now`

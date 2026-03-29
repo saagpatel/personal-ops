@@ -2,7 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { parseGmailClientConfig } from "./gmail.js";
 import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath,
@@ -18,6 +17,11 @@ import {
   Paths,
   ServiceState,
 } from "./types.js";
+import {
+  validateOAuthClientFile,
+  validateSecretFilePermissions,
+  validateSecretTextFile,
+} from "./secrets.js";
 
 const INSTALL_SETUP_REQUIRED_IDS = new Set(["oauth_client_configured", "configured_mailbox_present"]);
 const DEFAULT_ASSISTANTS: AssistantKind[] = ["codex", "claude"];
@@ -172,6 +176,24 @@ function readConfigMailbox(paths: Paths): string {
   }
 }
 
+function readAuthConfigSummary(paths: Paths): { mailbox: string; keychainService: string; oauthClientPath: string } {
+  try {
+    const raw = fs.readFileSync(paths.configFile, "utf8");
+    const parsed = parseToml(raw) as Record<string, any>;
+    return {
+      mailbox: String(parsed.gmail?.account_email ?? "").trim(),
+      keychainService: String(parsed.auth?.keychain_service ?? "").trim(),
+      oauthClientPath: String(parsed.auth?.oauth_client_file ?? "").trim(),
+    };
+  } catch {
+    return {
+      mailbox: "",
+      keychainService: "",
+      oauthClientPath: "",
+    };
+  }
+}
+
 export function getInstallArtifactPaths(paths: Paths): InstallArtifactPaths {
   const home = process.env.HOME ?? os.homedir();
   return {
@@ -306,36 +328,124 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     launchAgentLabel,
     dependencies.launchAgentDependencies,
   );
-  const mailbox = readConfigMailbox(paths);
+  const authConfig = readAuthConfigSummary(paths);
+  const oauthValidation = validateOAuthClientFile(paths.oauthClientFile);
+  const oauthPermissions = validateSecretFilePermissions(paths.oauthClientFile, "OAuth client file");
+  const localApiToken = validateSecretTextFile(paths.apiTokenFile, "Local API token");
+  const assistantApiToken = validateSecretTextFile(paths.assistantApiTokenFile, "Assistant API token");
+  const localApiTokenPermissions = validateSecretFilePermissions(paths.apiTokenFile, "Local API token");
+  const assistantApiTokenPermissions = validateSecretFilePermissions(paths.assistantApiTokenFile, "Assistant API token");
 
   checks.push(fileCheck("config_file_valid", "Config file", paths.configFile, true));
   checks.push(fileCheck("policy_file_valid", "Policy file", paths.policyFile, true));
-  checks.push(fileCheck("oauth_client_file_exists", "OAuth client file", paths.oauthClientFile, false));
-  try {
-    parseGmailClientConfig(fs.readFileSync(paths.oauthClientFile, "utf8"));
-    checks.push(passCheck("oauth_client_configured", "OAuth client", "Desktop OAuth client file is configured.", "setup"));
-  } catch (error) {
-    checks.push(
-      warnCheck(
-        "oauth_client_configured",
-        "OAuth client",
-        error instanceof Error ? error.message : "OAuth client file is missing or still placeholder.",
-        "setup",
-      ),
-    );
-  }
+  checks.push(
+    oauthValidation.status === "missing"
+      ? failCheck("oauth_client_file_exists", "OAuth client file", oauthValidation.message, "setup")
+      : oauthValidation.status === "unreadable"
+        ? failCheck("oauth_client_file_exists", "OAuth client file", oauthValidation.message, "setup")
+        : passCheck("oauth_client_file_exists", "OAuth client file", `${path.basename(paths.oauthClientFile)} is present and readable.`, "setup"),
+  );
+  checks.push(
+    oauthValidation.status === "configured"
+      ? passCheck("oauth_client_file_valid", "OAuth client file validity", "OAuth client JSON is well-formed for Desktop OAuth.", "setup")
+      : oauthValidation.status === "missing" || oauthValidation.status === "placeholder"
+        ? warnCheck("oauth_client_file_valid", "OAuth client file validity", oauthValidation.message, "setup")
+        : failCheck("oauth_client_file_valid", "OAuth client file validity", oauthValidation.message, "setup"),
+  );
+  checks.push(
+    oauthValidation.status === "configured"
+      ? passCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup")
+      : oauthValidation.status === "missing" || oauthValidation.status === "placeholder"
+        ? warnCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup")
+        : failCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup"),
+  );
+  checks.push(
+    oauthPermissions.status === "too_broad"
+      ? warnCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup")
+      : oauthPermissions.status === "secure"
+        ? passCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup")
+        : oauthValidation.status === "missing"
+          ? warnCheck("oauth_client_permissions_secure", "OAuth client permissions", "OAuth client permissions cannot be checked until the file exists.", "setup")
+          : failCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup"),
+  );
 
   checks.push(
-    mailbox
-      ? passCheck("configured_mailbox_present", "Configured mailbox", `Configured mailbox is ${mailbox}.`, "setup")
+    authConfig.mailbox
+      ? passCheck("configured_mailbox_present", "Configured mailbox", `Configured mailbox is ${authConfig.mailbox}.`, "setup")
       : warnCheck("configured_mailbox_present", "Configured mailbox", "Configured mailbox email is still blank in config.toml.", "setup"),
+  );
+  checks.push(
+    authConfig.keychainService
+      ? passCheck("keychain_service_configured", "Keychain service", `Keychain service is ${authConfig.keychainService}.`, "setup")
+      : warnCheck(
+          "keychain_service_configured",
+          "Keychain service",
+          "auth.keychain_service is blank in config.toml. Restore the default or set the intended Keychain service before re-auth.",
+          "setup",
+        ),
   );
 
   checks.push(directoryWritableCheck("state_dir_writable", "State directory", paths.stateDir));
   checks.push(directoryWritableCheck("log_dir_writable", "Log directory", paths.logDir));
   checks.push(directoryWritableCheck("snapshots_dir_writable", "Snapshots directory", paths.snapshotsDir));
-  checks.push(fileCheck("local_api_token_exists", "Local API token", paths.apiTokenFile, false));
-  checks.push(fileCheck("assistant_api_token_exists", "Assistant API token", paths.assistantApiTokenFile, false));
+  checks.push(
+    localApiToken.status === "configured"
+      ? passCheck("local_api_token_exists", "Local API token", localApiToken.message, "runtime")
+      : failCheck("local_api_token_exists", "Local API token", localApiToken.message, "runtime"),
+  );
+  checks.push(
+    localApiToken.status === "configured"
+      ? passCheck("local_api_token_nonempty", "Local API token contents", "Local API token file is non-empty.", "runtime")
+      : localApiToken.status === "empty"
+        ? failCheck("local_api_token_nonempty", "Local API token contents", localApiToken.message, "runtime")
+        : failCheck("local_api_token_nonempty", "Local API token contents", "Local API token cannot be validated until the file is readable.", "runtime"),
+  );
+  checks.push(
+    localApiTokenPermissions.status === "too_broad"
+      ? warnCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime")
+      : localApiTokenPermissions.status === "secure"
+        ? passCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime")
+        : failCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime"),
+  );
+  checks.push(
+    assistantApiToken.status === "configured"
+      ? passCheck("assistant_api_token_exists", "Assistant API token", assistantApiToken.message, "runtime")
+      : failCheck("assistant_api_token_exists", "Assistant API token", assistantApiToken.message, "runtime"),
+  );
+  checks.push(
+    assistantApiToken.status === "configured"
+      ? passCheck("assistant_api_token_nonempty", "Assistant API token contents", "Assistant API token file is non-empty.", "runtime")
+      : assistantApiToken.status === "empty"
+        ? failCheck("assistant_api_token_nonempty", "Assistant API token contents", assistantApiToken.message, "runtime")
+        : failCheck(
+            "assistant_api_token_nonempty",
+            "Assistant API token contents",
+            "Assistant API token cannot be validated until the file is readable.",
+            "runtime",
+          ),
+  );
+  checks.push(
+    assistantApiTokenPermissions.status === "too_broad"
+      ? warnCheck(
+          "assistant_api_token_permissions_secure",
+          "Assistant API token permissions",
+          assistantApiTokenPermissions.message,
+          "runtime",
+        )
+      : assistantApiTokenPermissions.status === "secure"
+        ? passCheck(
+            "assistant_api_token_permissions_secure",
+            "Assistant API token permissions",
+            assistantApiTokenPermissions.message,
+            "runtime",
+          )
+        : failCheck(
+            "assistant_api_token_permissions_secure",
+            "Assistant API token permissions",
+            assistantApiTokenPermissions.message,
+            "runtime",
+          ),
+  );
 
   checks.push(fileCheck("dist_cli_exists", "Built CLI", artifacts.distCliPath, false));
   checks.push(fileCheck("dist_daemon_exists", "Built daemon", artifacts.distDaemonPath, false));

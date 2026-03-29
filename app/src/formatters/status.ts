@@ -52,6 +52,15 @@ function statusActionItems(report: ServiceStatusReport): string[] {
 }
 
 function doctorFollowUp(check: DoctorCheck): string | null {
+  if (check.id.includes("keychain")) {
+    return "Confirm Keychain access on this Mac, then rerun `personal-ops auth gmail login` and `personal-ops auth google login` if needed.";
+  }
+  if (check.id.includes("oauth_client")) {
+    return "Replace or fix the OAuth client JSON, then rerun `personal-ops install check` and the auth login flow.";
+  }
+  if (check.id.includes("api_token")) {
+    return "Rerun `personal-ops install all` if you need to recreate local API tokens, then rerun doctor.";
+  }
   if (check.category === "runtime") {
     return "Run `personal-ops install check`, then `personal-ops doctor --deep` if the runtime looks healthy.";
   }

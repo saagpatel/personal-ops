@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createSnapshotId } from "./snapshots.js";
 import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath,
@@ -37,7 +38,7 @@ function readSnapshotManifest(paths: Paths, snapshotId: string): SnapshotManifes
 }
 
 async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, notes: string[] = []): Promise<SnapshotManifest> {
-  const snapshotId = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
+  const snapshotId = createSnapshotId(paths.snapshotsDir);
   const snapshotDir = path.join(paths.snapshotsDir, snapshotId);
   fs.mkdirSync(snapshotDir, { recursive: true });
 
@@ -126,7 +127,9 @@ export async function restoreSnapshot(
 
   fs.mkdirSync(path.dirname(paths.databaseFile), { recursive: true });
   removeDatabaseSidecars(paths.databaseFile);
+  fs.rmSync(paths.databaseFile, { force: true });
   fs.copyFileSync(manifest.db_backup_path, paths.databaseFile);
+  removeDatabaseSidecars(paths.databaseFile);
 
   if (options.withConfig) {
     fs.copyFileSync(findSnapshotConfigPath(manifest, "config.toml"), paths.configFile);

@@ -917,6 +917,33 @@ test("doctor degrades when mailbox sync state is degraded", async () => {
   assert.equal(report.checks.some((check) => check.id === "mail_history_id_present" && check.severity === "fail"), true);
 });
 
+test("Phase 6 deep doctor explains stale Google grants with re-auth guidance", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({
+    accountEmail,
+    verifyMetadataImpl: async () => {
+      throw new Error("invalid_grant: Token has been expired or revoked.");
+    },
+    verifyCalendarImpl: async () => {
+      throw new Error("invalid_grant: Token has been expired or revoked.");
+    },
+    verifyCalendarWriteImpl: async () => {
+      throw new Error("invalid_grant: Token has been expired or revoked.");
+    },
+  });
+
+  service.db.upsertMailAccount(accountEmail, "personal-ops.gmail.test", JSON.stringify({ emailAddress: accountEmail }));
+  const report = await service.runDoctor({ deep: true, httpReachable: true });
+
+  const metadataCheck = report.checks.find((check) => check.id === "deep_gmail_metadata_access");
+  const calendarCheck = report.checks.find((check) => check.id === "deep_google_calendar_access");
+  assert.equal(metadataCheck?.severity, "fail");
+  assert.match(metadataCheck?.message ?? "", /stale or revoked/i);
+  assert.match(metadataCheck?.message ?? "", /auth gmail login/i);
+  assert.equal(calendarCheck?.severity, "fail");
+  assert.match(calendarCheck?.message ?? "", /auth google login/i);
+});
+
 test("concurrent mailbox sync requests share one in-flight run", async () => {
   const accountEmail = "machine@example.com";
   let listRefsCalls = 0;

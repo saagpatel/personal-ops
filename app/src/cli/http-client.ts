@@ -36,6 +36,30 @@ function formatHttpStatusError(statusCode: number, message: string): Error {
   return new Error(message);
 }
 
+export function formatGoogleLoginError(phase: "start" | "complete", error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const lines =
+    phase === "start"
+      ? [
+          "Could not start the Google login flow.",
+          "Next steps:",
+          "  personal-ops install check",
+          "  Confirm the OAuth client JSON is present and configured",
+          "  personal-ops doctor",
+          `Details: ${message}`,
+        ]
+      : [
+          "Google login finished in the browser, but personal-ops could not save the grant.",
+          "Next steps:",
+          "  Confirm the signed-in Google account matches config.toml",
+          "  personal-ops auth gmail login",
+          "  personal-ops auth google login",
+          "  personal-ops doctor --deep",
+          `Details: ${message}`,
+        ];
+  return new Error(lines.join("\n"));
+}
+
 export function createRequestJson(config: Config) {
   return function requestJson<T>(method: string, path: string, body?: unknown): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -103,9 +127,15 @@ export async function runGoogleLogin(
   if (!address || typeof address === "string") {
     throw new Error("Could not allocate a loopback port for Google login.");
   }
-  const start = await requestJson<{ auth_url: string; state: string }>("POST", `${authBasePath}/start`, {
-    callback_port: address.port,
-  });
+  let start;
+  try {
+    start = await requestJson<{ auth_url: string; state: string }>("POST", `${authBasePath}/start`, {
+      callback_port: address.port,
+    });
+  } catch (error) {
+    callbackServer.close();
+    throw formatGoogleLoginError("start", error);
+  }
 
   const callbackPromise = new Promise<{ state: string; code: string }>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Timed out waiting for the Google OAuth callback.")), 300000);
@@ -131,7 +161,12 @@ export async function runGoogleLogin(
   execFileSync("open", [start.auth_url]);
   const callback = await callbackPromise;
   callbackServer.close();
-  const completed = await requestJson<{ email: string }>("POST", `${authBasePath}/callback/complete`, callback);
+  let completed;
+  try {
+    completed = await requestJson<{ email: string }>("POST", `${authBasePath}/callback/complete`, callback);
+  } catch (error) {
+    throw formatGoogleLoginError("complete", error);
+  }
   process.stdout.write(`Connected Google account: ${completed.email}\n`);
   process.stdout.write("Next step: run `personal-ops status` or `personal-ops doctor` to confirm the mailbox looks healthy.\n");
 }

@@ -94,6 +94,7 @@ If you are a new operator:
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md) for the daily command surface.
 3. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
+4. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 
 If you are a new assistant or contributor:
 

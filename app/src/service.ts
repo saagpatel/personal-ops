@@ -30,14 +30,19 @@ import {
   getGmailProfile,
   listGmailHistory,
   listGmailMessageRefsByLabel,
-  parseGmailClientConfig,
   sendGmailDraft,
   updateGmailDraft,
   verifyGmailMetadataAccess,
 } from "./gmail.js";
-import { getKeychainSecret } from "./keychain.js";
 import { Logger } from "./logger.js";
 import { sendMacNotification } from "./notifications.js";
+import {
+  explainGoogleGrantFailure,
+  probeKeychainSecret,
+  validateOAuthClientFile,
+  validateSecretFilePermissions,
+  validateSecretTextFile,
+} from "./secrets.js";
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
 import {
   createSnapshot as createSnapshotFromModule,
@@ -204,6 +209,7 @@ interface PersonalOpsDependencies {
 const SETUP_REQUIRED_IDS = new Set([
   "oauth_client_configured",
   "configured_mailbox_present",
+  "keychain_service_configured",
   "keychain_item_present",
   "connected_mailbox_matches",
 ]);
@@ -3148,14 +3154,42 @@ export class PersonalOpsService {
     const mailAccount = this.db.getMailAccount();
     const launchAgent = this.inspectLaunchAgent();
     const installArtifacts = getInstallArtifactPaths(this.paths);
-    const oauthConfigured = this.isOAuthClientConfigured();
+    const oauthValidation = validateOAuthClientFile(this.config.oauthClientFile);
+    const oauthPermissions = validateSecretFilePermissions(this.config.oauthClientFile, "OAuth client file");
+    const localApiToken = validateSecretTextFile(this.paths.apiTokenFile, "Local API token");
+    const assistantApiToken = validateSecretTextFile(this.paths.assistantApiTokenFile, "Assistant API token");
+    const localApiTokenPermissions = validateSecretFilePermissions(this.paths.apiTokenFile, "Local API token");
+    const assistantApiTokenPermissions = validateSecretFilePermissions(this.paths.assistantApiTokenFile, "Assistant API token");
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
     checks.push(this.fileCheck("policy_file_valid", "Policy file", this.paths.policyFile, true));
     checks.push(
-      oauthConfigured
-        ? this.passCheck("oauth_client_configured", "OAuth client", "Desktop OAuth client file is configured.", "setup")
-        : this.warnCheck("oauth_client_configured", "OAuth client", "OAuth client file is missing or still placeholder.", "setup"),
+      oauthValidation.status === "configured"
+        ? this.passCheck("oauth_client_file_valid", "OAuth client file validity", "OAuth client JSON is well-formed for Desktop OAuth.", "setup")
+        : oauthValidation.status === "missing" || oauthValidation.status === "placeholder"
+          ? this.warnCheck("oauth_client_file_valid", "OAuth client file validity", oauthValidation.message, "setup")
+          : this.failCheck("oauth_client_file_valid", "OAuth client file validity", oauthValidation.message, "setup"),
+    );
+    checks.push(
+      oauthValidation.status === "configured"
+        ? this.passCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup")
+        : oauthValidation.status === "missing" || oauthValidation.status === "placeholder"
+          ? this.warnCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup")
+          : this.failCheck("oauth_client_configured", "OAuth client", oauthValidation.message, "setup"),
+    );
+    checks.push(
+      oauthPermissions.status === "too_broad"
+        ? this.warnCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup")
+        : oauthPermissions.status === "secure"
+          ? this.passCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup")
+          : oauthValidation.status === "missing"
+            ? this.warnCheck(
+                "oauth_client_permissions_secure",
+                "OAuth client permissions",
+                "OAuth client permissions cannot be checked until the file exists.",
+                "setup",
+              )
+            : this.failCheck("oauth_client_permissions_secure", "OAuth client permissions", oauthPermissions.message, "setup"),
     );
     checks.push(
       this.config.gmailAccountEmail
@@ -3169,6 +3203,16 @@ export class PersonalOpsService {
             "configured_mailbox_present",
             "Configured mailbox",
             "Configured mailbox email is still blank in config.toml.",
+            "setup",
+          ),
+    );
+    checks.push(
+      this.config.keychainService.trim()
+        ? this.passCheck("keychain_service_configured", "Keychain service", `Keychain service is ${this.config.keychainService}.`, "setup")
+        : this.warnCheck(
+            "keychain_service_configured",
+            "Keychain service",
+            "auth.keychain_service is blank in config.toml. Restore the default or set the intended Keychain service before re-auth.",
             "setup",
           ),
     );
@@ -3226,8 +3270,69 @@ export class PersonalOpsService {
     }
     checks.push(this.fileCheck("sqlite_readable", "SQLite state", this.paths.databaseFile, true));
     checks.push(this.directoryWritableCheck("log_dir_writable", "Log directory", this.paths.logDir));
-    checks.push(this.fileCheck("local_api_token_exists", "Local API token", this.paths.apiTokenFile, true));
-    checks.push(this.fileCheck("assistant_api_token_exists", "Assistant API token", this.paths.assistantApiTokenFile, true));
+    checks.push(
+      localApiToken.status === "configured"
+        ? this.passCheck("local_api_token_exists", "Local API token", localApiToken.message, "runtime")
+        : this.failCheck("local_api_token_exists", "Local API token", localApiToken.message, "runtime"),
+    );
+    checks.push(
+      localApiToken.status === "configured"
+        ? this.passCheck("local_api_token_nonempty", "Local API token contents", "Local API token file is non-empty.", "runtime")
+        : localApiToken.status === "empty"
+          ? this.failCheck("local_api_token_nonempty", "Local API token contents", localApiToken.message, "runtime")
+          : this.failCheck(
+              "local_api_token_nonempty",
+              "Local API token contents",
+              "Local API token cannot be validated until the file is readable.",
+              "runtime",
+            ),
+    );
+    checks.push(
+      localApiTokenPermissions.status === "too_broad"
+        ? this.warnCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime")
+        : localApiTokenPermissions.status === "secure"
+          ? this.passCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime")
+          : this.failCheck("local_api_token_permissions_secure", "Local API token permissions", localApiTokenPermissions.message, "runtime"),
+    );
+    checks.push(
+      assistantApiToken.status === "configured"
+        ? this.passCheck("assistant_api_token_exists", "Assistant API token", assistantApiToken.message, "runtime")
+        : this.failCheck("assistant_api_token_exists", "Assistant API token", assistantApiToken.message, "runtime"),
+    );
+    checks.push(
+      assistantApiToken.status === "configured"
+        ? this.passCheck("assistant_api_token_nonempty", "Assistant API token contents", "Assistant API token file is non-empty.", "runtime")
+        : assistantApiToken.status === "empty"
+          ? this.failCheck("assistant_api_token_nonempty", "Assistant API token contents", assistantApiToken.message, "runtime")
+          : this.failCheck(
+              "assistant_api_token_nonempty",
+              "Assistant API token contents",
+              "Assistant API token cannot be validated until the file is readable.",
+              "runtime",
+            ),
+    );
+    checks.push(
+      assistantApiTokenPermissions.status === "too_broad"
+        ? this.warnCheck(
+            "assistant_api_token_permissions_secure",
+            "Assistant API token permissions",
+            assistantApiTokenPermissions.message,
+            "runtime",
+          )
+        : assistantApiTokenPermissions.status === "secure"
+          ? this.passCheck(
+              "assistant_api_token_permissions_secure",
+              "Assistant API token permissions",
+              assistantApiTokenPermissions.message,
+              "runtime",
+            )
+          : this.failCheck(
+              "assistant_api_token_permissions_secure",
+              "Assistant API token permissions",
+              assistantApiTokenPermissions.message,
+              "runtime",
+            ),
+    );
     checks.push(
       this.passCheck(
         "send_policy_gate",
@@ -3644,19 +3749,19 @@ export class PersonalOpsService {
         ),
       );
     } else {
-      const secret = getKeychainSecret(this.config.keychainService, mailAccount.email);
+      const keychainProbe = probeKeychainSecret(this.config.keychainService, mailAccount.email);
       checks.push(
-        secret
+        keychainProbe.status === "present"
           ? this.passCheck(
               "keychain_item_present",
               "Keychain token",
-              `Keychain token exists for ${mailAccount.email}.`,
+              keychainProbe.message,
               "setup",
             )
           : this.failCheck(
               "keychain_item_present",
               "Keychain token",
-              `Keychain token is missing for ${mailAccount.email}.`,
+              keychainProbe.message,
               "setup",
             ),
       );
@@ -3766,7 +3871,7 @@ export class PersonalOpsService {
             this.failCheck(
               "deep_gmail_profile_matches",
               "Deep Gmail verification",
-              error instanceof Error ? error.message : "Live Gmail verification failed.",
+              explainGoogleGrantFailure(error, mailAccount.email),
               "runtime",
             ),
           );
@@ -3788,7 +3893,7 @@ export class PersonalOpsService {
             this.failCheck(
               "deep_gmail_metadata_access",
               "Deep Gmail metadata access",
-              error instanceof Error ? error.message : "Live Gmail metadata verification failed.",
+              explainGoogleGrantFailure(error, mailAccount.email),
               "runtime",
             ),
           );
@@ -3810,7 +3915,7 @@ export class PersonalOpsService {
             this.failCheck(
               "deep_google_calendar_access",
               "Deep Google Calendar access",
-              error instanceof Error ? error.message : "Live Google Calendar verification failed.",
+              explainGoogleGrantFailure(error, mailAccount.email),
               "runtime",
             ),
           );
@@ -3832,7 +3937,7 @@ export class PersonalOpsService {
             this.failCheck(
               "deep_google_calendar_write_access",
               "Deep Google Calendar write access",
-              error instanceof Error ? error.message : "Live Google Calendar write verification failed.",
+              explainGoogleGrantFailure(error, mailAccount.email),
               "runtime",
             ),
           );
@@ -9302,12 +9407,7 @@ export class PersonalOpsService {
   }
 
   private isOAuthClientConfigured(): boolean {
-    try {
-      parseGmailClientConfig(fs.readFileSync(this.config.oauthClientFile, "utf8"));
-      return true;
-    } catch {
-      return false;
-    }
+    return validateOAuthClientFile(this.config.oauthClientFile).status === "configured";
   }
 
   private getLatestSnapshotSummary(): SnapshotSummary | undefined {
