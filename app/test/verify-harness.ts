@@ -351,6 +351,9 @@ async function runHttpSmoke(env: VerificationEnvironment): Promise<void> {
   assert.ok(status.status.state, "status report should include a state.");
   const worklist = await requestJson<{ worklist: { items: unknown[] } }>("GET", "/v1/worklist");
   assert.ok(Array.isArray(worklist.worklist.items), "worklist should include items.");
+  const nowNext = await requestJson<{ workflow: { workflow: string; actions: unknown[] } }>("GET", "/v1/workflows/now-next");
+  assert.equal(nowNext.workflow.workflow, "now-next");
+  assert.ok(Array.isArray(nowNext.workflow.actions), "now-next should include actions.");
   const workflow = await requestJson<{ workflow: { workflow: string; sections: unknown[] } }>("GET", "/v1/workflows/prep-day");
   assert.equal(workflow.workflow.workflow, "prep-day");
   assert.ok(Array.isArray(workflow.workflow.sections), "workflow bundle should include sections.");
@@ -745,10 +748,13 @@ export async function runFullVerification(): Promise<void> {
 
     const status = await runCliJson<{ status: { state: string } }>(env, ["status", "--json"]);
     const worklist = await runCliJson<{ worklist: { items: unknown[] } }>(env, ["worklist", "--json"]);
+    const nowNext = await runCliJson<{ workflow: { workflow: string; actions: unknown[] } }>(env, ["workflow", "now-next", "--json"]);
     const prepDay = await runCliJson<{ workflow: { workflow: string; actions: unknown[] } }>(env, ["workflow", "prep-day", "--json"]);
     const doctor = await runCliJson<{ doctor: { checks: unknown[] } }>(env, ["doctor", "--json"]);
     assert.ok(status.status.state);
     assert.ok(Array.isArray(worklist.worklist.items));
+    assert.equal(nowNext.workflow.workflow, "now-next");
+    assert.ok(Array.isArray(nowNext.workflow.actions));
     assert.equal(prepDay.workflow.workflow, "prep-day");
     assert.ok(Array.isArray(prepDay.workflow.actions));
     assert.ok(Array.isArray(doctor.doctor.checks));
@@ -836,6 +842,7 @@ export async function runConsoleVerification(): Promise<void> {
       await snapshotPage.goto(launchUrl, { waitUntil: "networkidle" });
       await snapshotPage.waitForSelector("text=Local operator console");
       await snapshotPage.waitForSelector("text=Top-level readiness");
+      await snapshotPage.waitForSelector("text=What to do right now");
       await snapshotPage.waitForSelector("text=Day-start workflow");
       await snapshotPage.waitForSelector("text=Version");
       await snapshotPage.waitForFunction(() => {

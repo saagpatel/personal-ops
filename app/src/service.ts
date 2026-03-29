@@ -62,6 +62,7 @@ import {
 } from "./service/install.js";
 import { buildDoctorReport, buildStatusReport } from "./service/status.js";
 import {
+  buildNowNextWorkflowReport,
   buildFollowUpBlockWorkflowReport,
   buildPrepDayWorkflowReport,
   buildPrepMeetingsWorkflowReport,
@@ -252,7 +253,7 @@ const PLANNING_TASK_BLOCK_MINUTES = 60;
 const PLANNING_FOLLOWUP_MINUTES = 30;
 const PLANNING_PREP_MINUTES = 30;
 const PLANNING_SNOOZE_WARNING_MINUTES = 60;
-const PLANNING_RANKING_VERSION = "phase12-v1";
+const PLANNING_RANKING_VERSION = "phase6-v1";
 const PLANNING_STALE_PENDING_HOURS = 24;
 const PLANNING_STALE_SCHEDULED_HOURS = 24;
 const PLANNING_RESURFACED_LOOKBACK_DAYS = 30;
@@ -583,6 +584,10 @@ export class PersonalOpsService {
 
   async getStatusReport(options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
     return buildStatusReport(this, options);
+  }
+
+  async getNowNextWorkflowReport(options: { httpReachable: boolean }) {
+    return buildNowNextWorkflowReport(this, options);
   }
 
   async getPrepDayWorkflowReport(options: { httpReachable: boolean }) {
@@ -7363,6 +7368,39 @@ export class PersonalOpsService {
         reasons.push("slot is soon");
       } else if (hoursAway <= 24) {
         score += 20;
+      }
+    }
+
+    if (recommendation.kind === "schedule_task_block" && recommendation.source_task_id) {
+      const task = this.db.getTask(recommendation.source_task_id);
+      const dueMs = Date.parse(task?.due_at ?? "");
+      if (Number.isFinite(dueMs)) {
+        const hoursUntilDue = (dueMs - Date.now()) / (60 * 60_000);
+        if (hoursUntilDue <= 2) {
+          score += 80;
+          reasons.push("deadline is very close");
+        } else if (hoursUntilDue <= 8) {
+          score += 40;
+          reasons.push("deadline is today");
+        }
+      }
+    }
+
+    if (recommendation.kind === "schedule_event_prep" && recommendation.source_calendar_event_id) {
+      const event = this.db.getCalendarEvent(recommendation.source_calendar_event_id);
+      const eventStartMs = Date.parse(event?.start_at ?? "");
+      if (Number.isFinite(eventStartMs)) {
+        const hoursUntilEvent = (eventStartMs - Date.now()) / (60 * 60_000);
+        if (hoursUntilEvent <= 2) {
+          score += 90;
+          reasons.push("meeting is imminent");
+        } else if (hoursUntilEvent <= 6) {
+          score += 45;
+          reasons.push("meeting is later today");
+        } else if (hoursUntilEvent > 24) {
+          score -= 80;
+          reasons.push("meeting is not close enough yet");
+        }
       }
     }
 

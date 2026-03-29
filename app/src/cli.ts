@@ -86,6 +86,8 @@ Start here:
   personal-ops version         See current version and source-first upgrade path
   personal-ops install check   Verify local setup without needing the daemon
   personal-ops health check    Run the recurring-friendly health pass
+  personal-ops workflow now-next
+                               Get the best next move right now
   personal-ops workflow prep-day
                                Start the day with a bounded workflow bundle
   personal-ops status          See full readiness and next attention

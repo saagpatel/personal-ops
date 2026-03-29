@@ -402,6 +402,13 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/workflows/now-next") {
+        sendJson(response, 200, {
+          workflow: await service.getNowNextWorkflowReport({ httpReachable: true }),
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/workflows/follow-up-block") {
         sendJson(response, 200, {
           workflow: await service.getFollowUpBlockWorkflowReport({ httpReachable: true }),
