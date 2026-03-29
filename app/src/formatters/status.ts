@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorReport, ServiceStatusReport, WorklistReport } from "../types.js";
+import type { DoctorCheck, DoctorReport, HealthCheckReport, ServiceStatusReport, WorklistReport } from "../types.js";
 import {
   formatSeverity,
   formatStateLabel,
@@ -361,6 +361,70 @@ export function formatWorklistReport(report: WorklistReport): string {
     lines.push(`${index + 1}. [${item.severity.toUpperCase()}] ${item.title}`);
     lines.push(`   ${item.summary}`);
     lines.push(`   next: ${item.suggested_command}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatHealthStateLabel(state: HealthCheckReport["state"]): string {
+  if (state === "attention_needed") {
+    return "ATTENTION NEEDED";
+  }
+  return formatStateLabel(state);
+}
+
+export function formatHealthCheckReport(report: HealthCheckReport): string {
+  const lines: string[] = [];
+  lines.push(`Personal Ops Health Check: ${formatHealthStateLabel(report.state)}`);
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Mode", report.deep ? "deep" : "local"));
+  lines.push(line("Install check", formatStateLabel(report.install_check_state)));
+  lines.push(line("Daemon reachable", yesNo(report.daemon_reachable)));
+  lines.push(line("Doctor state", report.doctor_state ? formatStateLabel(report.doctor_state) : "not run"));
+  lines.push(line("Latest snapshot", report.latest_snapshot_id ?? "none"));
+  lines.push(
+    line(
+      "Snapshot age",
+      report.latest_snapshot_age_hours == null ? "unknown" : `${report.latest_snapshot_age_hours.toFixed(1)}h`,
+    ),
+  );
+  lines.push(
+    line(
+      "Snapshot threshold",
+      report.snapshot_age_limit_hours == null ? "disabled" : `${report.snapshot_age_limit_hours}h`,
+    ),
+  );
+  lines.push(line("Summary", `${report.summary.pass} pass / ${report.summary.warn} warn / ${report.summary.fail} fail`));
+  lines.push("");
+
+  lines.push("Start Here");
+  if (report.state === "ready") {
+    lines.push("- Everything looks healthy right now.");
+  } else if (report.state === "attention_needed") {
+    lines.push("- This recurring check found warnings worth reviewing soon.");
+  } else {
+    lines.push("- This recurring check found at least one failure that should be repaired before trusting the runtime.");
+  }
+  if (report.summary.warn > 0 || report.summary.fail > 0) {
+    lines.push("- Run `personal-ops install check` and `personal-ops doctor` for the fuller local picture.");
+  }
+  if (report.deep && !report.daemon_reachable) {
+    lines.push("- Deep live verification was limited because the daemon was not reachable.");
+  }
+  if (report.latest_snapshot_id == null) {
+    lines.push("- Create a fresh recovery point with `personal-ops backup create`.");
+  } else if (
+    report.snapshot_age_limit_hours != null &&
+    report.latest_snapshot_age_hours != null &&
+    report.latest_snapshot_age_hours > report.snapshot_age_limit_hours
+  ) {
+    lines.push("- Create a fresh recovery snapshot with `personal-ops backup create`.");
+  }
+  lines.push("");
+
+  lines.push("Checks");
+  for (const check of report.checks) {
+    lines.push(...formatDoctorCheck(check));
   }
 
   return lines.join("\n");

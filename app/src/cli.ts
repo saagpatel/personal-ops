@@ -84,6 +84,7 @@ program
     `
 Start here:
   personal-ops install check   Verify local setup without needing the daemon
+  personal-ops health check    Run the recurring-friendly health pass
   personal-ops status          See full readiness and next attention
   personal-ops now             See the shortest operator summary
   personal-ops worklist        See the full attention queue
@@ -1310,7 +1311,7 @@ audit
     printOutput(response, (value) => formatAuditEvents(value.events), options.json);
   });
 
-registerRuntimeCommands(program, cliContext, logger);
+registerRuntimeCommands(program, cliContext, logger, paths);
 registerInstallAndBackupCommands(program, cliContext, paths);
 
 program.parseAsync(process.argv).catch((error) => {

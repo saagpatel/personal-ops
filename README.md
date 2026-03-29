@@ -81,13 +81,16 @@ Today, the repo includes:
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`
+- formal local release gate with `npm run release:check` from `app/`
 - a first CI baseline for typecheck, tests, and smoke verification on pushes and PRs
+- recurring-friendly local health checks with `personal-ops health check`
 
 ## Learn More
 
 - Start here: [START-HERE.md](START-HERE.md)
 - Quick guide: [QUICK-GUIDE.md](QUICK-GUIDE.md)
 - Operations runbook: [OPERATIONS.md](OPERATIONS.md)
+- Release checklist: [RELEASING.md](RELEASING.md)
 - Architecture guide: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Client usage contract: [CLIENTS.md](CLIENTS.md)
 - New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)

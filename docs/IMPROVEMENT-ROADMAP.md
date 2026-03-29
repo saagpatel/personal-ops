@@ -18,6 +18,9 @@ After Phase 8, the active follow-on track is conservative hardening:
 - explicit local secret-permission repair
 - one-command local release verification
 - a first CI baseline for stable cross-platform checks
+- Node 24-ready CI workflow maintenance
+- a documented release checklist and `release:check` ship path
+- a recurring-friendly `personal-ops health check` for install, runtime, and snapshot freshness
 
 ## Phase Ledger
 
@@ -148,7 +151,7 @@ The current post-roadmap hardening track focuses on four audit-backed improvemen
 
 ### Current Goal
 
-Phase 8 is complete. The current follow-on work is a conservative hardening pass over dependency safety, secret-file permissions, release verification, and CI.
+Phase 8 is complete. The current follow-on work extends the hardening pass with CI maintenance, release-process polish, and recurring health checks.
 
 ### Guardrails
 
@@ -161,6 +164,7 @@ Phase 8 is complete. The current follow-on work is a conservative hardening pass
 - keep the new docs layer aligned with the verified command surface and trust model
 - use the Phase 3 verification commands and the later live sanity passes as the baseline confidence layer for later phases
 - keep the post-Phase-8 hardening work additive and local-first
+- keep recurring health checks read-only and safe for unattended local runs
 
 ### Current Assumptions
 
@@ -175,6 +179,7 @@ Phase 8 is complete. The current follow-on work is a conservative hardening pass
 - Phase 8 added a same-origin local operator console with a read-only browser session model and browser-aware verification
 - future phases should extend or consume the existing verification layer instead of creating parallel test flows
 - the current hardening track should resolve open runtime dependency alerts before adding new product features
+- the current hardening track should make CI and release paths easier to sustain without widening trust boundaries
 
 ### Required End-of-Phase Verification
 
@@ -199,6 +204,7 @@ Phase 8 is complete. The current follow-on work is a conservative hardening pass
 - Phase 6 also made snapshot ids collision-safe after a closeout-discovered restore edge
 - Phase 7 completed the explicit single-primary-machine strategy and cross-machine restore guardrails
 - Phase 8 completed the first read-first operator console with local browser sessions and Playwright-backed verification
+- the follow-on hardening track now includes CI maintenance, a formal release checklist, and a recurring-friendly health check command
 - every future phase ends with a verification summary and an explicit next-phase recommendation
 
 ## Phase Completion Rule

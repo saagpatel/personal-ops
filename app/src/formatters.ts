@@ -1,6 +1,7 @@
 export {
   formatStatusReport,
   formatDoctorReport,
+  formatHealthCheckReport,
   formatSendWindowStatus,
   formatWorklistReport,
   formatNowReport,

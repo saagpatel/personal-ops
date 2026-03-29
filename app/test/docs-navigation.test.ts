@@ -31,6 +31,7 @@ function assertDocLinks(markdownPath: string, expectedLinks: string[]): void {
 test("Phase 5 primary docs exist and README routes into the new docs layer", () => {
   assertRepoFileExists("START-HERE.md");
   assertRepoFileExists("OPERATIONS.md");
+  assertRepoFileExists("RELEASING.md");
   assertRepoFileExists("ARCHITECTURE.md");
   assertRepoFileExists("QUICK-GUIDE.md");
   assertRepoFileExists("docs/PHASE-5-PLAN.md");
@@ -40,6 +41,7 @@ test("Phase 5 primary docs exist and README routes into the new docs layer", () 
     "START-HERE.md",
     "QUICK-GUIDE.md",
     "OPERATIONS.md",
+    "RELEASING.md",
     "ARCHITECTURE.md",
     "CLIENTS.md",
     "docs/NEW-MACHINE-SETUP.md",
@@ -50,6 +52,7 @@ test("Phase 5 start-here doc links to the main role paths and history docs", () 
   const expectedLinks = [
     "QUICK-GUIDE.md",
     "OPERATIONS.md",
+    "RELEASING.md",
     "ARCHITECTURE.md",
     "CLIENTS.md",
     "docs/NEW-MACHINE-SETUP.md",

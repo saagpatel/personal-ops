@@ -63,6 +63,8 @@ Use this path if you want to:
 
 - [OPERATIONS.md](OPERATIONS.md)
   The practical runbook for install, auth, wrappers, LaunchAgent, console access, backup, restore, verification, and troubleshooting.
+- [RELEASING.md](RELEASING.md)
+  The release and maintenance checklist for the formal local ship gate and recurring health checks.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
   The current system shape after Phases 1 to 4, including trust boundaries and module layout.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
