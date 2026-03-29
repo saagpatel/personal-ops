@@ -22,6 +22,8 @@ import {
   verifyGoogleCalendarWriteAccess,
 } from "./calendar.js";
 import { CURRENT_SCHEMA_VERSION, PersonalOpsDb } from "./db.js";
+import { getInstallArtifactPaths } from "./install.js";
+import { getLaunchAgentLabel, inspectLaunchAgent as inspectInstalledLaunchAgent } from "./launchagent.js";
 import {
   createGmailDraft,
   getGmailMessageMetadata,
@@ -36,6 +38,13 @@ import {
 import { getKeychainSecret } from "./keychain.js";
 import { Logger } from "./logger.js";
 import { sendMacNotification } from "./notifications.js";
+import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
+import {
+  createSnapshot as createSnapshotFromModule,
+  inspectSnapshot as inspectSnapshotFromModule,
+  listSnapshots as listSnapshotsFromModule,
+} from "./service/install.js";
+import { buildDoctorReport, buildStatusReport } from "./service/status.js";
 import {
   AttentionItem,
   AttentionSeverity,
@@ -141,11 +150,6 @@ interface DoctorOptions {
   httpReachable: boolean;
 }
 
-interface LaunchAgentStatus {
-  exists: boolean;
-  loaded: boolean;
-}
-
 interface StoredGmailAuth {
   email: string;
   clientConfig: GmailClientConfig;
@@ -194,6 +198,7 @@ interface PersonalOpsDependencies {
   patchGoogleCalendarEvent: typeof patchGoogleCalendarEvent;
   cancelGoogleCalendarEvent: typeof cancelGoogleCalendarEvent;
   openExternalUrl: (url: string) => void;
+  inspectLaunchAgent: typeof inspectInstalledLaunchAgent;
 }
 
 const SETUP_REQUIRED_IDS = new Set([
@@ -475,6 +480,7 @@ const defaultDependencies: PersonalOpsDependencies = {
   openExternalUrl: (url) => {
     execFileSync("open", [url]);
   },
+  inspectLaunchAgent: inspectInstalledLaunchAgent,
 };
 
 export class PersonalOpsService {
@@ -553,236 +559,11 @@ export class PersonalOpsService {
   }
 
   async getStatusReport(options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
-    const checks = await this.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
-    const summary = this.summarizeChecks(checks);
-    const schemaCompatibility = this.db.getSchemaCompatibility();
-    const mailAccount = this.db.getMailAccount();
-    const launchAgent = this.inspectLaunchAgent();
-    const reviewItems = this.db.listReviewItems();
-    const approvals = this.listApprovalQueue({ limit: 500 });
-    const approvalCounts = this.summarizeApprovalQueue(approvals);
-    const taskCounts = this.db.countTaskStates();
-    const suggestionCounts = this.db.countTaskSuggestionStates();
-    const planningCounts = this.db.countPlanningRecommendationStates();
-    const planningOutcomeCounts = this.db.countPlanningRecommendationOutcomeStates();
-    const planningSlotCounts = this.db.countPlanningRecommendationSlotStates();
-    const planningAnalytics = this.computePlanningAnalytics();
-    const planningPolicyReport = this.buildPlanningPolicyReport();
-    const activeSendWindow = this.db.getActiveSendWindow();
-    const effectiveSendEnabled = this.isSendEnabled(activeSendWindow);
-    const pendingCount = reviewItems.filter((item) => item.state === "pending").length;
-    const openedCount = reviewItems.filter((item) => item.state === "opened").length;
-    const worklist = await this.getWorklistReport(options);
-    const inboxStatus = this.getInboxStatusReport();
-    const calendarStatus = this.getCalendarStatusReport();
-    const topInboxItem =
-      worklist.items.find((item) =>
-        ["sync_degraded", "inbox_unread_old", "thread_needs_reply", "thread_stale_followup"].includes(item.kind),
-      ) ?? null;
-    const topCalendarItem =
-      worklist.items.find((item) =>
-        [
-          "calendar_sync_degraded",
-          "calendar_event_soon",
-          "calendar_conflict",
-          "calendar_day_overloaded",
-          "task_schedule_pressure",
-          "task_unscheduled_due_soon",
-          "scheduled_task_conflict",
-          "scheduled_task_stale",
-        ].includes(item.kind),
-      ) ?? null;
-    const topSchedulingItem =
-      worklist.items.find((item) =>
-        ["task_schedule_pressure", "task_unscheduled_due_soon", "scheduled_task_conflict", "scheduled_task_stale"].includes(
-          item.kind,
-        ),
-      ) ?? null;
-    const topPlanningRecommendation =
-      worklist.items.find((item) =>
-        ["planning_recommendation_pending", "planning_recommendation_snooze_expiring"].includes(item.kind),
-      ) ?? null;
-    const topPlanningGroup = worklist.items.find((item) => item.kind === "planning_recommendation_group") ?? null;
-    const blockedPlanningGroup = worklist.planning_groups.find((group) => group.manual_scheduling_count > 0) ?? null;
-    const pendingByGroup: Record<PlanningRecommendationGroupKind, number> = {
-      urgent_unscheduled_tasks: 0,
-      urgent_inbox_followups: 0,
-      near_term_meeting_prep: 0,
-    };
-    for (const group of worklist.planning_groups) {
-      pendingByGroup[group.group_kind] += group.pending_count;
-    }
-    return {
-      generated_at: new Date().toISOString(),
-      state: this.classifyState(checks),
-      daemon_reachable: options.httpReachable,
-      send_enabled: effectiveSendEnabled,
-      send_policy: {
-        permanent_enabled: this.policy.allowSend,
-        window_active: Boolean(activeSendWindow),
-        window_expires_at: activeSendWindow?.expires_at ?? null,
-        effective_enabled: effectiveSendEnabled,
-      },
-      mailbox: {
-        configured: this.config.gmailAccountEmail || null,
-        connected: mailAccount?.email ?? null,
-        matches_configuration: Boolean(
-          this.config.gmailAccountEmail && mailAccount?.email && this.config.gmailAccountEmail === mailAccount.email,
-        ),
-        oauth_client_configured: this.isOAuthClientConfigured(),
-        keychain_token_present: Boolean(
-          mailAccount && getKeychainSecret(this.config.keychainService, mailAccount.email),
-        ),
-      },
-      launch_agent: {
-        exists: launchAgent.exists,
-        loaded: launchAgent.loaded,
-        label: "com.d.personal-ops",
-      },
-      schema: {
-        current_version: schemaCompatibility.current_version,
-        expected_version: schemaCompatibility.expected_version,
-        compatible: schemaCompatibility.compatible,
-        compatibility_message: schemaCompatibility.message,
-      },
-      review_queue: {
-        pending_count: pendingCount,
-        opened_count: openedCount,
-        total_count: reviewItems.length,
-      },
-      approval_queue: {
-        pending_count: approvalCounts.pending,
-        approved_count: approvalCounts.approved,
-        sending_count: approvalCounts.sending,
-        send_failed_count: approvalCounts.send_failed,
-        total_count: approvals.length,
-      },
-      tasks: {
-        pending_count: taskCounts.pending,
-        in_progress_count: taskCounts.in_progress,
-        completed_count: taskCounts.completed,
-        canceled_count: taskCounts.canceled,
-        active_count: taskCounts.pending + taskCounts.in_progress,
-        historical_count: taskCounts.completed + taskCounts.canceled,
-        total_count: this.db.listTasks().length,
-        top_item_summary:
-          worklist.items.find((item) =>
-            ["task_due_soon", "task_overdue", "task_reminder_due", "task_in_progress_stale"].includes(item.kind),
-          )?.summary ?? null,
-      },
-      task_suggestions: {
-        pending_count: suggestionCounts.pending,
-        accepted_count: suggestionCounts.accepted,
-        rejected_count: suggestionCounts.rejected,
-        active_count: suggestionCounts.pending,
-        historical_count: suggestionCounts.accepted + suggestionCounts.rejected,
-        total_count: this.db.listTaskSuggestions().length,
-        top_item_summary:
-          worklist.items.find((item) => item.kind === "task_suggestion_pending")?.summary ?? null,
-      },
-      planning_recommendations: {
-        pending_count: planningCounts.pending,
-        snoozed_count: planningCounts.snoozed,
-        applied_count: planningCounts.applied,
-        rejected_count: planningCounts.rejected,
-        expired_count: planningCounts.expired,
-        superseded_count: planningCounts.superseded,
-        scheduled_count: planningOutcomeCounts.scheduled,
-        completed_count: planningOutcomeCounts.completed,
-        canceled_count: planningOutcomeCounts.canceled,
-        dismissed_count: planningOutcomeCounts.dismissed,
-        handled_elsewhere_count: planningOutcomeCounts.handled_elsewhere,
-        source_resolved_count: planningOutcomeCounts.source_resolved,
-        manual_scheduling_count: planningAnalytics.backlog.groups.reduce(
-          (total, group) => total + group.manual_scheduling_count,
-          0,
-        ),
-        stale_pending_count: planningAnalytics.backlog.groups.reduce((total, group) => total + group.stale_pending_count, 0),
-        stale_scheduled_count: planningAnalytics.backlog.groups.reduce((total, group) => total + group.stale_scheduled_count, 0),
-        resurfaced_source_count: planningAnalytics.backlog.groups.reduce(
-          (total, group) => total + group.resurfaced_source_count,
-          0,
-        ),
-        closed_last_7d: planningAnalytics.summary.closed_last_7d,
-        closed_last_30d: planningAnalytics.summary.closed_last_30d,
-        completed_last_30d: planningAnalytics.closure.totals.completed_count,
-        handled_elsewhere_last_30d: planningAnalytics.closure.totals.handled_elsewhere_count,
-        median_time_to_first_action_minutes: planningAnalytics.closure.totals.median_time_to_first_action_minutes,
-        median_time_to_close_minutes: planningAnalytics.closure.totals.median_time_to_close_minutes,
-        active_count: planningAnalytics.summary.open_count,
-        historical_count:
-          this.db.listPlanningRecommendations({ include_resolved: true }).length - planningAnalytics.summary.open_count,
-        total_count: this.db.listPlanningRecommendations({ include_resolved: true }).length,
-        top_group_summary: topPlanningGroup?.summary ?? null,
-        top_item_summary: topPlanningRecommendation?.summary ?? null,
-        top_next_action_summary: topPlanningRecommendation?.summary ?? null,
-        blocked_group_summary: blockedPlanningGroup
-          ? `${blockedPlanningGroup.group_summary} (${blockedPlanningGroup.manual_scheduling_count} need manual scheduling)`
-          : null,
-        top_backlog_summary: this.summarizePlanningBacklog(planningAnalytics.backlog),
-        top_closure_summary: this.summarizePlanningClosure(planningAnalytics.closure),
-        dominant_backlog_summary: this.summarizePlanningDominantBacklog(planningAnalytics.backlog),
-        top_suppression_candidate_summary:
-          this.summarizePlanningReviewNeeded(planningAnalytics.hygiene) ??
-          this.summarizePlanningSuppressionCandidate(planningAnalytics.hygiene),
-        top_hygiene_summary: this.summarizePlanningHygiene(planningAnalytics.hygiene),
-        review_needed_count: planningAnalytics.summary.review_needed_count,
-        top_review_needed_summary: this.summarizePlanningReviewNeeded(planningAnalytics.hygiene),
-        reviewed_fresh_count: planningAnalytics.tuning.reviewed_fresh_count,
-        reviewed_stale_count: planningAnalytics.tuning.reviewed_stale_count,
-        proposal_open_count: planningAnalytics.tuning.proposal_open_count,
-        proposal_stale_count: planningAnalytics.tuning.proposal_stale_count,
-        proposal_dismissed_count: planningAnalytics.tuning.proposal_dismissed_count,
-        top_reviewed_stale_summary: planningAnalytics.tuning.top_reviewed_stale_summary,
-        top_proposal_open_summary: planningAnalytics.tuning.top_proposal_open_summary,
-        top_proposal_stale_summary: planningAnalytics.tuning.top_proposal_stale_summary,
-        policy_attention_kind: planningPolicyReport.policy_attention_kind,
-        top_policy_attention_summary: planningPolicyReport.policy_attention_summary,
-        pending_by_group: pendingByGroup,
-      },
-      snapshot_latest: this.getLatestSnapshotSummary(),
-      checks_summary: summary,
-      worklist_summary: {
-        critical_count: worklist.counts_by_severity.critical,
-        warn_count: worklist.counts_by_severity.warn,
-        info_count: worklist.counts_by_severity.info,
-        top_item_summary: worklist.items[0]?.summary ?? null,
-      },
-      inbox: {
-        sync_status: inboxStatus.sync?.status ?? "not_configured",
-        last_history_id: inboxStatus.sync?.last_history_id ?? null,
-        last_synced_at: inboxStatus.sync?.last_synced_at ?? null,
-        unread_thread_count: inboxStatus.unread_thread_count,
-        followup_thread_count: inboxStatus.followup_thread_count,
-        total_thread_count: inboxStatus.total_thread_count,
-        top_item_summary: topInboxItem?.summary ?? null,
-      },
-      calendar: {
-        enabled: calendarStatus.enabled,
-        sync_status: calendarStatus.sync?.status ?? "not_configured",
-        last_synced_at: calendarStatus.sync?.last_synced_at ?? null,
-        calendars_synced_count: calendarStatus.calendars_synced_count,
-        events_synced_count: calendarStatus.events_synced_count,
-        owned_writable_calendar_count: calendarStatus.owned_writable_calendar_count,
-        personal_ops_active_event_count: calendarStatus.personal_ops_active_event_count,
-        linked_scheduled_task_count: calendarStatus.linked_scheduled_task_count,
-        conflict_count_next_24h: calendarStatus.conflict_count_next_24h,
-        next_upcoming_event_summary: calendarStatus.next_upcoming_event?.summary ?? null,
-        top_item_summary: topCalendarItem?.summary ?? null,
-        top_scheduling_item_summary: topSchedulingItem?.summary ?? null,
-      },
-    };
+    return buildStatusReport(this, options);
   }
 
   async runDoctor(options: DoctorOptions): Promise<DoctorReport> {
-    const checks = await this.collectDoctorChecks(options);
-    return {
-      generated_at: new Date().toISOString(),
-      state: this.classifyState(checks),
-      deep: options.deep,
-      summary: this.summarizeChecks(checks),
-      checks,
-    };
+    return buildDoctorReport(this, options);
   }
 
   getSendWindowStatus(): { active_window: SendWindow | null; effective_send_enabled: boolean; permanent_send_enabled: boolean } {
@@ -3326,113 +3107,19 @@ export class PersonalOpsService {
     filter: Partial<AuditEventFilter> & { limit?: number },
     options: AuditEventReadOptions = {},
   ): AuditEvent[] {
-    const categoryActions = filter.category ? this.listAssistantSafeAuditActionsForCategory(filter.category) : undefined;
-    const events = this.db.listAuditEvents({
-      limit: filter.limit ?? this.policy.auditDefaultLimit,
-      actions: categoryActions,
-      action: filter.action,
-      target_type: filter.target_type,
-      target_id: filter.target_id,
-      client_id: filter.client_id,
-    });
-    if (!options.assistant_safe) {
-      return events;
-    }
-    return events
-      .map((event) => this.shapeAuditEventForAssistant(event))
-      .filter((event): event is AuditEvent => Boolean(event));
+    return listAuditEventsFromModule(this, filter, options);
   }
 
   async createSnapshot(stateOverride?: ServiceState): Promise<SnapshotManifest> {
-    const snapshotId = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
-    const snapshotDir = path.join(this.paths.snapshotsDir, snapshotId);
-    fs.mkdirSync(snapshotDir, { recursive: true });
-
-    const dbBackupPath = path.join(snapshotDir, "personal-ops.db");
-    await this.db.createBackup(dbBackupPath);
-
-    const configCopy = path.join(snapshotDir, "config.toml");
-    const policyCopy = path.join(snapshotDir, "policy.toml");
-    const logCopy = path.join(snapshotDir, "app.jsonl");
-    fs.copyFileSync(this.paths.configFile, configCopy);
-    fs.copyFileSync(this.paths.policyFile, policyCopy);
-    if (fs.existsSync(this.paths.appLogFile)) {
-      fs.copyFileSync(this.paths.appLogFile, logCopy);
-    } else {
-      fs.writeFileSync(logCopy, "", "utf8");
-    }
-
-    const mailAccount = this.db.getMailAccount();
-    const daemonState = stateOverride ?? "ready";
-    const notes = daemonState === "ready" ? [] : [`Snapshot created while service state was ${daemonState}.`];
-    const manifest: SnapshotManifest = {
-      snapshot_id: snapshotId,
-      created_at: new Date().toISOString(),
-      service_version: this.getServiceVersion(),
-      mailbox: mailAccount?.email ?? null,
-      db_backup_path: dbBackupPath,
-      config_paths: [configCopy, policyCopy],
-      log_paths: [logCopy],
-      daemon_state: daemonState,
-      notes,
-    };
-    fs.writeFileSync(path.join(snapshotDir, "manifest.json"), JSON.stringify(manifest, null, 2));
-    this.db.recordAuditEvent({
-      client_id: "operator-cli",
-      action: "snapshot_create",
-      target_type: "snapshot",
-      target_id: snapshotId,
-      outcome: "success",
-      metadata: {
-        path: snapshotDir,
-        daemon_state: daemonState,
-      },
-    });
-    return manifest;
+    return createSnapshotFromModule(this, stateOverride);
   }
 
   listSnapshots(): SnapshotSummary[] {
-    if (!fs.existsSync(this.paths.snapshotsDir)) {
-      return [];
-    }
-    return fs
-      .readdirSync(this.paths.snapshotsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => this.readSnapshotManifest(entry.name))
-      .filter((manifest): manifest is SnapshotManifest => Boolean(manifest))
-      .sort((a, b) => b.snapshot_id.localeCompare(a.snapshot_id))
-      .map((manifest) => ({
-        snapshot_id: manifest.snapshot_id,
-        created_at: manifest.created_at,
-        path: path.join(this.paths.snapshotsDir, manifest.snapshot_id),
-        daemon_state: manifest.daemon_state,
-      }));
+    return listSnapshotsFromModule(this);
   }
 
   inspectSnapshot(snapshotId: string): SnapshotInspection {
-    const manifest = this.readSnapshotManifest(snapshotId);
-    if (!manifest) {
-      throw new Error(`Snapshot ${snapshotId} was not found.`);
-    }
-    const trackedPaths = [manifest.db_backup_path, ...manifest.config_paths, ...manifest.log_paths];
-    const files = trackedPaths.map((filePath) => {
-      const exists = fs.existsSync(filePath);
-      const sizeBytes = exists ? fs.statSync(filePath).size : 0;
-      return {
-        path: filePath,
-        exists,
-        size_bytes: sizeBytes,
-      };
-    });
-    const warnings = [...manifest.notes];
-    if (manifest.daemon_state !== "ready") {
-      warnings.push(`Snapshot ${snapshotId} was created while service state was ${manifest.daemon_state}.`);
-    }
-    return {
-      manifest,
-      files,
-      warnings,
-    };
+    return inspectSnapshotFromModule(this, snapshotId);
   }
 
   private summarizeChecks(checks: DoctorCheck[]) {
@@ -3460,6 +3147,7 @@ export class PersonalOpsService {
     const checks: DoctorCheck[] = [];
     const mailAccount = this.db.getMailAccount();
     const launchAgent = this.inspectLaunchAgent();
+    const installArtifacts = getInstallArtifactPaths(this.paths);
     const oauthConfigured = this.isOAuthClientConfigured();
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
@@ -3495,10 +3183,47 @@ export class PersonalOpsService {
         : this.failCheck("launch_agent_exists", "LaunchAgent file", "LaunchAgent plist is missing.", "runtime"),
     );
     checks.push(
-      launchAgent.loaded
+      launchAgent.running
         ? this.passCheck("launch_agent_running", "LaunchAgent state", "LaunchAgent is loaded and running.", "runtime")
         : this.failCheck("launch_agent_running", "LaunchAgent state", "LaunchAgent is not loaded or not running.", "runtime"),
     );
+    checks.push(
+      fs.existsSync(installArtifacts.daemonWrapperPath)
+        ? this.passCheck("daemon_wrapper_exists", "Daemon wrapper", "Daemon wrapper exists.", "integration")
+        : this.failCheck("daemon_wrapper_exists", "Daemon wrapper", "Daemon wrapper is missing.", "integration"),
+    );
+    if (launchAgent.exists) {
+      checks.push(
+        launchAgent.programPath === installArtifacts.daemonWrapperPath
+          ? this.passCheck(
+              "launch_agent_target_valid",
+              "LaunchAgent target",
+              `LaunchAgent points to ${installArtifacts.daemonWrapperPath}.`,
+              "integration",
+            )
+          : this.failCheck(
+              "launch_agent_target_valid",
+              "LaunchAgent target",
+              `LaunchAgent points to ${launchAgent.programPath ?? "nothing"}, expected ${installArtifacts.daemonWrapperPath}.`,
+              "integration",
+            ),
+      );
+      checks.push(
+        launchAgent.workingDirectory === this.paths.appDir
+          ? this.passCheck(
+              "launch_agent_workdir_valid",
+              "LaunchAgent working directory",
+              `LaunchAgent uses ${this.paths.appDir}.`,
+              "integration",
+            )
+          : this.failCheck(
+              "launch_agent_workdir_valid",
+              "LaunchAgent working directory",
+              `LaunchAgent uses ${launchAgent.workingDirectory ?? "nothing"}, expected ${this.paths.appDir}.`,
+              "integration",
+            ),
+      );
+    }
     checks.push(this.fileCheck("sqlite_readable", "SQLite state", this.paths.databaseFile, true));
     checks.push(this.directoryWritableCheck("log_dir_writable", "Log directory", this.paths.logDir));
     checks.push(this.fileCheck("local_api_token_exists", "Local API token", this.paths.apiTokenFile, true));
@@ -3967,9 +3692,14 @@ export class PersonalOpsService {
     }
 
     checks.push(
-      fs.existsSync(path.join(os.homedir(), ".codex/bin/personal-ops-mcp"))
+      fs.existsSync(installArtifacts.codexMcpWrapperPath)
         ? this.passCheck("codex_mcp_launcher_exists", "Codex MCP launcher", "Codex MCP launcher exists.", "integration")
         : this.warnCheck("codex_mcp_launcher_exists", "Codex MCP launcher", "Codex MCP launcher is missing.", "integration"),
+    );
+    checks.push(
+      fs.existsSync(installArtifacts.claudeMcpWrapperPath)
+        ? this.passCheck("claude_mcp_launcher_exists", "Claude MCP launcher", "Claude MCP launcher exists.", "integration")
+        : this.warnCheck("claude_mcp_launcher_exists", "Claude MCP launcher", "Claude MCP launcher is missing.", "integration"),
     );
 
     if (options.deep) {
@@ -9567,24 +9297,8 @@ export class PersonalOpsService {
         };
   }
 
-  private inspectLaunchAgent(): LaunchAgentStatus {
-    const launchAgentPath = path.join(os.homedir(), "Library/LaunchAgents/com.d.personal-ops.plist");
-    const exists = fs.existsSync(launchAgentPath);
-    if (!exists) {
-      return { exists: false, loaded: false };
-    }
-    try {
-      const output = execFileSync("launchctl", ["print", `gui/${process.getuid?.() ?? 501}/com.d.personal-ops`], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      return {
-        exists,
-        loaded: output.includes("state = running"),
-      };
-    } catch {
-      return { exists, loaded: false };
-    }
+  private inspectLaunchAgent() {
+    return this.dependencies.inspectLaunchAgent(undefined, getLaunchAgentLabel());
   }
 
   private isOAuthClientConfigured(): boolean {

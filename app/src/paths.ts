@@ -30,5 +30,6 @@ export function resolvePaths(): Paths {
     assistantApiTokenFile: path.join(stateDir, "assistant-api-token"),
     databaseFile: path.join(stateDir, "personal-ops.db"),
     appLogFile: path.join(logDir, "app.jsonl"),
+    installManifestFile: path.join(stateDir, "install-manifest.json"),
   };
 }

@@ -1,0 +1,27 @@
+#!/bin/zsh
+set -euo pipefail
+
+SCRIPT_DIR=${0:A:h}
+cd "$SCRIPT_DIR"
+
+for tool in node npm launchctl; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required tool: $tool" >&2
+    exit 1
+  fi
+done
+
+npm --prefix app install
+npm --prefix app run build
+PERSONAL_OPS_APP_DIR="$SCRIPT_DIR/app" node app/dist/src/cli.js install all
+PERSONAL_OPS_APP_DIR="$SCRIPT_DIR/app" node app/dist/src/cli.js install check
+
+cat <<'EOF'
+
+Next steps
+- Edit ~/.config/personal-ops/config.toml and set gmail.account_email.
+- Put your Google Desktop OAuth client JSON at ~/.config/personal-ops/gmail-oauth-client.json.
+- Run: personal-ops auth gmail login
+- Run: personal-ops auth google login
+- Finish with: personal-ops doctor --deep
+EOF

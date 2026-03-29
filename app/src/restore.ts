@@ -1,0 +1,153 @@
+import fs from "node:fs";
+import path from "node:path";
+import {
+  getLaunchAgentLabel,
+  getLaunchAgentPlistPath,
+  inspectLaunchAgent,
+  startLaunchAgent,
+  stopLaunchAgent,
+} from "./launchagent.js";
+import { Paths, RestoreResult, ServiceState, SnapshotManifest } from "./types.js";
+
+interface RestoreDependencies {
+  launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
+}
+
+function removeDatabaseSidecars(databaseFile: string): void {
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    fs.rmSync(`${databaseFile}${suffix}`, { force: true });
+  }
+}
+
+function getServiceVersion(paths: Paths): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(paths.appDir, "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "0.1.0";
+  } catch {
+    return "0.1.0";
+  }
+}
+
+function readSnapshotManifest(paths: Paths, snapshotId: string): SnapshotManifest | null {
+  const manifestPath = path.join(paths.snapshotsDir, snapshotId, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(manifestPath, "utf8")) as SnapshotManifest;
+}
+
+async function createLocalSnapshot(paths: Paths, daemonState: ServiceState, notes: string[] = []): Promise<SnapshotManifest> {
+  const snapshotId = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
+  const snapshotDir = path.join(paths.snapshotsDir, snapshotId);
+  fs.mkdirSync(snapshotDir, { recursive: true });
+
+  const dbBackupPath = path.join(snapshotDir, "personal-ops.db");
+  if (fs.existsSync(paths.databaseFile)) {
+    fs.copyFileSync(paths.databaseFile, dbBackupPath);
+  } else {
+    notes.push("Live database was missing when the rescue snapshot was created.");
+  }
+
+  const configCopy = path.join(snapshotDir, "config.toml");
+  const policyCopy = path.join(snapshotDir, "policy.toml");
+  const logCopy = path.join(snapshotDir, "app.jsonl");
+
+  if (fs.existsSync(paths.configFile)) {
+    fs.copyFileSync(paths.configFile, configCopy);
+  } else {
+    notes.push("Live config.toml was missing when the rescue snapshot was created.");
+  }
+  if (fs.existsSync(paths.policyFile)) {
+    fs.copyFileSync(paths.policyFile, policyCopy);
+  } else {
+    notes.push("Live policy.toml was missing when the rescue snapshot was created.");
+  }
+  if (fs.existsSync(paths.appLogFile)) {
+    fs.copyFileSync(paths.appLogFile, logCopy);
+  } else {
+    fs.writeFileSync(logCopy, "", "utf8");
+  }
+
+  const manifest: SnapshotManifest = {
+    snapshot_id: snapshotId,
+    created_at: new Date().toISOString(),
+    service_version: getServiceVersion(paths),
+    mailbox: null,
+    db_backup_path: dbBackupPath,
+    config_paths: [configCopy, policyCopy],
+    log_paths: [logCopy],
+    daemon_state: daemonState,
+    notes,
+  };
+  fs.writeFileSync(path.join(snapshotDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  return manifest;
+}
+
+function findSnapshotConfigPath(manifest: SnapshotManifest, fileName: "config.toml" | "policy.toml"): string {
+  const match = manifest.config_paths.find((filePath) => path.basename(filePath) === fileName);
+  if (!match || !fs.existsSync(match)) {
+    throw new Error(`Snapshot ${manifest.snapshot_id} is missing ${fileName}.`);
+  }
+  return match;
+}
+
+export async function restoreSnapshot(
+  paths: Paths,
+  snapshotId: string,
+  options: { confirm: boolean; withConfig: boolean; withPolicy: boolean },
+  dependencies: RestoreDependencies = {},
+): Promise<RestoreResult> {
+  if (!options.confirm) {
+    throw new Error("Restore requires --yes.");
+  }
+
+  const manifest = readSnapshotManifest(paths, snapshotId);
+  if (!manifest) {
+    throw new Error(`Snapshot ${snapshotId} was not found.`);
+  }
+  if (!fs.existsSync(manifest.db_backup_path)) {
+    throw new Error(`Snapshot ${snapshotId} is missing its database backup.`);
+  }
+
+  const launchAgentPath = getLaunchAgentPlistPath();
+  const launchAgentLabel = getLaunchAgentLabel();
+  const launchAgent = inspectLaunchAgent(
+    launchAgentPath,
+    launchAgentLabel,
+    dependencies.launchAgentDependencies,
+  );
+  if (launchAgent.loaded) {
+    stopLaunchAgent(launchAgentPath, dependencies.launchAgentDependencies);
+  }
+
+  const rescue = await createLocalSnapshot(paths, "degraded", [
+    `Rescue snapshot created before restoring snapshot ${snapshotId}.`,
+  ]);
+
+  fs.mkdirSync(path.dirname(paths.databaseFile), { recursive: true });
+  removeDatabaseSidecars(paths.databaseFile);
+  fs.copyFileSync(manifest.db_backup_path, paths.databaseFile);
+
+  if (options.withConfig) {
+    fs.copyFileSync(findSnapshotConfigPath(manifest, "config.toml"), paths.configFile);
+  }
+  if (options.withPolicy) {
+    fs.copyFileSync(findSnapshotConfigPath(manifest, "policy.toml"), paths.policyFile);
+  }
+
+  let launchAgentRestarted = false;
+  if (launchAgent.loaded) {
+    startLaunchAgent(launchAgentPath, launchAgentLabel, dependencies.launchAgentDependencies);
+    launchAgentRestarted = true;
+  }
+
+  return {
+    restored_snapshot_id: snapshotId,
+    rescue_snapshot_id: rescue.snapshot_id,
+    restored_database_path: paths.databaseFile,
+    restored_config: options.withConfig,
+    restored_policy: options.withPolicy,
+    launch_agent_was_running: launchAgent.loaded,
+    launch_agent_restarted: launchAgentRestarted,
+  };
+}
