@@ -35,6 +35,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Complete |
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Complete |
 | 6 | Planning Autopilot and Execution Bundles | Turn planning recommendations into prepared grouped execution work with explicit console apply | Complete |
+| 7 | Approval Autopilot and Outbound Finish-Work | Move reviewed outbound mail work through grouped request-approval, approve, and send in the console | Complete |
 
 ## Phase 1
 
@@ -147,10 +148,23 @@ Delivered shape:
 - workflow ranking that now points to prepared bundles instead of raw planning translation when a bundle is the real execution layer
 - grouped apply remains explicit, note-required, confirmation-gated, and audit-logged
 
+## Phase 7
+
+Phase 7 is now complete.
+
+Delivered shape:
+
+- `personal-ops outbound autopilot` plus grouped outbound detail, request-approval, approve, and send flows
+- outbound groups derived from reviewed inbox autopilot work first, with singleton fallback for orphan approval items
+- console-first outbound finish-work across Overview, Drafts, and Approvals
+- grouped approve and grouped send that reuse the existing per-approval confirmation and send machinery
+- explicit send-window blocked state with CLI handoff instead of browser-side send-window control
+- no silent approval, no silent send, and no widening of auth, restore, or destructive mutation scope
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, and 6 are complete
+- Phases 1, 2, 3, 4, 5, 6, and 7 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

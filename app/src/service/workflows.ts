@@ -4,6 +4,8 @@ import type {
   InboxAutopilotGroup,
   InboxAutopilotReport,
   InboxThreadSummary,
+  OutboundAutopilotGroup,
+  OutboundAutopilotReport,
   PlanningAutopilotBundle,
   PlanningAutopilotReport,
   PlanningRecommendationDetail,
@@ -32,6 +34,7 @@ interface WorkflowContext {
   status: any;
   worklist: WorklistReport;
   planningAutopilot: PlanningAutopilotReport;
+  outboundAutopilot: OutboundAutopilotReport;
   recommendationDetails: PlanningRecommendationDetail[];
   inboxAutopilot: InboxAutopilotReport;
   needsReplyThreads: InboxThreadSummary[];
@@ -50,6 +53,10 @@ function commandForRecommendation(recommendationId: string): string {
 
 function commandForPlanningBundle(bundleId: string): string {
   return `personal-ops planning autopilot --bundle ${bundleId}`;
+}
+
+function commandForOutboundGroup(groupId: string): string {
+  return `personal-ops outbound autopilot --group ${groupId}`;
 }
 
 function commandForCalendarEvent(eventId: string): string {
@@ -553,6 +560,51 @@ function autopilotGroupCandidate(group: InboxAutopilotGroup): WorkflowCandidate 
   };
 }
 
+function outboundGroupCandidate(group: OutboundAutopilotGroup): WorkflowCandidate {
+  const sendReady = group.state === "send_ready";
+  const approvalReady = group.state === "approval_ready";
+  const approvalPending = group.state === "approval_pending";
+  const reviewPending = group.state === "review_pending";
+  let score =
+    sendReady
+      ? 940
+      : approvalReady
+        ? 880
+        : approvalPending
+          ? 810
+          : reviewPending
+            ? 720
+            : group.state === "blocked"
+              ? 430
+              : 260;
+  if (group.kind === "reply_block") {
+    score += 20;
+  } else if (group.kind === "followup_block") {
+    score += 10;
+  }
+  return {
+    label:
+      sendReady
+        ? "Send outbound group"
+        : approvalReady
+          ? "Request approval for outbound group"
+          : approvalPending
+            ? "Approve outbound group"
+            : reviewPending
+              ? "Finish outbound review group"
+              : "Inspect outbound group",
+    summary: group.summary,
+    command: commandForOutboundGroup(group.group_id),
+    target_type: "outbound_autopilot_group",
+    target_id: group.group_id,
+    why_now: group.why_now,
+    signals: group.signals,
+    score,
+    category: "followup",
+    source_key: `outbound:${group.group_id}`,
+  };
+}
+
 function eventCandidate(event: CalendarEvent): WorkflowCandidate | null {
   const hoursUntilEvent = maybeHoursUntil(event.start_at);
   if (hoursUntilEvent === null || hoursUntilEvent > 6 || hoursUntilEvent <= 0) {
@@ -704,11 +756,27 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
           prepared_bundle_count: 0,
           bundles: [],
         });
-  const [status, worklist, recommendations, planningAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
+  const outboundAutopilotPromise =
+    typeof service.getOutboundAutopilotReport === "function"
+      ? service.getOutboundAutopilotReport(options)
+      : Promise.resolve({
+          generated_at: new Date().toISOString(),
+          readiness: "ready" as const,
+          summary: "Outbound autopilot unavailable.",
+          top_item_summary: null,
+          send_window: {
+            active: false,
+            effective_send_enabled: false,
+            permanent_send_enabled: false,
+          },
+          groups: [],
+        });
+  const [status, worklist, recommendations, planningAutopilot, outboundAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
     service.getStatusReport(options),
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
     planningAutopilotPromise,
+    outboundAutopilotPromise,
     service.getInboxAutopilotReport(options),
     Promise.resolve(service.listNeedsReplyThreads(10)),
     Promise.resolve(service.listFollowupThreads(10)),
@@ -725,6 +793,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     status,
     worklist,
     planningAutopilot,
+    outboundAutopilot,
     recommendationDetails,
     inboxAutopilot,
     needsReplyThreads,
@@ -771,6 +840,10 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
 
   for (const bundle of context.planningAutopilot.bundles) {
     pushUniqueCandidate(candidates, planningBundleCandidate(bundle));
+  }
+
+  for (const group of context.outboundAutopilot.groups) {
+    pushUniqueCandidate(candidates, outboundGroupCandidate(group));
   }
 
   for (const detail of context.recommendationDetails) {
@@ -991,6 +1064,9 @@ export async function buildFollowUpBlockWorkflowReport(
 ): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
   const bundleFollowups = context.planningAutopilot.bundles.filter((bundle) => bundle.kind === "thread_followup");
+  const outboundGroups = context.outboundAutopilot.groups.filter((group) =>
+    ["review_pending", "approval_ready", "approval_pending", "send_ready"].includes(group.state),
+  );
   const needsReplyGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "needs_reply");
   const staleFollowupGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "waiting_to_nudge");
   const recommendationSourceKeys = new Set(
@@ -999,6 +1075,7 @@ export async function buildFollowUpBlockWorkflowReport(
       .map((detail) => `thread:${detail.recommendation.source_thread_id}`),
   );
   const candidates = dedupeAndSortCandidates([
+    ...outboundGroups.map((group) => outboundGroupCandidate(group)),
     ...bundleFollowups.map((bundle) => planningBundleCandidate(bundle)),
     ...context.inboxAutopilot.groups.map((group) => autopilotGroupCandidate(group)),
     ...context.recommendationDetails
@@ -1024,6 +1101,9 @@ export async function buildFollowUpBlockWorkflowReport(
   ]);
   const topScore = candidates[0]?.score ?? 0;
   const needsReplyItems = [
+    ...outboundGroups
+      .filter((group) => group.kind === "reply_block" || group.kind === "single_draft")
+      .map((group) => toBundleItem(outboundGroupCandidate(group), topScore)),
     ...needsReplyGroups.map((group) => toBundleItem(autopilotGroupCandidate(group), topScore)),
     ...candidates
       .filter((candidate) => candidate.category === "followup" && candidate.source_key.startsWith("thread:"))
@@ -1032,6 +1112,9 @@ export async function buildFollowUpBlockWorkflowReport(
     .slice(0, MAX_SECTION_ITEMS)
     .map((item) => ("label" in item && "summary" in item && "command" in item ? item : toBundleItem(item as WorkflowCandidate, topScore)));
   const waitingToNudgeItems = [
+    ...outboundGroups
+      .filter((group) => group.kind === "followup_block")
+      .map((group) => toBundleItem(outboundGroupCandidate(group), topScore)),
     ...staleFollowupGroups.map((group) => toBundleItem(autopilotGroupCandidate(group), topScore)),
     ...candidates.filter((candidate) => candidate.category === "task").slice(0, MAX_SECTION_ITEMS),
   ]

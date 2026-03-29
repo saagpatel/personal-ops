@@ -917,7 +917,9 @@ export async function runConsoleVerification(): Promise<void> {
         const bodyText = document.body.textContent ?? "";
         return (
           (bodyText.includes("This section is intentionally read-only.") && bodyText.includes("personal-ops approval approve")) ||
-          bodyText.includes("Approvals, approval decisions, and send stay in the CLI.")
+          bodyText.includes("Approvals, approval decisions, and send stay in the CLI.") ||
+          bodyText.includes("Use grouped approve and send from Drafts when available.") ||
+          bodyText.includes("Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.")
         );
       });
       await planningContext.close();

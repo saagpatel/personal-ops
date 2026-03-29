@@ -46,6 +46,9 @@ import {
   formatInboxStatus,
   formatInboxThreadDetail,
   formatInboxThreads,
+  formatOutboundAutopilotActionResult,
+  formatOutboundAutopilotGroup,
+  formatOutboundAutopilotReport,
   formatReviewDetail,
   formatReviewItems,
   formatReviewOpenResult,
@@ -1357,6 +1360,81 @@ planning
     }
     const response = await requestJson<{ planning_autopilot: unknown }>("GET", "/v1/planning/autopilot");
     printOutput(response, (value) => formatPlanningAutopilotReport(value.planning_autopilot as any), options.json);
+  });
+
+const outbound = program
+  .command("outbound")
+  .description("Review grouped outbound finish-work for assistant-prepared mail.");
+
+outbound
+  .command("autopilot")
+  .option("--group <groupId>", "Show one outbound group in detail")
+  .option("--request-approval", "Request approval for the selected group")
+  .option("--approve", "Approve the selected group")
+  .option("--send", "Send the selected group")
+  .option("--note <text>", "Operator note for the grouped action")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const selectedActions = [options.requestApproval, options.approve, options.send].filter(Boolean).length;
+    if (selectedActions > 1) {
+      throw new Error("Choose only one grouped outbound action at a time.");
+    }
+    if (selectedActions > 0 && !options.group) {
+      throw new Error("Use grouped outbound actions together with --group <groupId>.");
+    }
+    if (selectedActions > 0 && !options.note) {
+      throw new Error("Use grouped outbound actions together with --note <text>.");
+    }
+    if (options.group) {
+      const encodedGroupId = encodeURIComponent(String(options.group));
+      if (options.requestApproval) {
+        const response = await requestJson<{ outbound_autopilot_group: unknown }>(
+          "POST",
+          `/v1/outbound/autopilot/groups/${encodedGroupId}/request-approval`,
+          { note: options.note },
+        );
+        printOutput(
+          response,
+          (value) => formatOutboundAutopilotActionResult(value.outbound_autopilot_group as any),
+          options.json,
+        );
+        return;
+      }
+      if (options.approve) {
+        const response = await requestJson<{ outbound_autopilot_group: unknown }>(
+          "POST",
+          `/v1/outbound/autopilot/groups/${encodedGroupId}/approve`,
+          { note: options.note, confirmed: true },
+        );
+        printOutput(
+          response,
+          (value) => formatOutboundAutopilotActionResult(value.outbound_autopilot_group as any),
+          options.json,
+        );
+        return;
+      }
+      if (options.send) {
+        const response = await requestJson<{ outbound_autopilot_group: unknown }>(
+          "POST",
+          `/v1/outbound/autopilot/groups/${encodedGroupId}/send`,
+          { note: options.note, confirmed: true },
+        );
+        printOutput(
+          response,
+          (value) => formatOutboundAutopilotActionResult(value.outbound_autopilot_group as any),
+          options.json,
+        );
+        return;
+      }
+      const response = await requestJson<{ outbound_autopilot_group: unknown }>(
+        "GET",
+        `/v1/outbound/autopilot/groups/${encodedGroupId}`,
+      );
+      printOutput(response, (value) => formatOutboundAutopilotGroup(value.outbound_autopilot_group as any), options.json);
+      return;
+    }
+    const response = await requestJson<{ outbound_autopilot: unknown }>("GET", "/v1/outbound/autopilot");
+    printOutput(response, (value) => formatOutboundAutopilotReport(value.outbound_autopilot as any), options.json);
   });
 
 const audit = program

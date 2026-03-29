@@ -175,7 +175,7 @@ function assertAuthorized(
   if (!isConsoleBrowserRoute(method, pathname)) {
     throw new HttpError(
       403,
-      "Console sessions are limited to the browser-safe Phase 2 actions. Run the matching CLI command for anything else.",
+      "Console sessions are limited to the browser-safe console actions. Run the matching CLI command for anything else.",
     );
   }
   (request as http.IncomingMessage & { browserSessionId?: string }).browserSessionId = session.sessionId;
@@ -1182,6 +1182,84 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
             planning_autopilot_bundle: await service.applyPlanningAutopilotBundle(
               extractIdentity(request, auth?.role ?? "operator"),
               bundleId,
+              String(body.note ?? ""),
+              Boolean(body.confirmed),
+            ),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/outbound/autopilot") {
+        sendJson(response, 200, {
+          outbound_autopilot: await service.getOutboundAutopilotReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/v1/outbound/autopilot/groups/")) {
+        const groupId = decodeURIComponent(url.pathname.slice("/v1/outbound/autopilot/groups/".length));
+        if (groupId && !groupId.includes("/")) {
+          sendJson(response, 200, {
+            outbound_autopilot_group: await service.getOutboundAutopilotGroup(groupId),
+          });
+          return;
+        }
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/v1/outbound/autopilot/groups/") &&
+        url.pathname.endsWith("/request-approval")
+      ) {
+        const groupId = decodeURIComponent(
+          url.pathname.slice("/v1/outbound/autopilot/groups/".length, -"/request-approval".length),
+        );
+        if (groupId && !groupId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            outbound_autopilot_group: await service.requestApprovalForOutboundGroup(
+              extractIdentity(request, auth?.role ?? "operator"),
+              groupId,
+              String(body.note ?? ""),
+            ),
+          });
+          return;
+        }
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/v1/outbound/autopilot/groups/") &&
+        url.pathname.endsWith("/approve")
+      ) {
+        const groupId = decodeURIComponent(url.pathname.slice("/v1/outbound/autopilot/groups/".length, -"/approve".length));
+        if (groupId && !groupId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            outbound_autopilot_group: await service.approveOutboundGroup(
+              extractIdentity(request, auth?.role ?? "operator"),
+              groupId,
+              String(body.note ?? ""),
+              Boolean(body.confirmed),
+            ),
+          });
+          return;
+        }
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/v1/outbound/autopilot/groups/") &&
+        url.pathname.endsWith("/send")
+      ) {
+        const groupId = decodeURIComponent(url.pathname.slice("/v1/outbound/autopilot/groups/".length, -"/send".length));
+        if (groupId && !groupId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            outbound_autopilot_group: await service.sendOutboundGroup(
+              extractIdentity(request, auth?.role ?? "operator"),
+              groupId,
               String(body.note ?? ""),
               Boolean(body.confirmed),
             ),

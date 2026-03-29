@@ -130,9 +130,10 @@ It now supports narrow operator-safe execution, including:
 - inbox autopilot draft preparation and review handoff
 - meeting packet preparation and refresh
 - planning autopilot bundle preparation and explicit grouped apply
+- grouped outbound request-approval, approve, and send for reviewed mail work
 - status, worklist, approvals, drafts, planning, audit, backup, GitHub, and Drive visibility
 
-It still does not replace the CLI for high-trust actions like send, approval decisions, restore, auth mutation, or destructive flows.
+It still does not replace the CLI for high-trust control surfaces like send-window enablement, restore, auth mutation, or destructive flows.
 
 ### Desktop shell
 
@@ -183,6 +184,8 @@ These remain outside assistant control:
 - calendar writes
 - raw planning recommendation apply, reject, snooze, refresh, and replan outside the narrow planning bundle path
 - planning bundle grouped apply is operator-only, confirmation-gated, note-required, and audit-logged
+- grouped outbound request-approval, approve, and send remain operator-only, note-required, and confirmation-gated where applicable
+- send-window control remains CLI-only even though grouped outbound send now runs from the console once the window is already active
 - policy and governance mutation
 - GitHub auth mutation and explicit GitHub sync mutation
 - any GitHub write action

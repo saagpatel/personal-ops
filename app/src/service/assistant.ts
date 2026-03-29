@@ -7,6 +7,7 @@ import type {
   AssistantActionState,
   DraftArtifact,
   InboxAutopilotGroup,
+  OutboundAutopilotGroup,
   PlanningAutopilotBundle,
   WorkflowBundleAction,
 } from "../types.js";
@@ -44,6 +45,19 @@ interface ActionCandidate {
 
 interface LatestRunMap {
   [actionId: string]: AssistantActionRunReport | undefined;
+}
+
+function outboundActionSummary(group: OutboundAutopilotGroup): { title: string; section: AssistantActionItem["section"]; priority: number } {
+  if (group.state === "send_ready") {
+    return { title: "Finish outbound send group", section: "drafts", priority: 3 };
+  }
+  if (group.state === "approval_ready") {
+    return { title: "Request grouped outbound approval", section: "drafts", priority: 5 };
+  }
+  if (group.state === "approval_pending") {
+    return { title: "Approve grouped outbound work", section: "approvals", priority: 7 };
+  }
+  return { title: "Finish outbound review group", section: "drafts", priority: 13 };
 }
 
 function hoursSince(value: string | undefined): number | null {
@@ -192,12 +206,14 @@ async function buildCandidates(
     worklist,
     nowNext,
     inboxAutopilot,
+    outboundAutopilot,
     planningAutopilot,
     meetingPrepCandidates,
   ] = await Promise.all([
     service.getWorklistReport(options),
     service.getNowNextWorkflowReport(options),
     service.getInboxAutopilotReport(options),
+    service.getOutboundAutopilotReport(options),
     service.getPlanningAutopilotReport(options),
     listMeetingPrepCandidates(service, { scope: "today" }),
   ]);
@@ -380,6 +396,29 @@ async function buildCandidates(
       signals: ["draft_ready"],
       satisfied: false,
       priority: 20,
+    });
+  }
+
+  const outboundGroup = outboundAutopilot.groups.find((group: OutboundAutopilotGroup) =>
+    ["review_pending", "approval_ready", "approval_pending", "send_ready"].includes(group.state),
+  );
+  if (outboundGroup) {
+    const outbound = outboundActionSummary(outboundGroup);
+    candidates.push({
+      action_id: `assistant.review-outbound-group:${outboundGroup.group_id}`,
+      title: outbound.title,
+      summary: outboundGroup.summary,
+      section: outbound.section,
+      batch: true,
+      one_click: false,
+      review_required: true,
+      why_now: outboundGroup.why_now,
+      command: `personal-ops outbound autopilot --group ${outboundGroup.group_id}`,
+      target_type: "outbound_autopilot_group",
+      target_id: outboundGroup.group_id,
+      signals: outboundGroup.signals,
+      satisfied: false,
+      priority: outbound.priority,
     });
   }
 

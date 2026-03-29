@@ -497,7 +497,7 @@ test("Phase 2 console sessions can create snapshots and run narrow planning acti
     });
     assert.equal(mutationResponse.status, 403);
     const mutationPayload = (await mutationResponse.json()) as { error?: string };
-    assert.match(mutationPayload.error ?? "", /browser-safe Phase 2 actions/i);
+    assert.match(mutationPayload.error ?? "", /browser-safe console actions/i);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });
@@ -847,6 +847,153 @@ test("assistant-led Phase 6 console sessions can prepare and apply planning bund
       body: JSON.stringify({ note: "still blocked" }),
     });
     assert.equal(blockedResponse.status, 403);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("assistant-led Phase 7 console sessions can request approval, approve, and send grouped outbound work", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    (fixture.service as any).dependencies.sendGmailDraft = async (_tokensJson: string, _clientConfig: unknown, providerDraftId: string) => ({
+      provider_message_id: `sent-${providerDraftId}`,
+      provider_thread_id: `thread-${providerDraftId}`,
+    });
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const inboxResponse = await fetch(`${baseUrl}/v1/inbox/autopilot`, { headers: { cookie } });
+    const inboxPayload = (await inboxResponse.json()) as {
+      inbox_autopilot: { groups: Array<{ group_id: string }> };
+    };
+    const inboxGroupId = inboxPayload.inbox_autopilot.groups[0]?.group_id;
+    assert.ok(inboxGroupId);
+
+    const prepareResponse = await fetch(
+      `${baseUrl}/v1/inbox/autopilot/groups/${encodeURIComponent(inboxGroupId!)}/prepare`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(prepareResponse.status, 200);
+
+    const draftsResponse = await fetch(`${baseUrl}/v1/mail/drafts`, { headers: { cookie } });
+    const draftsPayload = (await draftsResponse.json()) as { drafts: Array<{ artifact_id: string }> };
+    const draftId = draftsPayload.drafts[0]?.artifact_id;
+    assert.ok(draftId);
+
+    const reviewsResponse = await fetch(`${baseUrl}/v1/review-queue`, { headers: { cookie } });
+    const reviewsPayload = (await reviewsResponse.json()) as {
+      review_items: Array<{ review_id: string; artifact_id: string }>;
+    };
+    const reviewId = reviewsPayload.review_items.find((review) => review.artifact_id === draftId)?.review_id;
+    assert.ok(reviewId);
+
+    await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/open`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/resolve`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "Reviewed in console" }),
+    });
+
+    const outboundResponse = await fetch(`${baseUrl}/v1/outbound/autopilot`, { headers: { cookie } });
+    assert.equal(outboundResponse.status, 200);
+    const outboundPayload = (await outboundResponse.json()) as {
+      outbound_autopilot: { groups: Array<{ group_id: string; state: string }> };
+    };
+    const outboundGroupId = outboundPayload.outbound_autopilot.groups[0]?.group_id;
+    assert.ok(outboundGroupId);
+
+    const requestApprovalResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/request-approval`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Ready for grouped approval" }),
+      },
+    );
+    assert.equal(requestApprovalResponse.status, 200);
+
+    const approveResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/approve`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Approve grouped outbound work", confirmed: true }),
+      },
+    );
+    assert.equal(approveResponse.status, 200);
+
+    const blockedSendResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/send`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Blocked send", confirmed: true }),
+      },
+    );
+    assert.equal(blockedSendResponse.status, 400);
+
+    fixture.service.enableSendWindow(TEST_IDENTITY, 15, "Console test grouped send");
+
+    const sendResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/send`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Send grouped outbound work", confirmed: true }),
+      },
+    );
+    assert.equal(sendResponse.status, 200);
+
+    const sendWindowMutationResponse = await fetch(`${baseUrl}/v1/send-window/enable`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ minutes: 15, reason: "still blocked" }),
+    });
+    assert.equal(sendWindowMutationResponse.status, 403);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

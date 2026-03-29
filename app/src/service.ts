@@ -74,6 +74,13 @@ import { buildAssistantActionQueueReport, runAssistantAction } from "./service/a
 import { buildInboxAutopilotReport, prepareInboxAutopilotGroup } from "./service/inbox-autopilot.js";
 import { getMeetingPrepPacketDetail, maybeAutoPrepareMeetingPackets, prepareMeetingPrepPacket } from "./service/meeting-prep.js";
 import {
+  approveOutboundGroup,
+  buildOutboundAutopilotReport,
+  getOutboundAutopilotGroupDetail,
+  requestApprovalForOutboundGroup,
+  sendOutboundGroup,
+} from "./service/outbound-autopilot.js";
+import {
   applyPlanningAutopilotBundle,
   buildPlanningAutopilotReport,
   getPlanningAutopilotBundleDetail,
@@ -192,6 +199,9 @@ import {
   PlanningAutopilotBundle,
   PlanningAutopilotReport,
   MeetingPrepPacket,
+  OutboundAutopilotActionResult,
+  OutboundAutopilotGroup,
+  OutboundAutopilotReport,
   RelatedDriveDoc,
   RelatedDriveFile,
   ReviewDetail,
@@ -665,6 +675,14 @@ export class PersonalOpsService {
     return buildInboxAutopilotReport(this, options);
   }
 
+  async getOutboundAutopilotReport(options: { httpReachable: boolean }): Promise<OutboundAutopilotReport> {
+    return buildOutboundAutopilotReport(this, options);
+  }
+
+  async getOutboundAutopilotGroup(groupId: string): Promise<OutboundAutopilotGroup> {
+    return getOutboundAutopilotGroupDetail(this, groupId);
+  }
+
   async getPlanningAutopilotReport(options: { httpReachable: boolean }): Promise<PlanningAutopilotReport> {
     return buildPlanningAutopilotReport(this, options);
   }
@@ -687,6 +705,28 @@ export class PersonalOpsService {
 
   async preparePlanningAutopilotBundle(identity: ClientIdentity, bundleId: string) {
     return preparePlanningAutopilotBundle(this, identity, bundleId);
+  }
+
+  async requestApprovalForOutboundGroup(identity: ClientIdentity, groupId: string, note: string): Promise<OutboundAutopilotActionResult> {
+    return requestApprovalForOutboundGroup(this, identity, groupId, note);
+  }
+
+  async approveOutboundGroup(
+    identity: ClientIdentity,
+    groupId: string,
+    note: string,
+    confirmed: boolean,
+  ): Promise<OutboundAutopilotActionResult> {
+    return approveOutboundGroup(this, identity, groupId, note, confirmed);
+  }
+
+  async sendOutboundGroup(
+    identity: ClientIdentity,
+    groupId: string,
+    note: string,
+    confirmed: boolean,
+  ): Promise<OutboundAutopilotActionResult> {
+    return sendOutboundGroup(this, identity, groupId, note, confirmed);
   }
 
   async applyPlanningAutopilotBundle(identity: ClientIdentity, bundleId: string, note: string, confirmed: boolean) {

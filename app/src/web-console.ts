@@ -81,6 +81,8 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/worklist" ||
       pathname === "/v1/assistant/actions" ||
       pathname === "/v1/inbox/autopilot" ||
+      pathname === "/v1/outbound/autopilot" ||
+      pathname.startsWith("/v1/outbound/autopilot/groups/") ||
       pathname === "/v1/workflows/now-next" ||
       pathname === "/v1/workflows/prep-day" ||
       pathname === "/v1/workflows/follow-up-block" ||
@@ -121,8 +123,14 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/mail/drafts" ||
       /^\/v1\/mail\/drafts\/[^/]+$/.test(pathname) ||
       /^\/v1\/mail\/drafts\/[^/]+\/request-approval$/.test(pathname) ||
+      /^\/v1\/outbound\/autopilot\/groups\/[^/]+\/request-approval$/.test(pathname) ||
+      /^\/v1\/outbound\/autopilot\/groups\/[^/]+\/approve$/.test(pathname) ||
+      /^\/v1\/outbound\/autopilot\/groups\/[^/]+\/send$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/open$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/resolve$/.test(pathname) ||
+      /^\/v1\/approval-queue\/[^/]+\/reject$/.test(pathname) ||
+      /^\/v1\/approval-queue\/[^/]+\/reopen$/.test(pathname) ||
+      /^\/v1\/approval-queue\/[^/]+\/cancel$/.test(pathname) ||
       /^\/v1\/planning\/autopilot\/bundles\/[^/]+\/prepare$/.test(pathname) ||
       /^\/v1\/planning\/autopilot\/bundles\/[^/]+\/apply$/.test(pathname) ||
       (/^\/v1\/planning-recommendations\/[^/]+\/(apply|snooze|reject)$/.test(pathname) &&

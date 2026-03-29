@@ -172,6 +172,7 @@ Phase 19 hygiene, policy governance, audit shaping, grouped policy-history repor
 - Phase 33 keeps that supported baseline intact while re-validating the same audit model at both short and wider slices, confirming that it remains sufficient and that any remaining desire for broader audit queries is convenience rather than a defect
 - the post-program audit follow-up now enforces that supported audit contract in the live HTTP and MCP entry points, so unsupported audit query params are rejected instead of remaining accidentally available
 - send remains operator-gated
+- Assistant-Led Phase 7 keeps that rule intact while moving grouped outbound request-approval, approve, and send into the operator console only; assistants still do not approve or send mail, and send-window control still stays CLI-only
 - calendar mutation remains operator-only
 
 Supported governance surface map:

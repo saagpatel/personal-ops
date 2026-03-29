@@ -11,6 +11,7 @@ Use this document for:
 - optional Google Docs, Google Sheets, and Drive metadata context setup
 - machine ownership and intentional migration
 - operator console access and narrow browser-safe actions
+- grouped outbound finish-work after review is complete
 - operator automations
 - daily commands
 - backup and restore
@@ -232,6 +233,30 @@ Important planning autopilot rules:
 - inbox autopilot groups and meeting packets are reused where possible
 - send, approval decisions, auth, restore, and destructive actions remain gated
 
+### Outbound finish-work
+
+Assistant-Led Phase 7 moves the final outbound mail step into the console.
+
+Use:
+
+```bash
+personal-ops outbound autopilot
+personal-ops outbound autopilot --group <groupId>
+personal-ops outbound autopilot --group <groupId> --request-approval --note "<reason>"
+personal-ops outbound autopilot --group <groupId> --approve --note "<reason>"
+personal-ops outbound autopilot --group <groupId> --send --note "<reason>"
+```
+
+Important outbound rules:
+
+- reviewed inbox autopilot groups become grouped outbound work
+- grouped request-approval is operator-only and note-required
+- grouped approve is operator-only, confirmation-gated, and note-required
+- grouped send is operator-only, confirmation-gated, note-required, and blocked until send-window state allows it
+- send-window control stays CLI-only
+- reject, reopen, and cancel remain recovery actions in the Approvals section
+- no automatic approval and no automatic send are introduced
+
 ### Safe re-auth path
 
 If auth is missing, stale, or attached to the wrong mailbox:
@@ -267,6 +292,8 @@ These are the main operator commands after setup:
   The preferred day-start bundle with current readiness, top attention, time-sensitive items, and exact next commands.
 - `personal-ops planning autopilot`
   Prepared planning bundles with grouped review and explicit apply.
+- `personal-ops outbound autopilot`
+  Grouped outbound finish-work for reviewed mail drafts, including request-approval, approve, and send readiness.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -310,6 +337,12 @@ Other common commands:
   Lists the currently indexed in-scope Drive files.
 - `personal-ops drive doc <fileId>`
   Shows one cached Google Doc text context entry.
+- `personal-ops outbound autopilot --group <groupId> --request-approval --note "<reason>"`
+  Requests approval for every reviewed draft in the grouped outbound block.
+- `personal-ops outbound autopilot --group <groupId> --approve --note "<reason>"`
+  Approves every pending approval request in the grouped outbound block after explicit confirmation.
+- `personal-ops outbound autopilot --group <groupId> --send --note "<reason>"`
+  Sends every approved draft in the grouped outbound block after explicit confirmation and only when send-window state allows it.
 - `personal-ops backup create`
   Creates a recovery snapshot with machine provenance.
 - `personal-ops backup prune --dry-run`

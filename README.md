@@ -20,6 +20,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - meeting-prep packets that stage agenda, checklist, and linked context before imminent meetings
 - broader Google context inside the existing Drive scope, including narrow Google Sheets previews and richer related-file grouping
 - planning autopilot bundles that stage grouped execution work before you apply it
+- outbound autopilot groups that carry reviewed mail work through request-approval, approve, and send
 - machine-aware backups and restore guardrails
 
 In practice, that means it can:
@@ -90,6 +91,7 @@ Today, the repo includes:
 - `personal-ops workflow prep-meetings --event <eventId> --prepare` for one-meeting packet staging and refresh
 - `personal-ops drive sheet <fileId>` for cached Google Sheets preview context
 - `personal-ops planning autopilot` for prepared planning execution bundles
+- `personal-ops outbound autopilot` for grouped outbound finish-work after review is complete
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

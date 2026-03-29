@@ -7995,6 +7995,184 @@ test("assistant-led phase 6 workflows prefer prepared planning bundles when the 
   assert.equal(firstConcreteAction?.target_type, "planning_autopilot_bundle");
 });
 
+test("assistant-led phase 7 outbound autopilot groups reviewed inbox work and orphan approvals", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "outbound-groups");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("outbound-reply-1", accountEmail, {
+      thread_id: "thread-outbound-reply",
+      history_id: "outbound-reply-1",
+      internal_date: String(now - 90 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Outbound reply needed",
+    }),
+    new Date(now - 90 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const preparedDraft = prepared.drafts[0]!;
+  const review = service.db.getLatestReviewItemForArtifact(preparedDraft.artifact_id);
+  assert.ok(review);
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for outbound finish-work");
+
+  const orphanDraft = createDraft(service, accountEmail, {
+    subject: "Orphan approval draft",
+    to: ["orphan@example.com"],
+    providerDraftId: "provider-draft-orphan",
+  });
+  const orphanApproval = service.requestApproval(cliIdentity, orphanDraft.artifact_id, "Need singleton approval");
+
+  const report = await service.getOutboundAutopilotReport({ httpReachable: true });
+  const groupedReply = report.groups.find((group) => group.group_id === replyGroup!.group_id);
+  const singleton = report.groups.find((group) => group.kind === "single_draft");
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+
+  assert.ok(groupedReply);
+  assert.equal(groupedReply?.state, "approval_ready");
+  assert.equal(groupedReply?.kind, "reply_block");
+  assert.ok(singleton);
+  assert.equal(singleton?.approval_ids.includes(orphanApproval.approval_id), true);
+  assert.equal(queue.actions.some((action) => action.action_id.startsWith("assistant.review-outbound-group:")), true);
+});
+
+test("assistant-led phase 7 grouped outbound approval and send stay confirmed, note-required, and audit logged", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({
+    accountEmail,
+    sendImpl: async (providerDraftId) => ({
+      provider_message_id: `sent-${providerDraftId}`,
+      provider_thread_id: `thread-${providerDraftId}`,
+    }),
+  });
+  seedMailboxReadyState(service, accountEmail, "outbound-send");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("outbound-send-1", accountEmail, {
+      thread_id: "thread-outbound-send",
+      history_id: "outbound-send-1",
+      internal_date: String(now - 75 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Send this reply",
+    }),
+    new Date(now - 75 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const review = service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+  assert.ok(review);
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for grouped send");
+
+  const requested = await service.requestApprovalForOutboundGroup(cliIdentity, replyGroup!.group_id, "Request grouped approval");
+  assert.equal(requested.completed_approval_ids.length, 1);
+
+  await assert.rejects(
+    () => service.approveOutboundGroup(cliIdentity, replyGroup!.group_id, "Approve grouped work", false),
+    /confirmation/i,
+  );
+
+  const approved = await service.approveOutboundGroup(cliIdentity, replyGroup!.group_id, "Approve grouped work", true);
+  assert.equal(approved.completed_approval_ids.length, 1);
+
+  await assert.rejects(
+    () => service.sendOutboundGroup(cliIdentity, replyGroup!.group_id, "Send grouped work", true),
+    /send window|disabled/i,
+  );
+
+  service.enableSendWindow(cliIdentity, 15, "Allow grouped outbound send");
+  await assert.rejects(
+    () => service.sendOutboundGroup(cliIdentity, replyGroup!.group_id, "Send grouped work", false),
+    /confirmation/i,
+  );
+
+  const sent = await service.sendOutboundGroup(cliIdentity, replyGroup!.group_id, "Send grouped work", true);
+  const refreshedGroup = await service.getOutboundAutopilotGroup(replyGroup!.group_id);
+  const audit = service.listAuditEvents({ limit: 20, target_type: "outbound_autopilot_group" });
+
+  assert.equal(sent.completed_approval_ids.length, 1);
+  assert.equal(refreshedGroup.state, "completed");
+  assert.equal(audit.some((event) => event.action === "outbound_autopilot_group_approve"), true);
+  assert.equal(audit.some((event) => event.action === "outbound_autopilot_group_send"), true);
+});
+
+test("assistant-led phase 7 workflows prefer grouped outbound finish-work when it is ready", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "outbound-workflows");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("outbound-workflow-1", accountEmail, {
+      thread_id: "thread-outbound-workflow",
+      history_id: "outbound-workflow-1",
+      internal_date: String(now - 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Outbound workflow reply",
+    }),
+    new Date(now - 60 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const review = service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+  assert.ok(review);
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for outbound workflow");
+  await service.requestApprovalForOutboundGroup(cliIdentity, replyGroup!.group_id, "Request grouped approval");
+
+  const fakeService = {
+    getStatusReport: async () => ({
+      state: "ready",
+      mailbox: { connected: accountEmail, configured: accountEmail },
+    }),
+    getWorklistReport: async () => ({
+      generated_at: new Date().toISOString(),
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      items: [],
+    }),
+    listPlanningRecommendations: service.listPlanningRecommendations.bind(service),
+    listNeedsReplyThreads: service.listNeedsReplyThreads.bind(service),
+    listFollowupThreads: service.listFollowupThreads.bind(service),
+    listUpcomingCalendarEvents: service.listUpcomingCalendarEvents.bind(service),
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: service.getPlanningRecommendationDetail.bind(service),
+    getPlanningAutopilotReport: service.getPlanningAutopilotReport.bind(service),
+    getOutboundAutopilotReport: service.getOutboundAutopilotReport.bind(service),
+    getInboxAutopilotReport: service.getInboxAutopilotReport.bind(service),
+    getRelatedDocsForTarget: service.getRelatedDocsForTarget.bind(service),
+    getRelatedFilesForTarget: service.getRelatedFilesForTarget.bind(service),
+  };
+
+  const nowNext = await buildNowNextWorkflowReport(fakeService, { httpReachable: true });
+  const prepDay = await buildPrepDayWorkflowReport(fakeService, { httpReachable: true });
+
+  assert.equal(nowNext.actions[0]?.target_type, "outbound_autopilot_group");
+  assert.equal(prepDay.actions.some((action) => action.target_type === "outbound_autopilot_group"), true);
+});
+
 test("assistant-led phase 5 mcp drive tools are assistant-safe read-only tools", () => {
   const source = fs.readFileSync(path.resolve(process.cwd(), "src/mcp-server.ts"), "utf8");
   assert.match(source, /name: "drive_status"/);

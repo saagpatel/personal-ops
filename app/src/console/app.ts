@@ -14,6 +14,9 @@ import type {
   InboxAutopilotReport,
   MailThreadDetail,
   MeetingPrepPacket,
+  OutboundAutopilotActionResult,
+  OutboundAutopilotGroup,
+  OutboundAutopilotReport,
   PlanningAutopilotBundle,
   PlanningAutopilotReport,
   PlanningRecommendationDetail,
@@ -38,6 +41,7 @@ interface ConsolePayload {
   worklist: WorklistReport;
   assistantQueue: AssistantActionQueueReport;
   inboxAutopilot: InboxAutopilotReport;
+  outboundAutopilot: OutboundAutopilotReport;
   nowNextWorkflow: WorkflowBundleReport;
   prepDayWorkflow: WorkflowBundleReport;
   prepMeetingsWorkflow: WorkflowBundleReport;
@@ -71,6 +75,14 @@ interface AssistantQueueResponse {
 
 interface InboxAutopilotResponse {
   inbox_autopilot: InboxAutopilotReport;
+}
+
+interface OutboundAutopilotResponse {
+  outbound_autopilot: OutboundAutopilotReport;
+}
+
+interface OutboundAutopilotGroupResponse {
+  outbound_autopilot_group: OutboundAutopilotGroup | OutboundAutopilotActionResult;
 }
 
 interface AssistantRunResponse {
@@ -162,6 +174,7 @@ type WorklistDetail =
   | { kind: "task"; item: AttentionItem; detail: TaskDetail }
   | { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
   | { kind: "meeting_packet"; item: AttentionItem; detail: MeetingPrepPacket }
+  | { kind: "outbound_autopilot_group"; item: AttentionItem; detail: OutboundAutopilotGroup }
   | { kind: "planning_autopilot_bundle"; item: AttentionItem; detail: PlanningAutopilotBundle }
   | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
   | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
@@ -182,12 +195,14 @@ interface ConsoleState {
   selectedPlanningRecommendationId: string | null;
   selectedPlanningBundleId: string | null;
   selectedPlanningGroupKey: string | null;
+  selectedOutboundGroupId: string | null;
   selectedWorklistItemId: string | null;
   approvalDetail: ApprovalDetail | null;
   snapshotInspection: SnapshotInspection | null;
   planningRecommendationDetail: PlanningRecommendationDetail | null;
   planningBundleDetail: PlanningAutopilotBundle | null;
   planningGroupDetail: PlanningRecommendationGroupDetail | null;
+  outboundGroupDetail: OutboundAutopilotGroup | null;
   worklistDetail: WorklistDetail | null;
 }
 
@@ -215,12 +230,14 @@ const state: ConsoleState = {
   selectedPlanningRecommendationId: null,
   selectedPlanningBundleId: null,
   selectedPlanningGroupKey: null,
+  selectedOutboundGroupId: null,
   selectedWorklistItemId: null,
   approvalDetail: null,
   snapshotInspection: null,
   planningRecommendationDetail: null,
   planningBundleDetail: null,
   planningGroupDetail: null,
+  outboundGroupDetail: null,
   worklistDetail: null,
 };
 
@@ -370,6 +387,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     worklistResponse,
     assistantQueueResponse,
     inboxAutopilotResponse,
+    outboundAutopilotResponse,
     nowNextWorkflowResponse,
     workflowResponse,
     prepMeetingsWorkflowResponse,
@@ -388,6 +406,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<WorklistResponse>("/v1/worklist"),
     fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
     fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
+    fetchJson<OutboundAutopilotResponse>("/v1/outbound/autopilot"),
     fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
@@ -408,6 +427,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     worklist: worklistResponse.worklist,
     assistantQueue: assistantQueueResponse.assistant_queue,
     inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
+    outboundAutopilot: outboundAutopilotResponse.outbound_autopilot,
     nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
     prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
@@ -434,6 +454,18 @@ function autopilotGroupForThread(payload: ConsolePayload, threadId: string): Inb
 
 function autopilotGroupForDraft(payload: ConsolePayload, artifactId: string): InboxAutopilotGroup | null {
   return payload.inboxAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+}
+
+function outboundGroupById(payload: ConsolePayload, groupId: string): OutboundAutopilotGroup | null {
+  return payload.outboundAutopilot.groups.find((group) => group.group_id === groupId) ?? null;
+}
+
+function outboundGroupForDraft(payload: ConsolePayload, artifactId: string): OutboundAutopilotGroup | null {
+  return payload.outboundAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+}
+
+function outboundGroupForApproval(payload: ConsolePayload, approvalId: string): OutboundAutopilotGroup | null {
+  return payload.outboundAutopilot.groups.find((group) => group.approval_ids.includes(approvalId)) ?? null;
 }
 
 function planningBundleForRecommendation(payload: ConsolePayload, recommendationId: string): PlanningAutopilotBundle | null {
@@ -501,6 +533,10 @@ function commandAction(command: string, label = "Copy command"): string {
     <code class="code">${escapeHtml(command)}</code>
     <button class="copy-button" data-copy="${escapeHtml(command)}" type="button">${escapeHtml(label)}</button>
   `;
+}
+
+function draftCommand(artifactId: string): string {
+  return `personal-ops mail draft show ${artifactId}`;
 }
 
 function commandStack(commands: string[]): string {
@@ -625,7 +661,7 @@ function groupPrimaryLabel(group: InboxAutopilotGroup): string {
 }
 
 function approvalForDraft(payload: ConsolePayload, artifactId: string): ApprovalRequest | null {
-  return payload.approvals.find((approval) => approval.artifact_id === artifactId && approval.state === "pending") ?? null;
+  return payload.approvals.find((approval) => approval.artifact_id === artifactId && approval.state !== "rejected") ?? null;
 }
 
 function renderInboxAutopilotGroupCard(
@@ -718,6 +754,67 @@ function renderDraftReviewCard(payload: ConsolePayload, group: InboxAutopilotGro
         <button class="button" data-draft-approval="${escapeHtml(draft.artifact_id)}" type="button">Request approval</button>
         <button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh group drafts</button>
         <button class="copy-button" data-copy="${escapeHtml(reviewCommand(review ?? null))}" type="button">Copy review command</button>
+      </div>
+    </article>
+  `;
+}
+
+function outboundPrimaryButton(group: OutboundAutopilotGroup): string {
+  if (group.state === "review_pending") {
+    return `<button class="button button--primary" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open review group</button>`;
+  }
+  if (group.state === "approval_ready") {
+    return `<button class="button button--primary" data-outbound-request-approval="${escapeHtml(group.group_id)}" type="button">Request approval</button>`;
+  }
+  if (group.state === "approval_pending") {
+    return `<button class="button button--primary" data-outbound-approve="${escapeHtml(group.group_id)}" type="button">Approve group</button>`;
+  }
+  if (group.state === "send_ready") {
+    return `<button class="button button--primary" data-outbound-send="${escapeHtml(group.group_id)}" type="button">Send group</button>`;
+  }
+  if (group.state === "blocked") {
+    return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect blocked group</button>`;
+  }
+  return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open group</button>`;
+}
+
+function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopilotGroup, options: { compact?: boolean } = {}): string {
+  const drafts = group.draft_artifact_ids
+    .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
+    .filter((draft): draft is DraftArtifact => Boolean(draft));
+  const approvals = group.approval_ids
+    .map((approvalId) => payload.approvals.find((approval) => approval.approval_id === approvalId) ?? null)
+    .filter((approval): approval is ApprovalRequest => Boolean(approval));
+  const sendWindowBlocked = group.state === "blocked" && !payload.outboundAutopilot.send_window.effective_send_enabled;
+  return `
+    <article class="list-item${selectedClass(group.group_id === state.selectedOutboundGroupId)}">
+      <div class="list-item__top">
+        <h4>${escapeHtml(group.kind === "reply_block" ? "Reply block" : group.kind === "followup_block" ? "Follow-up block" : "Single draft")}</h4>
+        <span class="${group.state === "send_ready" ? "pill pill--good" : group.state === "approval_ready" || group.state === "approval_pending" || group.state === "review_pending" ? "pill pill--warn" : group.state === "blocked" ? "pill pill--critical" : "pill"}">${escapeHtml(group.state)}</span>
+      </div>
+      <p>${escapeHtml(group.summary)}</p>
+      <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+      <p class="subtle subtle--body">${escapeHtml(`Drafts: ${drafts.length} · approvals: ${approvals.length} · score: ${group.score_band}`)}</p>
+      ${
+        sendWindowBlocked
+          ? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
+          : ""
+      }
+      ${
+        !options.compact
+          ? `
+            <div class="detail-stack">
+              ${drafts
+                .map((draft, index) => `<div class="detail-row"><dt>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</dt><dd>${escapeHtml(`${draft.to.join(", ") || "No recipients"} · ${draft.status}`)}</dd></div>`)
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+      <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
+        ${outboundPrimaryButton(group)}
+        <button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect group</button>
+        <button class="copy-button" data-copy="${escapeHtml(`personal-ops outbound autopilot --group ${group.group_id}`)}" type="button">Copy CLI command</button>
       </div>
     </article>
   `;
@@ -926,11 +1023,34 @@ function resolveSelections(payload: ConsolePayload): void {
     state.selectedPlanningBundleId = nextPlanningBundleId(payload);
   }
 
+  const outboundGroupIds = new Set(payload.outboundAutopilot.groups.map((group) => group.group_id));
+  if (!state.selectedOutboundGroupId || !outboundGroupIds.has(state.selectedOutboundGroupId)) {
+    state.selectedOutboundGroupId = payload.outboundAutopilot.groups[0]?.group_id ?? null;
+  }
+
   if (!state.selectedPlanningGroupKey) {
     state.selectedPlanningGroupKey =
       payload.planningGroups.find((group) => group.recommendation_ids.includes(state.selectedPlanningRecommendationId ?? ""))?.group_key ??
       payload.planningGroups[0]?.group_key ??
       null;
+  }
+}
+
+async function loadSelectedOutboundGroupDetail(): Promise<void> {
+  if (!state.selectedOutboundGroupId) {
+    state.outboundGroupDetail = null;
+    return;
+  }
+  try {
+    const response = await fetchJson<OutboundAutopilotGroupResponse>(
+      `/v1/outbound/autopilot/groups/${encodeURIComponent(state.selectedOutboundGroupId)}`,
+    );
+    state.outboundGroupDetail = response.outbound_autopilot_group as OutboundAutopilotGroup;
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.outboundGroupDetail = null;
   }
 }
 
@@ -1041,6 +1161,12 @@ async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail>
     );
     return { kind: "meeting_packet", item, detail: response.meeting_prep_packet };
   }
+  if (item.target_type === "outbound_autopilot_group") {
+    const response = await fetchJson<OutboundAutopilotGroupResponse>(
+      `/v1/outbound/autopilot/groups/${encodeURIComponent(item.target_id)}`,
+    );
+    return { kind: "outbound_autopilot_group", item, detail: response.outbound_autopilot_group as OutboundAutopilotGroup };
+  }
   if (item.target_type === "planning_autopilot_bundle") {
     const response = await fetchJson<PlanningAutopilotBundleResponse>(
       `/v1/planning/autopilot/bundles/${encodeURIComponent(item.target_id)}`,
@@ -1114,6 +1240,7 @@ async function loadSelectedWorklistDetail(): Promise<void> {
 async function loadSelectedDetails(): Promise<void> {
   await Promise.all([
     loadSelectedApprovalDetail(),
+    loadSelectedOutboundGroupDetail(),
     loadSelectedSnapshotInspection(),
     loadSelectedPlanningBundleDetail(),
     loadSelectedPlanningRecommendationDetail(),
@@ -1134,6 +1261,7 @@ function renderOverview(payload: ConsolePayload): string {
   const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
   const topPlanningBundle = payload.planningAutopilot.bundles[0] ?? null;
   const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
+  const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
   const topMeetingPrep = prepMeetings.actions[0] ?? null;
   return `
     <section class="hero">
@@ -1201,6 +1329,15 @@ function renderOverview(payload: ConsolePayload): string {
             topAutopilotGroup
               ? renderInboxAutopilotGroupCard(payload, topAutopilotGroup, { showThreads: false })
               : `<div class="empty">No grouped inbox blocks need assistant prep right now.</div>`
+          }
+        </section>
+        <section class="detail-card">
+          <h3>Outbound Finish-Work</h3>
+          <p class="subtle subtle--body">Reviewed mail work lands here so approval request, grouped approval, and grouped send can happen from the console without widening the trust boundary.</p>
+          ${
+            topOutboundGroup
+              ? renderOutboundGroupCard(payload, topOutboundGroup, { compact: true })
+              : `<div class="empty">No outbound finish-work groups are active right now.</div>`
           }
         </section>
         <section class="detail-card">
@@ -1469,6 +1606,59 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
     `;
   }
 
+  if (detail.kind === "outbound_autopilot_group") {
+    const group = detail.detail;
+    const drafts = payload
+      ? group.draft_artifact_ids
+          .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
+          .filter((draft): draft is DraftArtifact => Boolean(draft))
+      : [];
+    const approvals = payload
+      ? group.approval_ids
+          .map((approvalId) => payload.approvals.find((approval) => approval.approval_id === approvalId) ?? null)
+          .filter((approval): approval is ApprovalRequest => Boolean(approval))
+      : [];
+    const sendWindowBlocked = group.state === "blocked" && payload && !payload.outboundAutopilot.send_window.effective_send_enabled;
+    return `
+      <div class="detail-list">
+        <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(group.group_id)}</dd></div>
+        <div class="detail-row"><dt>State</dt><dd>${escapeHtml(group.state)}</dd></div>
+        <div class="detail-row"><dt>Drafts</dt><dd>${escapeHtml(String(group.draft_artifact_ids.length))}</dd></div>
+        <div class="detail-row"><dt>Approvals</dt><dd>${escapeHtml(String(group.approval_ids.length))}</dd></div>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+      ${
+        sendWindowBlocked
+          ? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
+          : ""
+      }
+      <section class="panel">
+        <h4>Prepared drafts</h4>
+        ${
+          drafts.length > 0
+            ? `<ul>${drafts.map((draft) => `<li>${escapeHtml(draft.subject || draft.artifact_id)} · ${escapeHtml(draft.status)}</li>`).join("")}</ul>`
+            : `<div class="empty">No drafts are attached to this outbound group.</div>`
+        }
+      </section>
+      <section class="panel">
+        <h4>Approvals</h4>
+        ${
+          approvals.length > 0
+            ? `<ul>${approvals.map((approval) => `<li>${escapeHtml(approval.approval_id)} · ${escapeHtml(approval.state)}</li>`).join("")}</ul>`
+            : `<div class="empty">No approval requests are attached yet.</div>`
+        }
+      </section>
+      ${intelligenceBlock}
+      <div class="list-item__actions">
+        ${outboundPrimaryButton(group)}
+        <button class="button" data-open-approval="${escapeHtml(approvals[0]?.approval_id ?? "")}" type="button"${approvals[0]?.approval_id ? "" : " disabled"}>Open first approval</button>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack(group.next_commands)}
+      </div>
+    `;
+  }
+
   if (detail.kind === "planning_autopilot_bundle") {
     const bundle = detail.detail;
     return renderPlanningBundleDetail(bundle);
@@ -1529,23 +1719,48 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
 
   if (detail.kind === "approval_request") {
     const approval = detail.detail.approval_request;
+    const groupedContext = payload ? outboundGroupForApproval(payload, approval.approval_id) : null;
     return `
+      ${
+        groupedContext
+          ? `
+            <section class="panel">
+              <h4>Outbound group context</h4>
+              <p>${escapeHtml(groupedContext.summary)}</p>
+              <p class="subtle subtle--body">${escapeHtml(groupedContext.why_now)}</p>
+              <div class="list-item__actions">
+                <button class="button button--primary" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Open outbound group</button>
+                <button class="copy-button" data-copy="${escapeHtml(`personal-ops outbound autopilot --group ${groupedContext.group_id}`)}" type="button">Copy group command</button>
+              </div>
+            </section>
+          `
+          : ""
+      }
       <div class="detail-list">
         <div class="detail-row"><dt>Approval</dt><dd>${escapeHtml(approval.approval_id)}</dd></div>
         <div class="detail-row"><dt>State</dt><dd>${escapeHtml(approval.state)}</dd></div>
         <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(approval.requested_at))}</dd></div>
         <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(approval.expires_at))}</dd></div>
       </div>
-      <p class="subtle subtle--body">Approvals stay CLI-only in Phase 2.</p>
+      <p class="subtle subtle--body">Grouped approve and send now live in outbound autopilot. Use this detail view for recovery actions and exact CLI handoff.</p>
       ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button" data-open-approval="${escapeHtml(approval.approval_id)}" type="button">Open in Approvals</button>
+        ${
+          approval.state === "send_failed"
+            ? `<button class="button" data-approval-reopen="${escapeHtml(approval.approval_id)}" type="button">Reopen approval</button>`
+            : approval.state !== "rejected" && approval.state !== "sent" && approval.state !== "expired"
+              ? `<button class="button" data-approval-reject="${escapeHtml(approval.approval_id)}" type="button">Reject approval</button>`
+              : ""
+        }
       </div>
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([
           `personal-ops approval show ${approval.approval_id}`,
-          `personal-ops approval approve ${approval.approval_id} --note "<reason>"`,
           `personal-ops approval reject ${approval.approval_id} --note "<reason>"`,
+          `personal-ops approval reopen ${approval.approval_id} --note "<reason>"`,
+          `personal-ops approval cancel ${approval.approval_id} --note "<reason>"`,
+          `personal-ops approval approve ${approval.approval_id} --note "<reason>"`,
           `personal-ops approval send ${approval.approval_id} --note "<reason>"`,
         ])}
       </div>
@@ -1695,6 +1910,11 @@ function renderApprovals(payload: ConsolePayload): string {
                   <span class="pill ${approval.state === "pending" ? "pill--warn" : "pill--good"}">${escapeHtml(approval.state)}</span>
                 </div>
                 <p>Artifact ${escapeHtml(approval.artifact_id)} · requested ${escapeHtml(formatTime(approval.requested_at))}</p>
+                ${
+                  outboundGroupForApproval(payload, approval.approval_id)
+                    ? `<p class="subtle subtle--body">${escapeHtml(`Outbound group: ${outboundGroupForApproval(payload, approval.approval_id)?.group_id}`)}</p>`
+                    : ""
+                }
                 <div class="list-item__actions">
                   <button class="button" data-approval="${escapeHtml(approval.approval_id)}" type="button">Inspect</button>
                   <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}" type="button">Copy show command</button>
@@ -1705,9 +1925,25 @@ function renderApprovals(payload: ConsolePayload): string {
           .join("");
 
   const detail = state.approvalDetail;
+  const groupedContext = detail ? outboundGroupForApproval(payload, detail.approval_request.approval_id) : null;
   const detailHtml = !detail
-    ? `<div class="empty">Choose an approval to inspect it. Approvals, approval decisions, and send stay in the CLI.</div>`
+    ? `<div class="empty">Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.</div>`
     : `
+        ${
+          groupedContext
+            ? `
+              <section class="panel">
+                <h4>Outbound group context</h4>
+                <p>${escapeHtml(groupedContext.summary)}</p>
+                <p class="subtle subtle--body">${escapeHtml(groupedContext.why_now)}</p>
+                <div class="list-item__actions">
+                  <button class="button" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Open outbound group</button>
+                  <button class="copy-button" data-copy="${escapeHtml(`personal-ops outbound autopilot --group ${groupedContext.group_id}`)}" type="button">Copy group command</button>
+                </div>
+              </section>
+            `
+            : ""
+        }
         <div class="detail-list">
           <div class="detail-row"><dt>State</dt><dd>${escapeHtml(detail.approval_request.state)}</dd></div>
           <div class="detail-row"><dt>Subject</dt><dd>${escapeHtml(detail.draft.subject)}</dd></div>
@@ -1715,12 +1951,28 @@ function renderApprovals(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(detail.approval_request.requested_at))}</dd></div>
           <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(detail.approval_request.expires_at))}</dd></div>
         </div>
-        <p class="subtle subtle--body">This section is intentionally read-only. Use the exact CLI command you need below.</p>
+        <p class="subtle subtle--body">Use grouped approve and send from Drafts when available. Use the recovery controls here for reject, reopen, or cancel.</p>
+        <div class="list-item__actions">
+          ${
+            detail.approval_request.state === "send_failed"
+              ? `<button class="button" data-approval-reopen="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reopen approval</button>`
+              : detail.approval_request.state !== "rejected" && detail.approval_request.state !== "sent" && detail.approval_request.state !== "expired"
+                ? `<button class="button" data-approval-reject="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reject approval</button>`
+                : ""
+          }
+          ${
+            detail.approval_request.state !== "rejected" && detail.approval_request.state !== "sent" && detail.approval_request.state !== "expired"
+              ? `<button class="button" data-approval-cancel="${escapeHtml(detail.approval_request.approval_id)}" type="button">Cancel approval</button>`
+              : ""
+          }
+        </div>
         <div class="list-item__actions list-item__actions--stack">
           ${commandStack([
             `personal-ops approval show ${detail.approval_request.approval_id}`,
-            `personal-ops approval approve ${detail.approval_request.approval_id} --note "<reason>"`,
             `personal-ops approval reject ${detail.approval_request.approval_id} --note "<reason>"`,
+            `personal-ops approval reopen ${detail.approval_request.approval_id} --note "<reason>"`,
+            `personal-ops approval cancel ${detail.approval_request.approval_id} --note "<reason>"`,
+            `personal-ops approval approve ${detail.approval_request.approval_id} --note "<reason>"`,
             `personal-ops approval send ${detail.approval_request.approval_id} --note "<reason>"`,
           ])}
         </div>
@@ -1748,36 +2000,65 @@ function renderDrafts(payload: ConsolePayload): string {
     "drafts",
     "No assistant-prepared draft review is waiting right now.",
   );
+  const outboundGroups = payload.outboundAutopilot.groups;
   const groupedDrafts = payload.inboxAutopilot.groups.filter((group) => group.draft_artifact_ids.length > 0);
-  if (groupedDrafts.length === 0 && payload.drafts.length === 0) {
+  if (outboundGroups.length === 0 && groupedDrafts.length === 0 && payload.drafts.length === 0) {
     return `${assistantSection}<section class="empty">No local draft artifacts are currently stored.</section>`;
   }
   return `
     ${assistantSection}
     ${
-      groupedDrafts.length > 0
+      outboundGroups.length > 0
         ? `
           <section class="detail-stack">
-            ${groupedDrafts
+            ${outboundGroups
               .map((group) => {
+                const linkedInboxGroup = group.source_group_id ? autopilotGroupForDraft(payload, group.draft_artifact_ids[0] ?? "") : null;
                 const drafts = group.draft_artifact_ids
                   .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
                   .filter((draft): draft is DraftArtifact => Boolean(draft));
                 return `
                   <section class="panel">
-                    <div class="list-item__top">
-                      <h3>${escapeHtml(group.kind === "needs_reply" ? "Prepared reply block" : "Prepared follow-up block")}</h3>
-                      <span class="pill ${group.state === "awaiting_review" ? "pill--warn" : "pill"}">${escapeHtml(group.state)}</span>
-                    </div>
-                    <p>${escapeHtml(group.summary)}</p>
-                    <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
-                    <div class="list-item__actions">
-                      <button class="button" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Focus this group</button>
-                      <button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh drafts</button>
-                      <button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload, group))}" type="button">Copy next command</button>
-                    </div>
+                    ${renderOutboundGroupCard(payload, group)}
+                    ${
+                      linkedInboxGroup
+                        ? `<p class="subtle subtle--body">${escapeHtml(`Source inbox group: ${linkedInboxGroup.summary}`)}</p>`
+                        : ""
+                    }
                     <div class="list">
-                      ${drafts.map((draft, index) => renderDraftReviewCard(payload, group, draft, index)).join("")}
+                      ${drafts.map((draft, index) => {
+                        const review = reviewItemForArtifact(payload, draft.artifact_id);
+                        const approval = approvalForDraft(payload, draft.artifact_id);
+                        return `
+                          <article class="list-item">
+                            <div class="list-item__top">
+                              <h4>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</h4>
+                              <span class="pill ${draft.status === "approved" || draft.status === "sent" ? "pill--good" : draft.review_state === "resolved" ? "pill--warn" : "pill"}">${escapeHtml(draft.status)}</span>
+                            </div>
+                            <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")}</p>
+                            <p class="subtle subtle--body">${escapeHtml(`Review: ${draft.review_state}${review ? ` (${review.state})` : ""}${approval ? ` · approval ${approval.state}` : ""}`)}</p>
+                            <div class="list-item__actions list-item__actions--stack">
+                              ${
+                                review && review.state === "pending"
+                                  ? `<button class="button" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
+                                  : review && review.state === "opened"
+                                    ? `<button class="button" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
+                                    : ""
+                              }
+                              ${
+                                group.state === "approval_ready"
+                                  ? `<button class="button" data-outbound-request-approval="${escapeHtml(group.group_id)}" type="button">Request group approval</button>`
+                                  : group.state === "approval_pending"
+                                    ? `<button class="button" data-outbound-approve="${escapeHtml(group.group_id)}" type="button">Approve group</button>`
+                                    : group.state === "send_ready"
+                                      ? `<button class="button" data-outbound-send="${escapeHtml(group.group_id)}" type="button">Send group</button>`
+                                      : `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect group</button>`
+                              }
+                              <button class="copy-button" data-copy="${escapeHtml(draftCommand(draft.artifact_id))}" type="button">Copy draft command</button>
+                            </div>
+                          </article>
+                        `;
+                      }).join("")}
                     </div>
                   </section>
                 `;
@@ -2288,9 +2569,13 @@ async function selectSnapshot(snapshotId: string): Promise<void> {
 
 async function selectApproval(approvalId: string): Promise<void> {
   state.selectedApprovalId = approvalId;
+  if (state.payload) {
+    state.selectedOutboundGroupId = outboundGroupForApproval(state.payload, approvalId)?.group_id ?? state.selectedOutboundGroupId;
+  }
   state.section = "approvals";
   try {
     await loadSelectedApprovalDetail();
+    await loadSelectedOutboundGroupDetail();
     render();
   } catch (error) {
     if (error instanceof SessionLockedError) {
@@ -2411,6 +2696,34 @@ async function openAutopilotGroup(groupId: string): Promise<void> {
   render();
 }
 
+async function openOutboundGroup(groupId: string): Promise<void> {
+  state.selectedOutboundGroupId = groupId;
+  try {
+    await loadSelectedOutboundGroupDetail();
+    const group = state.outboundGroupDetail;
+    if (!group) {
+      setFlash("That outbound group is no longer available. Refresh the console and try again.", "warn");
+      render();
+      return;
+    }
+    const firstApprovalId = group.approval_ids[0];
+    if (firstApprovalId) {
+      state.selectedApprovalId = firstApprovalId;
+      await loadSelectedApprovalDetail();
+    }
+    state.section = group.state === "approval_pending" || group.state === "blocked" ? "approvals" : "drafts";
+    location.hash = state.section;
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
 async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"], actionIndex: number): Promise<void> {
   const payload = state.payload;
   const action = payload ? workflowByName(payload, workflowName).actions[actionIndex] : null;
@@ -2438,6 +2751,10 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
   }
   if (action.target_type === "inbox_autopilot_group" && action.target_id) {
     await openAutopilotGroup(action.target_id);
+    return;
+  }
+  if (action.target_type === "outbound_autopilot_group" && action.target_id) {
+    await openOutboundGroup(action.target_id);
     return;
   }
   if (action.target_type === "planning_recommendation_group" && action.target_id) {
@@ -2499,6 +2816,10 @@ async function openAssistantAction(actionId: string): Promise<void> {
   }
   if (action.target_type === "inbox_autopilot_group" && action.target_id) {
     await openAutopilotGroup(action.target_id);
+    return;
+  }
+  if (action.target_type === "outbound_autopilot_group" && action.target_id) {
+    await openOutboundGroup(action.target_id);
     return;
   }
   if (action.target_type === "approval_request" && action.target_id) {
@@ -2754,6 +3075,144 @@ async function requestApprovalFromConsole(artifactId: string): Promise<void> {
       `${error instanceof Error ? error.message : String(error)} Run personal-ops approval show or personal-ops review commands if needed.`,
       "critical",
     );
+    render();
+  }
+}
+
+async function requestOutboundApprovalFromConsole(groupId: string): Promise<void> {
+  const note = window.prompt("Add a short operator note before requesting grouped approval.", "Ready for grouped approval");
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before requesting grouped approval.", "warn");
+    render();
+    return;
+  }
+  if (!confirm("Request approval for every reviewed draft in this outbound group now?")) {
+    return;
+  }
+  try {
+    await postJson<OutboundAutopilotGroupResponse>(
+      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/request-approval`,
+      { note: note.trim() },
+    );
+    state.selectedOutboundGroupId = groupId;
+    state.section = "drafts";
+    location.hash = state.section;
+    setFlash("Grouped approval requested.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
+    render();
+  }
+}
+
+async function approveOutboundGroupFromConsole(groupId: string): Promise<void> {
+  const note = window.prompt("Add a short operator note before approving this outbound group.", "Approve grouped outbound work");
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before approving this outbound group.", "warn");
+    render();
+    return;
+  }
+  if (!confirm("Approve every pending approval in this outbound group now?")) {
+    return;
+  }
+  try {
+    await postJson<OutboundAutopilotGroupResponse>(
+      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/approve`,
+      { note: note.trim(), confirmed: true },
+    );
+    state.selectedOutboundGroupId = groupId;
+    state.section = "drafts";
+    location.hash = state.section;
+    setFlash("Outbound group approved.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
+    render();
+  }
+}
+
+async function sendOutboundGroupFromConsole(groupId: string): Promise<void> {
+  const note = window.prompt("Add a short operator note before sending this outbound group.", "Send grouped outbound work");
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before sending this outbound group.", "warn");
+    render();
+    return;
+  }
+  if (!confirm("Send every approved draft in this outbound group now? This is a live outbound action.")) {
+    return;
+  }
+  try {
+    await postJson<OutboundAutopilotGroupResponse>(
+      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/send`,
+      { note: note.trim(), confirmed: true },
+    );
+    state.selectedOutboundGroupId = groupId;
+    state.section = "drafts";
+    location.hash = state.section;
+    setFlash("Outbound group sent.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
+    render();
+  }
+}
+
+async function performApprovalRecoveryAction(action: "reject" | "reopen" | "cancel", approvalId: string): Promise<void> {
+  const note = window.prompt(
+    action === "reject"
+      ? "Add a short operator note before rejecting this approval."
+      : action === "reopen"
+        ? "Add a short operator note before reopening this approval."
+        : "Add a short operator note before canceling this approval.",
+    action === "reject" ? "Reject approval" : action === "reopen" ? "Reopen approval" : "Cancel approval",
+  );
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash(`Add a note before choosing ${action}.`, "warn");
+    render();
+    return;
+  }
+  if (!confirm(`Run ${action} for approval ${approvalId} now?`)) {
+    return;
+  }
+  try {
+    await postJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(approvalId)}/${action}`, {
+      note: note.trim(),
+    });
+    state.selectedApprovalId = approvalId;
+    state.section = "approvals";
+    location.hash = state.section;
+    setFlash(`Approval ${action} completed.`, "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops approval ${action} ${approvalId} --note "<reason>" for the CLI path.`, "critical");
     render();
   }
 }
@@ -3037,6 +3496,30 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const outboundOpenButton = target.closest<HTMLButtonElement>("[data-outbound-open]");
+  if (outboundOpenButton?.dataset.outboundOpen) {
+    await openOutboundGroup(outboundOpenButton.dataset.outboundOpen);
+    return;
+  }
+
+  const outboundRequestApprovalButton = target.closest<HTMLButtonElement>("[data-outbound-request-approval]");
+  if (outboundRequestApprovalButton?.dataset.outboundRequestApproval) {
+    await requestOutboundApprovalFromConsole(outboundRequestApprovalButton.dataset.outboundRequestApproval);
+    return;
+  }
+
+  const outboundApproveButton = target.closest<HTMLButtonElement>("[data-outbound-approve]");
+  if (outboundApproveButton?.dataset.outboundApprove) {
+    await approveOutboundGroupFromConsole(outboundApproveButton.dataset.outboundApprove);
+    return;
+  }
+
+  const outboundSendButton = target.closest<HTMLButtonElement>("[data-outbound-send]");
+  if (outboundSendButton?.dataset.outboundSend) {
+    await sendOutboundGroupFromConsole(outboundSendButton.dataset.outboundSend);
+    return;
+  }
+
   const prepareMeetingPacketButton = target.closest<HTMLButtonElement>("[data-prepare-meeting-packet]");
   if (prepareMeetingPacketButton?.dataset.prepareMeetingPacket) {
     await prepareMeetingPacketFromConsole(prepareMeetingPacketButton.dataset.prepareMeetingPacket);
@@ -3070,6 +3553,24 @@ document.addEventListener("click", async (event) => {
   const draftApprovalButton = target.closest<HTMLButtonElement>("[data-draft-approval]");
   if (draftApprovalButton?.dataset.draftApproval) {
     await requestApprovalFromConsole(draftApprovalButton.dataset.draftApproval);
+    return;
+  }
+
+  const approvalRejectButton = target.closest<HTMLButtonElement>("[data-approval-reject]");
+  if (approvalRejectButton?.dataset.approvalReject) {
+    await performApprovalRecoveryAction("reject", approvalRejectButton.dataset.approvalReject);
+    return;
+  }
+
+  const approvalReopenButton = target.closest<HTMLButtonElement>("[data-approval-reopen]");
+  if (approvalReopenButton?.dataset.approvalReopen) {
+    await performApprovalRecoveryAction("reopen", approvalReopenButton.dataset.approvalReopen);
+    return;
+  }
+
+  const approvalCancelButton = target.closest<HTMLButtonElement>("[data-approval-cancel]");
+  if (approvalCancelButton?.dataset.approvalCancel) {
+    await performApprovalRecoveryAction("cancel", approvalCancelButton.dataset.approvalCancel);
     return;
   }
 

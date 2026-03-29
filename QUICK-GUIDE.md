@@ -51,6 +51,8 @@ Keep these pieces separate:
   Shows grouped reply and follow-up work plus the current staged-draft state.
 - `personal-ops planning autopilot`
   Shows prepared planning bundles, bundle detail, and the grouped apply path.
+- `personal-ops outbound autopilot`
+  Shows reviewed outbound groups, approval readiness, send readiness, and the grouped finish-work path.
 - `personal-ops version`
   Shows the current product version and the official source-first upgrade path.
 - `personal-ops workflow now-next`
@@ -90,7 +92,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. It also adds a `Today's Prep` meeting card so the next useful meeting packet is already staged or one click away. Drafts remains the grouped inbox autopilot review workspace, where the assistant can stage reply and follow-up drafts, the operator can review them, and approval can be requested without dropping into the CLI for ordinary inbox prep. Planning now leads with prepared bundles, so the operator can review a grouped execution preview and explicitly apply the whole bundle from the console with confirmation instead of translating raw recommendations one by one. On macOS, the same console can now run inside the optional desktop shell, which keeps the native window, tray presence, and bounded notifications without changing any trust boundaries. Higher-trust flows like send, attendee communication, and approval decisions still stay gated in the CLI.
+The console now complements that loop by leading with the assistant queue, then the same now-next guidance and day-start bundle on Overview. It also adds a `Today's Prep` meeting card so the next useful meeting packet is already staged or one click away. Drafts remains the grouped inbox autopilot review workspace, where the assistant can stage reply and follow-up drafts, the operator can review them, and then move them into grouped outbound finish-work from the same console. Outbound finish-work now carries reviewed mail work through grouped request-approval, approve, and send, while still keeping send-window control in the CLI. Planning now leads with prepared bundles, so the operator can review a grouped execution preview and explicitly apply the whole bundle from the console with confirmation instead of translating raw recommendations one by one. On macOS, the same console can now run inside the optional desktop shell, which keeps the native window, tray presence, and bounded notifications without changing any trust boundaries. Higher-trust flows like auth mutation, restore, destructive actions, and send-window control still stay gated.
 
 Read next:
 
@@ -131,6 +133,7 @@ Operator-only work includes:
 - calendar event writes
 - recommendation apply, reject, snooze, refresh, and replan
 - governance and policy mutation
+- grouped outbound approval and send without the operator console or CLI note and confirmation flow
 
 ### Read next
 

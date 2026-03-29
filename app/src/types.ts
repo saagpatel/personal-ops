@@ -1356,6 +1356,56 @@ export interface PlanningAutopilotReport {
   bundles: PlanningAutopilotBundle[];
 }
 
+export type OutboundAutopilotGroupKind = "reply_block" | "followup_block" | "single_draft";
+
+export type OutboundAutopilotGroupState =
+  | "review_pending"
+  | "approval_ready"
+  | "approval_pending"
+  | "send_ready"
+  | "blocked"
+  | "completed";
+
+export interface OutboundAutopilotSendWindowSummary {
+  active: boolean;
+  effective_send_enabled: boolean;
+  permanent_send_enabled: boolean;
+  window?: SendWindow | undefined;
+}
+
+export interface OutboundAutopilotGroup {
+  group_id: string;
+  kind: OutboundAutopilotGroupKind;
+  state: OutboundAutopilotGroupState;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  signals: string[];
+  source_group_id?: string | undefined;
+  review_item_ids: string[];
+  draft_artifact_ids: string[];
+  approval_ids: string[];
+  send_ready_count: number;
+  next_commands: string[];
+}
+
+export interface OutboundAutopilotReport {
+  generated_at: string;
+  readiness: ServiceState;
+  summary: string;
+  top_item_summary: string | null;
+  send_window: OutboundAutopilotSendWindowSummary;
+  groups: OutboundAutopilotGroup[];
+}
+
+export interface OutboundAutopilotActionResult {
+  group: OutboundAutopilotGroup;
+  summary: string;
+  completed_approval_ids: string[];
+  failed_approval_id?: string | undefined;
+  failed_reason?: string | undefined;
+}
+
 export interface MeetingPrepThreadSummary {
   thread_id: string;
   subject: string;
