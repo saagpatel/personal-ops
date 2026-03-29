@@ -77,6 +77,7 @@ Closeout metadata for this phase:
 - branch name: `codex/phase-6-secrets-safety-ops`
 - commit hashes:
   - `bad039a` — main Phase 6 implementation
+  - `f3fc443` — closeout metadata and PR recording
 - pushed remote branch: `origin/codex/phase-6-secrets-safety-ops`
 - draft PR link: [#3](https://github.com/saagpatel/personal-ops/pull/3)
 
