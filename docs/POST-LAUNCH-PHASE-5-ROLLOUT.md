@@ -94,11 +94,11 @@ Branch:
 
 Commits:
 
-- to be filled during git closeout
+- `c4ae3f8` `feat(workflow): add day-start workflow bundles`
 
 Draft PR:
 
-- to be filled during git closeout
+- [#14](https://github.com/saagpatel/personal-ops/pull/14)
 
 Next recommended phase:
 
