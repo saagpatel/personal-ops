@@ -30,6 +30,7 @@ Keep these pieces separate:
 - the Gmail refresh token lives in Keychain and is never restored from snapshots
 - the optional GitHub PAT also lives in Keychain and is scoped only to the repositories you explicitly opt into
 - the optional Drive and Docs context reuses the same Google account and refresh token; it does not add a second Google login silo
+- the optional broader Google context still uses that same Drive scope and now adds narrow cached Sheets previews too
 - backups may move state intentionally, but auth and secrets still stay machine-local
 
 ### Daily commands
@@ -59,7 +60,9 @@ Keep these pieces separate:
 - `personal-ops github status`
   The optional GitHub PR and review queue summary.
 - `personal-ops drive status`
-  The optional Google Docs and Drive metadata summary.
+  The optional Google Docs, Sheets, and Drive metadata summary.
+- `personal-ops drive sheet <fileId>`
+  Show the cached narrow preview for an in-scope Google Sheet.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -114,7 +117,7 @@ Safe assistant work includes:
 
 - reading status, worklist, inbox, calendar, task, planning, and assistant-safe audit context
 - reading assistant-safe GitHub PR and review queue context when the operator has enabled it
-- reading assistant-safe Drive status, file metadata, and cached Google Doc context when the operator has enabled it
+- reading assistant-safe Drive status, file metadata, cached Google Doc context, and cached Google Sheet previews when the operator has enabled it
 - creating limited assistant-safe suggestions where supported
 - explaining queue state, planning pressure, and operational context
 

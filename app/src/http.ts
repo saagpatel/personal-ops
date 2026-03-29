@@ -541,6 +541,16 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         }
       }
 
+      if (request.method === "GET" && url.pathname.startsWith("/v1/drive/sheets/")) {
+        const fileId = decodeURIComponent(url.pathname.slice("/v1/drive/sheets/".length));
+        if (fileId) {
+          sendJson(response, 200, {
+            sheet: service.getDriveSheet(fileId),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/inbox/status") {
         sendJson(response, 200, {
           inbox: service.getInboxStatusReport(),

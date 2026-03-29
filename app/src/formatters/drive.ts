@@ -1,4 +1,4 @@
-import type { DriveDocRecord, DriveFileRecord, DriveStatusReport } from "../types.js";
+import type { DriveDocRecord, DriveFileRecord, DriveSheetRecord, DriveStatusReport } from "../types.js";
 import { line } from "./shared.js";
 
 function pushSection(lines: string[], title: string, rows: string[]) {
@@ -28,6 +28,7 @@ export function formatDriveStatus(report: DriveStatusReport): string {
   pushSection(lines, "Indexed", [
     line("Files", String(report.indexed_file_count)),
     line("Docs", String(report.indexed_doc_count)),
+    line("Sheets", String(report.indexed_sheet_count)),
     line("Top item", maybe(report.top_item_summary, "nothing notable")),
   ]);
 
@@ -66,5 +67,28 @@ export function formatDriveDoc(doc: DriveDocRecord): string {
   lines.push("");
   pushSection(lines, "Snippet", [doc.snippet ? doc.snippet : "No snippet extracted."]);
   pushSection(lines, "Text", [doc.text_content || "No text extracted."]);
+  return lines.join("\n").trimEnd();
+}
+
+export function formatDriveSheet(sheet: DriveSheetRecord): string {
+  const lines: string[] = [];
+  lines.push(`Personal Ops Drive Sheet: ${sheet.title}`);
+  lines.push(line("File ID", sheet.file_id));
+  lines.push(line("Type", sheet.mime_type));
+  lines.push(line("Updated", sheet.updated_at));
+  lines.push(line("Open", sheet.web_view_link ?? "not recorded"));
+  lines.push("");
+  pushSection(lines, "Tabs", [
+    sheet.tab_names.length > 0 ? sheet.tab_names.join(", ") : "No sheet tabs were indexed.",
+  ]);
+  pushSection(lines, "Header Preview", [
+    sheet.header_preview.length > 0 ? sheet.header_preview.join(" | ") : "No header preview was extracted.",
+  ]);
+  pushSection(lines, "Cell Preview", [
+    sheet.cell_preview.length > 0
+      ? sheet.cell_preview.map((row) => row.join(" | ")).join("\n")
+      : "No cell preview was extracted.",
+  ]);
+  pushSection(lines, "Snippet", [sheet.snippet ? sheet.snippet : "No snippet extracted."]);
   return lines.join("\n").trimEnd();
 }

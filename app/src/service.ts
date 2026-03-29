@@ -25,6 +25,8 @@ import { CURRENT_SCHEMA_VERSION, PersonalOpsDb } from "./db.js";
 import {
   buildDriveTopItemSummary,
   getGoogleDoc,
+  isGoogleDocMimeType,
+  isGoogleSheetMimeType,
   syncDriveScope,
   verifyGoogleDriveAccess,
   verifyGoogleDriveScopes,
@@ -114,6 +116,7 @@ import {
   DraftInput,
   DriveDocRecord,
   DriveFileRecord,
+  DriveSheetRecord,
   DriveStatusReport,
   GmailClientConfig,
   GoogleCalendarEventsPage,
@@ -181,6 +184,7 @@ import {
   PlanningRecommendationTuningReport,
   MeetingPrepPacket,
   RelatedDriveDoc,
+  RelatedDriveFile,
   ReviewDetail,
   SendWindow,
   ServiceState,
@@ -769,6 +773,7 @@ export class PersonalOpsService {
     const mailAccount = this.db.getMailAccount();
     const sync = this.db.getDriveSyncState();
     const docs = this.db.listDriveDocs();
+    const sheets = this.db.listDriveSheets();
     const files = this.db.listDriveFiles();
     const authenticated = Boolean(
       mailAccount && this.dependencies.getKeychainSecret(this.config.keychainService, mailAccount.email),
@@ -782,6 +787,7 @@ export class PersonalOpsService {
       included_file_count: this.config.includedDriveFiles.length,
       indexed_file_count: files.length,
       indexed_doc_count: docs.length,
+      indexed_sheet_count: sheets.length,
       top_item_summary: null,
     };
     report.top_item_summary = buildDriveTopItemSummary(report);
@@ -798,6 +804,18 @@ export class PersonalOpsService {
       throw new Error(`Drive doc ${fileId} was not found.`);
     }
     return doc;
+  }
+
+  listDriveSheets(): DriveSheetRecord[] {
+    return this.db.listDriveSheets();
+  }
+
+  getDriveSheet(fileId: string): DriveSheetRecord {
+    const sheet = this.db.getDriveSheet(fileId);
+    if (!sheet) {
+      throw new Error(`Drive sheet ${fileId} was not found.`);
+    }
+    return sheet;
   }
 
   listGithubReviews(): GithubPullRequest[] {
@@ -1548,6 +1566,7 @@ export class PersonalOpsService {
       const syncedAt = new Date().toISOString();
       this.db.replaceDriveFiles(synced.files);
       this.db.replaceDriveDocs(synced.docs);
+      this.db.replaceDriveSheets(synced.sheets);
       this.db.upsertDriveSyncState({
         status: "ready",
         last_synced_at: syncedAt,
@@ -1556,6 +1575,7 @@ export class PersonalOpsService {
         last_sync_duration_ms: Date.now() - syncStartedAt,
         files_indexed_count: synced.files.length,
         docs_indexed_count: synced.docs.length,
+        sheets_indexed_count: synced.sheets.length,
       });
       this.db.recordAuditEvent({
         client_id: identity.client_id,
@@ -1566,6 +1586,7 @@ export class PersonalOpsService {
         metadata: {
           indexed_file_count: synced.files.length,
           indexed_doc_count: synced.docs.length,
+          indexed_sheet_count: synced.sheets.length,
         },
       });
       this.refreshDriveLinkProvenance();
@@ -1594,27 +1615,83 @@ export class PersonalOpsService {
     return this.db.listDriveDocs().slice(0, Math.max(0, limit));
   }
 
+  listRecentDriveFiles(limit = 10): RelatedDriveFile[] {
+    const files = this.db
+      .listDriveFiles()
+      .filter((file) => file.mime_type !== "application/vnd.google-apps.folder")
+      .slice(0, Math.max(0, limit));
+    return files
+      .map((file) => this.buildRelatedDriveFile(file.file_id, "recent_file_fallback"))
+      .filter((file): file is RelatedDriveFile => Boolean(file));
+  }
+
+  getRelatedFilesForTarget(
+    targetType: string | undefined,
+    targetId: string | undefined,
+    options: { allowFallback?: boolean; fallbackLimit?: number; maxItems?: number } = {},
+  ): RelatedDriveFile[] {
+    if (!this.config.driveEnabled || !targetType || !targetId) {
+      return [];
+    }
+    const maxItems = Math.max(1, options.maxItems ?? 5);
+    const sourceType = this.mapTargetTypeToDriveSourceType(targetType);
+    const explicit = sourceType ? this.listExplicitRelatedFiles(sourceType, targetId) : [];
+    const sharedParent = sourceType
+      ? this.listSharedParentRelatedFiles(sourceType, targetId, explicit, maxItems)
+      : [];
+    const combined: RelatedDriveFile[] = [];
+    const seen = new Set<string>();
+    for (const item of [...explicit, ...sharedParent]) {
+      if (seen.has(item.file_id)) {
+        continue;
+      }
+      seen.add(item.file_id);
+      combined.push(item);
+      if (combined.length >= maxItems) {
+        return combined;
+      }
+    }
+    if (!options.allowFallback) {
+      return combined;
+    }
+    const fallback = this.listRecentDriveFiles(options.fallbackLimit ?? this.config.driveRecentDocsLimit);
+    for (const item of fallback) {
+      if (seen.has(item.file_id)) {
+        continue;
+      }
+      seen.add(item.file_id);
+      combined.push(item);
+      if (combined.length >= maxItems) {
+        break;
+      }
+    }
+    return combined;
+  }
+
   getRelatedDocsForTarget(
     targetType: string | undefined,
     targetId: string | undefined,
     options: { allowFallback?: boolean; fallbackLimit?: number } = {},
   ): RelatedDriveDoc[] {
-    if (!this.config.driveEnabled || !targetType || !targetId) {
-      return [];
+    const relatedOptions: { allowFallback?: boolean; fallbackLimit?: number } = {};
+    if (options.allowFallback !== undefined) {
+      relatedOptions.allowFallback = options.allowFallback;
     }
-    const sourceType = this.mapTargetTypeToDriveSourceType(targetType);
-    const explicit = sourceType ? this.listExplicitRelatedDocs(sourceType, targetId) : [];
-    if (explicit.length > 0 || !options.allowFallback) {
-      return explicit;
+    if (options.fallbackLimit !== undefined) {
+      relatedOptions.fallbackLimit = options.fallbackLimit;
     }
-    return this.listRecentDriveDocs(options.fallbackLimit ?? this.config.driveRecentDocsLimit).map((doc) => ({
-      file_id: doc.file_id,
-      title: doc.title,
-      web_view_link: doc.web_view_link,
-      snippet: doc.snippet,
-      mime_type: doc.mime_type,
-      match_type: "recent_doc_fallback",
-    }));
+    return this.getRelatedFilesForTarget(targetType, targetId, relatedOptions)
+      .filter((file) => file.file_kind === "doc")
+      .map((file) => ({
+        file_id: file.file_id,
+        title: file.title,
+        web_view_link: file.web_view_link,
+        snippet: file.snippet,
+        mime_type: file.mime_type,
+        match_type: file.match_type === "recent_file_fallback" ? "recent_doc_fallback" : file.match_type,
+        source_type: file.source_type,
+        source_id: file.source_id,
+      }));
   }
 
   private mapTargetTypeToDriveSourceType(targetType: string): "calendar_event" | "task" | "draft" | null {
@@ -1631,30 +1708,108 @@ export class PersonalOpsService {
   }
 
   private listExplicitRelatedDocs(sourceType: "calendar_event" | "task" | "draft", sourceId: string): RelatedDriveDoc[] {
-    const docs: RelatedDriveDoc[] = [];
+    return this.listExplicitRelatedFiles(sourceType, sourceId)
+      .filter((file) => file.file_kind === "doc")
+      .map((file) => ({
+        file_id: file.file_id,
+        title: file.title,
+        web_view_link: file.web_view_link,
+        snippet: file.snippet,
+        mime_type: file.mime_type,
+        match_type: file.match_type,
+        source_type: file.source_type,
+        source_id: file.source_id,
+      }));
+  }
+
+  private listExplicitRelatedFiles(sourceType: "calendar_event" | "task" | "draft", sourceId: string): RelatedDriveFile[] {
+    const files: RelatedDriveFile[] = [];
     const seen = new Set<string>();
     for (const match of this.db.listDriveLinkProvenance(sourceType, sourceId)) {
       if (seen.has(match.file_id)) {
         continue;
       }
-      const file = this.db.getDriveFile(match.file_id);
-      const doc = this.db.getDriveDoc(match.file_id);
-      if (!file && !doc) {
+      const related = this.buildRelatedDriveFile(match.file_id, "explicit_link", match.source_type, match.source_id);
+      if (!related) {
         continue;
       }
       seen.add(match.file_id);
-      docs.push({
-        file_id: match.file_id,
-        title: doc?.title ?? file?.name ?? match.file_id,
-        web_view_link: doc?.web_view_link ?? file?.web_view_link,
-        snippet: doc?.snippet,
-        mime_type: doc?.mime_type ?? file?.mime_type ?? "application/octet-stream",
-        match_type: "explicit_link",
-        source_type: match.source_type,
-        source_id: match.source_id,
-      });
+      files.push(related);
     }
-    return docs;
+    return files;
+  }
+
+  private listSharedParentRelatedFiles(
+    sourceType: "calendar_event" | "task" | "draft",
+    sourceId: string,
+    explicit: RelatedDriveFile[],
+    maxItems: number,
+  ): RelatedDriveFile[] {
+    const explicitIds = new Set(explicit.map((item) => item.file_id));
+    const parentIds = new Set<string>();
+    for (const item of explicit) {
+      const file = this.db.getDriveFile(item.file_id);
+      for (const parent of file?.parents ?? []) {
+        parentIds.add(parent);
+      }
+    }
+    if (parentIds.size === 0) {
+      return [];
+    }
+    return this.db
+      .listDriveFiles()
+      .filter((file) => {
+        if (explicitIds.has(file.file_id) || file.mime_type === "application/vnd.google-apps.folder") {
+          return false;
+        }
+        return file.parents.some((parent) => parentIds.has(parent));
+      })
+      .sort((left, right) => {
+        const leftPriority = isGoogleDocMimeType(left.mime_type) || isGoogleSheetMimeType(left.mime_type) ? 0 : 1;
+        const rightPriority = isGoogleDocMimeType(right.mime_type) || isGoogleSheetMimeType(right.mime_type) ? 0 : 1;
+        if (leftPriority !== rightPriority) {
+          return leftPriority - rightPriority;
+        }
+        const leftTime = Date.parse(left.drive_modified_time ?? left.updated_at);
+        const rightTime = Date.parse(right.drive_modified_time ?? right.updated_at);
+        return rightTime - leftTime || left.name.localeCompare(right.name);
+      })
+      .slice(0, Math.max(0, maxItems))
+      .map((file) => this.buildRelatedDriveFile(file.file_id, "shared_parent_folder", sourceType, sourceId))
+      .filter((file): file is RelatedDriveFile => Boolean(file));
+  }
+
+  private buildRelatedDriveFile(
+    fileId: string,
+    matchType: RelatedDriveFile["match_type"],
+    sourceType?: RelatedDriveFile["source_type"],
+    sourceId?: string,
+  ): RelatedDriveFile | null {
+    const file = this.db.getDriveFile(fileId);
+    const doc = this.db.getDriveDoc(fileId);
+    const sheet = this.db.getDriveSheet(fileId);
+    if (!file && !doc && !sheet) {
+      return null;
+    }
+    const mimeType = doc?.mime_type ?? sheet?.mime_type ?? file?.mime_type ?? "application/octet-stream";
+    const fileKind: RelatedDriveFile["file_kind"] = doc
+      ? "doc"
+      : sheet
+        ? "sheet"
+        : "file";
+    return {
+      file_id: fileId,
+      title: doc?.title ?? sheet?.title ?? file?.name ?? fileId,
+      web_view_link: doc?.web_view_link ?? sheet?.web_view_link ?? file?.web_view_link,
+      snippet: doc?.snippet ?? sheet?.snippet,
+      mime_type: mimeType,
+      file_kind: fileKind,
+      match_type: matchType,
+      source_type: sourceType,
+      source_id: sourceId,
+      tab_names: sheet?.tab_names,
+      header_preview: sheet?.header_preview,
+    };
   }
 
   private refreshDriveLinkProvenance(): void {
@@ -1738,6 +1893,7 @@ export class PersonalOpsService {
     const seen = new Set<string>();
     const patterns = [
       /https:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/g,
+      /https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/g,
       /https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/g,
       /https:\/\/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)/g,
       /https:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/g,
@@ -4006,7 +4162,7 @@ export class PersonalOpsService {
             "integration",
           )
         : driveToken
-          ? this.passCheck("drive_token_present", "Drive token", "Google token is present for Drive and Docs reads.", "integration")
+          ? this.passCheck("drive_token_present", "Drive token", "Google token is present for Drive, Docs, and Sheets reads.", "integration")
           : this.warnCheck(
               "drive_token_present",
               "Drive token",
@@ -4848,13 +5004,14 @@ export class PersonalOpsService {
             const missing = [
               "https://www.googleapis.com/auth/drive.metadata.readonly",
               "https://www.googleapis.com/auth/documents.readonly",
+              "https://www.googleapis.com/auth/spreadsheets.readonly",
             ].filter((scope) => !scopes.includes(scope));
             if (missing.length === 0) {
               checks.push(
                 this.passCheck(
                   "deep_google_drive_access",
                   "Deep Google Drive access",
-                  `Live Drive and Docs scope check succeeded for ${stored.email}.`,
+                  `Live Drive, Docs, and Sheets scope check succeeded for ${stored.email}.`,
                   "integration",
                 ),
               );
@@ -4863,7 +5020,7 @@ export class PersonalOpsService {
                 this.failCheck(
                   "deep_google_drive_access",
                   "Deep Google Drive access",
-                  `Google grant is missing required Drive/Docs scopes: ${missing.join(", ")}. Run \`personal-ops auth google login\` again.`,
+                  `Google grant is missing required Drive/Docs/Sheets scopes: ${missing.join(", ")}. Run \`personal-ops auth google login\` again.`,
                   "integration",
                 ),
               );

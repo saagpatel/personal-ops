@@ -8,7 +8,7 @@ Use this document for:
 - auth and local runtime setup
 - local secret handling and re-auth recovery
 - optional GitHub PR and review context setup
-- optional Google Docs and Drive metadata context setup
+- optional Google Docs, Google Sheets, and Drive metadata context setup
 - machine ownership and intentional migration
 - operator console access and narrow browser-safe actions
 - operator automations
@@ -175,9 +175,9 @@ Important GitHub rules:
 - no GitHub write actions are added in this phase
 - issue ingestion and broader repo browsing are intentionally deferred
 
-### Optional Google Docs and Drive metadata context
+### Optional Google Docs, Sheets, and Drive metadata context
 
-Phase 8 adds narrow Google Docs text context plus Drive file metadata.
+Assistant-Led Phase 5 broadens the existing Drive integration to include narrow cached Google Sheets previews plus richer related-file grouping.
 
 Enable it in `~/.config/personal-ops/config.toml`:
 
@@ -196,17 +196,19 @@ Then rerun Google auth if these scopes have not been granted yet:
 personal-ops auth google login
 personal-ops drive sync now
 personal-ops drive status
+personal-ops drive sheet <fileId>
 ```
 
-Important Drive and Docs rules:
+Important Google context rules:
 
-- Google Docs plus Drive metadata only in this phase
+- Google Docs plus narrow Google Sheets previews plus Drive metadata only in this phase
 - explicit scope only through `included_folders` and `included_files`
 - URLs and raw Google IDs are both accepted in config
 - explicit stored links are used first from calendar descriptions, task notes, and draft bodies
-- recent-doc fallback stays small and never outranks concrete operator work on its own
+- richer related-file grouping uses explicit links first, shared-parent files second, and only a small recent fallback last
 - no Google write actions are added in this phase
-- Sheets, Slides, and Shared Drives are intentionally deferred
+- Sheets content is cached as a bounded preview only
+- Slides extraction and Shared Drives are intentionally deferred
 
 ### Safe re-auth path
 

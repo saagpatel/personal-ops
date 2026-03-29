@@ -333,6 +333,18 @@ const tools = [
     },
   },
   {
+    name: "drive_sheet_get",
+    description: "Get cached Google Sheets preview context for a file id.",
+    inputSchema: {
+      type: "object",
+      required: ["file_id"],
+      properties: {
+        file_id: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_window_status",
     description: "Show the current timed send-window status without mutating it.",
     inputSchema: {
@@ -811,6 +823,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   if (name === "drive_doc_get") {
     const response = await requestJson("GET", `/v1/drive/docs/${encodeURIComponent(String(args.file_id))}`);
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "drive_sheet_get") {
+    const response = await requestJson("GET", `/v1/drive/sheets/${encodeURIComponent(String(args.file_id))}`);
     return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
   }
   if (name === "send_window_status") {

@@ -15,7 +15,7 @@ It gives one machine-owned source of truth for:
 - tasks and task suggestions
 - planning recommendations
 - optional GitHub PR and review context
-- optional Google Docs and Drive metadata context
+- optional Google Docs, Google Sheets, and Drive metadata context
 - drafts, approvals, and reviews
 - assistant-safe operational reads
 
@@ -45,7 +45,7 @@ Use this path if you want to:
 - use inbox autopilot to stage grouped reply and follow-up drafts before asking for approval
 - use the new day-start workflow bundle before dropping into narrower commands
 - optionally add narrow GitHub PR and review context
-- optionally add narrow Google Docs and Drive metadata context
+- optionally add narrow Google Docs, Google Sheets, and Drive metadata context
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands
@@ -86,7 +86,7 @@ Use this path if you want to:
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The assistant-led initiative, now through Phase 4 with the optional macOS desktop shell.
+  The assistant-led initiative, now through Phase 5 with broader Google context inside the existing Drive scope.
 
 ## History and deep context
 
@@ -114,7 +114,7 @@ If you are a new operator:
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
 3. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
-4. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet.
+4. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet and related Google files.
 5. If you want the console to feel more native on macOS, run `personal-ops install desktop` and then `personal-ops desktop open`.
 6. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
 7. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.

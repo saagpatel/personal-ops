@@ -7,6 +7,7 @@ import {
   formatDesktopStatus,
   formatDriveDoc,
   formatDriveFiles,
+  formatDriveSheet,
   formatDriveStatus,
   formatDoctorReport,
   formatGithubPullDetail,
@@ -224,6 +225,18 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .action(async (options) => {
       const response = await context.requestJson<{ files: unknown[] }>("GET", "/v1/drive/files");
       context.printOutput(response, (value) => formatDriveFiles(value.files), options.json);
+    });
+
+  drive
+    .command("sheet")
+    .argument("<fileId>", "Google Drive file id")
+    .option("--json", "Print raw JSON")
+    .action(async (fileId, options) => {
+      const response = await context.requestJson<{ sheet: unknown }>(
+        "GET",
+        `/v1/drive/sheets/${encodeURIComponent(fileId)}`,
+      );
+      context.printOutput(response, (value) => formatDriveSheet(value.sheet), options.json);
     });
 
   drive

@@ -25,6 +25,7 @@ import {
   DriveDocRecord,
   DriveFileRecord,
   DriveLinkProvenance,
+  DriveSheetRecord,
   DriveSyncState,
   DriveSyncStatus,
   GmailMessageMetadata,
@@ -64,7 +65,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 18;
+export const CURRENT_SCHEMA_VERSION = 19;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -1773,6 +1774,7 @@ export class PersonalOpsDb {
       last_sync_duration_ms?: number | null;
       files_indexed_count?: number | null;
       docs_indexed_count?: number | null;
+      sheets_indexed_count?: number | null;
     },
   ): DriveSyncState {
     const existing = this.getDriveSyncState();
@@ -1782,8 +1784,8 @@ export class PersonalOpsDb {
         .prepare(
           `INSERT INTO drive_sync_state (
             provider, status, last_synced_at, last_error_code, last_error_message, last_sync_duration_ms,
-            files_indexed_count, docs_indexed_count, updated_at
-          ) VALUES ('google_drive', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            files_indexed_count, docs_indexed_count, sheets_indexed_count, updated_at
+          ) VALUES ('google_drive', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           updates.status ?? "idle",
@@ -1793,6 +1795,7 @@ export class PersonalOpsDb {
           updates.last_sync_duration_ms ?? null,
           updates.files_indexed_count ?? null,
           updates.docs_indexed_count ?? null,
+          updates.sheets_indexed_count ?? null,
           now,
         );
       return this.getDriveSyncState()!;
@@ -1810,6 +1813,7 @@ export class PersonalOpsDb {
     if (updates.last_sync_duration_ms !== undefined) push("last_sync_duration_ms", updates.last_sync_duration_ms);
     if (updates.files_indexed_count !== undefined) push("files_indexed_count", updates.files_indexed_count);
     if (updates.docs_indexed_count !== undefined) push("docs_indexed_count", updates.docs_indexed_count);
+    if (updates.sheets_indexed_count !== undefined) push("sheets_indexed_count", updates.sheets_indexed_count);
     push("updated_at", now);
     this.db.prepare(`UPDATE drive_sync_state SET ${sets.join(", ")} WHERE provider = 'google_drive'`).run(...params);
     return this.getDriveSyncState()!;
@@ -1899,6 +1903,49 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapDriveDocRecord(row));
   }
 
+  replaceDriveSheets(sheets: DriveSheetRecord[]): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM drive_sheets`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO drive_sheets (
+          file_id, title, mime_type, web_view_link, tab_names_json, header_preview_json, cell_preview_json,
+          snippet, updated_at, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const sheet of sheets) {
+        insert.run(
+          sheet.file_id,
+          sheet.title,
+          sheet.mime_type,
+          sheet.web_view_link ?? null,
+          toJson(sheet.tab_names),
+          toJson(sheet.header_preview),
+          toJson(sheet.cell_preview),
+          sheet.snippet ?? null,
+          sheet.updated_at,
+          sheet.synced_at,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getDriveSheet(fileId: string): DriveSheetRecord | null {
+    const row = this.db.prepare(`SELECT * FROM drive_sheets WHERE file_id = ?`).get(fileId) as Record<string, unknown> | undefined;
+    return row ? this.mapDriveSheetRecord(row) : null;
+  }
+
+  listDriveSheets(): DriveSheetRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM drive_sheets ORDER BY updated_at DESC, title ASC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapDriveSheetRecord(row));
+  }
+
   replaceDriveLinkProvenance(items: DriveLinkProvenance[]): void {
     this.db.exec("BEGIN");
     try {
@@ -1949,9 +1996,9 @@ export class PersonalOpsDb {
       .prepare(
         `INSERT INTO meeting_prep_packets (
           event_id, summary, why_now, score_band, signals_json, meeting_json, agenda_json, prep_checklist_json,
-          open_questions_json, related_docs_json, related_threads_json, related_tasks_json, related_recommendations_json,
-          next_commands_json, generated_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          open_questions_json, related_docs_json, related_files_json, related_threads_json, related_tasks_json,
+          related_recommendations_json, next_commands_json, generated_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(event_id) DO UPDATE SET
           summary = excluded.summary,
           why_now = excluded.why_now,
@@ -1962,6 +2009,7 @@ export class PersonalOpsDb {
           prep_checklist_json = excluded.prep_checklist_json,
           open_questions_json = excluded.open_questions_json,
           related_docs_json = excluded.related_docs_json,
+          related_files_json = excluded.related_files_json,
           related_threads_json = excluded.related_threads_json,
           related_tasks_json = excluded.related_tasks_json,
           related_recommendations_json = excluded.related_recommendations_json,
@@ -1980,6 +2028,7 @@ export class PersonalOpsDb {
         toJson(packet.prep_checklist),
         toJson(packet.open_questions),
         toJson(packet.related_docs),
+        toJson(packet.related_files),
         toJson(packet.related_threads),
         toJson(packet.related_tasks),
         toJson(packet.related_recommendations),
@@ -3112,6 +3161,7 @@ export class PersonalOpsDb {
         prep_checklist_json TEXT NOT NULL,
         open_questions_json TEXT NOT NULL,
         related_docs_json TEXT NOT NULL,
+        related_files_json TEXT NOT NULL,
         related_threads_json TEXT NOT NULL,
         related_tasks_json TEXT NOT NULL,
         related_recommendations_json TEXT NOT NULL,
@@ -3190,7 +3240,9 @@ export class PersonalOpsDb {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
       const inferred = this.tableExists("drive_files")
-        ? this.tableExists("meeting_prep_packets")
+        ? this.tableExists("drive_sheets")
+          ? 19
+          : this.tableExists("meeting_prep_packets")
           ? 18
           : 16
         : this.tableExists("github_pull_requests")
@@ -3295,6 +3347,10 @@ export class PersonalOpsDb {
       } else if (version === 17) {
         this.migrateToV18();
         version = 18;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 18) {
+        this.migrateToV19();
+        version = 19;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -3879,6 +3935,7 @@ export class PersonalOpsDb {
         last_sync_duration_ms INTEGER,
         files_indexed_count INTEGER,
         docs_indexed_count INTEGER,
+        sheets_indexed_count INTEGER,
         updated_at TEXT NOT NULL
       );
 
@@ -3907,6 +3964,19 @@ export class PersonalOpsDb {
         synced_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS drive_sheets (
+        file_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        web_view_link TEXT,
+        tab_names_json TEXT NOT NULL,
+        header_preview_json TEXT NOT NULL,
+        cell_preview_json TEXT NOT NULL,
+        snippet TEXT,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS drive_link_provenance (
         source_type TEXT NOT NULL,
         source_id TEXT NOT NULL,
@@ -3921,6 +3991,9 @@ export class PersonalOpsDb {
 
       CREATE INDEX IF NOT EXISTS idx_drive_docs_updated_at
         ON drive_docs(updated_at DESC, title ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_drive_sheets_updated_at
+        ON drive_sheets(updated_at DESC, title ASC);
 
       CREATE INDEX IF NOT EXISTS idx_drive_link_provenance_source
         ON drive_link_provenance(source_type, source_id, discovered_at DESC);
@@ -3958,6 +4031,28 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_meeting_prep_packets_generated_at
         ON meeting_prep_packets(generated_at DESC);
     `);
+  }
+
+  private migrateToV19() {
+    this.addColumnIfMissing("drive_sync_state", "sheets_indexed_count", `INTEGER`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS drive_sheets (
+        file_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        web_view_link TEXT,
+        tab_names_json TEXT NOT NULL,
+        header_preview_json TEXT NOT NULL,
+        cell_preview_json TEXT NOT NULL,
+        snippet TEXT,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_drive_sheets_updated_at
+        ON drive_sheets(updated_at DESC, title ASC);
+    `);
+    this.addColumnIfMissing("meeting_prep_packets", "related_files_json", `TEXT NOT NULL DEFAULT '[]'`);
   }
 
   private tableExists(name: string): boolean {
@@ -4057,6 +4152,10 @@ export class PersonalOpsDb {
         row.docs_indexed_count === null || row.docs_indexed_count === undefined
           ? undefined
           : Number(row.docs_indexed_count),
+      sheets_indexed_count:
+        row.sheets_indexed_count === null || row.sheets_indexed_count === undefined
+          ? undefined
+          : Number(row.sheets_indexed_count),
       updated_at: String(row.updated_at),
     };
   }
@@ -4090,6 +4189,21 @@ export class PersonalOpsDb {
     };
   }
 
+  private mapDriveSheetRecord(row: Record<string, unknown>): DriveSheetRecord {
+    return {
+      file_id: String(row.file_id),
+      title: String(row.title),
+      mime_type: String(row.mime_type),
+      web_view_link: row.web_view_link ? String(row.web_view_link) : undefined,
+      tab_names: fromJsonArray(String(row.tab_names_json ?? "[]")),
+      header_preview: fromJsonArray(String(row.header_preview_json ?? "[]")),
+      cell_preview: JSON.parse(String(row.cell_preview_json ?? "[]")),
+      snippet: row.snippet ? String(row.snippet) : undefined,
+      updated_at: String(row.updated_at),
+      synced_at: String(row.synced_at),
+    };
+  }
+
   private mapDriveLinkProvenance(row: Record<string, unknown>): DriveLinkProvenance {
     return {
       source_type: String(row.source_type) as DriveLinkProvenance["source_type"],
@@ -4113,6 +4227,7 @@ export class PersonalOpsDb {
       prep_checklist: JSON.parse(String(row.prep_checklist_json ?? "[]")),
       open_questions: JSON.parse(String(row.open_questions_json ?? "[]")),
       related_docs: JSON.parse(String(row.related_docs_json ?? "[]")),
+      related_files: JSON.parse(String(row.related_files_json ?? "[]")),
       related_threads: JSON.parse(String(row.related_threads_json ?? "[]")),
       related_tasks: JSON.parse(String(row.related_tasks_json ?? "[]")),
       related_recommendations: JSON.parse(String(row.related_recommendations_json ?? "[]")),

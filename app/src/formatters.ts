@@ -54,6 +54,7 @@ export {
 export {
   formatDriveDoc,
   formatDriveFiles,
+  formatDriveSheet,
   formatDriveStatus,
 } from "./formatters/drive.js";
 export {

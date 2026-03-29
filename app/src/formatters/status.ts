@@ -222,6 +222,7 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Included files", String(report.drive.included_file_count)),
     line("Indexed files", String(report.drive.indexed_file_count)),
     line("Indexed docs", String(report.drive.indexed_doc_count)),
+    line("Indexed sheets", String(report.drive.indexed_sheet_count)),
     line("Last synced", report.drive.last_synced_at ?? "never"),
     line("Top Drive item", topSummary(report.drive.top_item_summary, "nothing notable")),
   ]);

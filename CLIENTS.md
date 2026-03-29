@@ -41,6 +41,7 @@ Planning recommendation reads now include ranking, grouping, trigger/suppression
 - `drive_status`
 - `drive_files`
 - `drive_doc_get`
+- `drive_sheet_get`
 - `send_window_status`
 - `inbox_status`
 - `inbox_unread_list`
@@ -132,13 +133,13 @@ Phase 7 adds assistant-safe GitHub PR and review reads only:
 - no GitHub write actions
 - no issue ingestion
 
-Phase 8 adds assistant-safe Google Docs and Drive metadata reads only:
+Assistant-Led Phase 5 keeps the same read-first Google contract and broadens it slightly:
 
-- Google Docs plus Drive metadata only
+- Google Docs plus narrow Google Sheets previews plus Drive metadata
 - explicit scope chosen by the operator
-- explicit stored links first, with only a small recent-doc fallback
+- explicit stored links first, then shared-parent file context, then only a small recent fallback
 - no Google write actions
-- no Sheets, Slides, or Shared Drives
+- no Sheets writes, no Slides extraction, and no Shared Drives
 
 Phase 23 keeps that rule intact while treating the current governance surfaces as the supported baseline. Assistants may inspect hygiene families, review-needed counts, follow-through state, safe tuning attention detail, grouped planning summaries, group detail, recommendation provenance, next-action recommendations, derived summary/backlog/closure/hygiene/tuning reports, and assistant-safe audit summaries, but they still do not apply, reject, snooze, replan, mutate recommendation groups, review hygiene families, record or dismiss hygiene proposals, archive, supersede, or prune policy governance, read the operator-only policy report, create active suppression state, hide recommendations, or directly calendar-write those recommendations.
 

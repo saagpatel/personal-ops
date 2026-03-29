@@ -135,6 +135,7 @@ function toBundleAction(candidate: WorkflowCandidate, topScore: number): Workflo
     score_band: scoreBandFor(candidate.score, topScore),
     signals: candidate.signals,
     related_docs: candidate.related_docs,
+    related_files: candidate.related_files,
   };
 }
 
@@ -150,6 +151,7 @@ function toBundleItem(candidate: WorkflowCandidate, topScore: number): WorkflowB
     score_band: action.score_band,
     signals: action.signals,
     related_docs: action.related_docs,
+    related_files: action.related_files,
   };
 }
 
@@ -224,6 +226,8 @@ function buildWorkflowReport(input: {
             why_now: action.why_now,
             score_band: action.score_band,
             signals: action.signals,
+            related_docs: action.related_docs,
+            related_files: action.related_files,
           })),
         }
       : section,
@@ -576,7 +580,7 @@ function eventCandidate(event: CalendarEvent): WorkflowCandidate | null {
 }
 
 function compactEventCandidate(service: any, event: CalendarEvent): WorkflowCandidate {
-  return attachRelatedDocs(
+  return attachRelatedContext(
     service,
     {
       label: event.summary?.trim() || "Upcoming meeting",
@@ -610,6 +614,7 @@ function meetingPacketCandidate(candidate: MeetingPrepCandidate): WorkflowCandid
     category: "meeting",
     source_key: `event:${candidate.event.event_id}`,
     related_docs: candidate.related_docs,
+    related_files: candidate.related_files,
   };
 }
 
@@ -624,18 +629,22 @@ function dedupeAndSortCandidates(candidates: WorkflowCandidate[]): WorkflowCandi
   return [...byKey.values()].sort((left, right) => right.score - left.score || left.label.localeCompare(right.label));
 }
 
-function attachRelatedDocs(
+function attachRelatedContext(
   service: any,
   candidate: WorkflowCandidate,
   options: { allowFallback: boolean },
 ): WorkflowCandidate {
-  if (typeof service.getRelatedDocsForTarget !== "function") {
+  if (typeof service.getRelatedDocsForTarget !== "function" || typeof service.getRelatedFilesForTarget !== "function") {
     return candidate;
   }
   return {
     ...candidate,
     related_docs: service.getRelatedDocsForTarget(candidate.target_type, candidate.target_id, {
       allowFallback: options.allowFallback,
+    }),
+    related_files: service.getRelatedFilesForTarget(candidate.target_type, candidate.target_id, {
+      allowFallback: options.allowFallback,
+      maxItems: 4,
     }),
   };
 }
@@ -677,7 +686,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
   );
 
   for (const detail of context.recommendationDetails) {
-    const candidate = attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: true });
+    const candidate = attachRelatedContext(service, recommendationCandidate(detail), { allowFallback: true });
     recommendationSourceKeys.add(candidate.source_key);
     pushUniqueCandidate(candidates, candidate);
   }
@@ -690,7 +699,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     ) {
       continue;
     }
-    pushUniqueCandidate(candidates, attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true }));
+    pushUniqueCandidate(candidates, attachRelatedContext(service, worklistCandidate(item), { allowFallback: true }));
   }
 
   for (const group of context.inboxAutopilot.groups) {
@@ -698,7 +707,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
   }
 
   for (const thread of context.needsReplyThreads) {
-    const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
+    const candidate = attachRelatedContext(service, threadCandidate(thread), { allowFallback: false });
     if (recommendationSourceKeys.has(candidate.source_key) || autopilotThreadKeys.has(candidate.source_key)) {
       continue;
     }
@@ -706,7 +715,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
   }
 
   for (const thread of context.staleFollowupThreads) {
-    const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
+    const candidate = attachRelatedContext(service, threadCandidate(thread), { allowFallback: false });
     if (recommendationSourceKeys.has(candidate.source_key) || autopilotThreadKeys.has(candidate.source_key)) {
       continue;
     }
@@ -723,7 +732,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     }
     const fallback = eventCandidate(meetingCandidate.event);
     if (fallback) {
-      pushUniqueCandidate(candidates, attachRelatedDocs(service, fallback, { allowFallback: true }));
+      pushUniqueCandidate(candidates, attachRelatedContext(service, fallback, { allowFallback: true }));
     }
   }
 
@@ -798,6 +807,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
                   score_band: scoreBandFor(primary.score, topScore),
                   signals: primary.signals,
                   related_docs: primary.related_docs,
+                  related_files: primary.related_files,
                 },
               ]
             : [],
@@ -890,16 +900,16 @@ export async function buildFollowUpBlockWorkflowReport(
     ...context.inboxAutopilot.groups.map((group) => autopilotGroupCandidate(group)),
     ...context.recommendationDetails
       .filter((detail) => detail.recommendation.kind === "schedule_thread_followup")
-      .map((detail) => attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: false })),
+      .map((detail) => attachRelatedContext(service, recommendationCandidate(detail), { allowFallback: false })),
     ...context.needsReplyThreads
-      .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
+      .map((thread) => attachRelatedContext(service, threadCandidate(thread), { allowFallback: false }))
       .filter(
         (candidate) =>
           !recommendationSourceKeys.has(candidate.source_key) &&
           !needsReplyGroups.some((group) => group.threads.some((thread) => `thread:${thread.thread_id}` === candidate.source_key)),
       ),
     ...context.staleFollowupThreads
-      .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
+      .map((thread) => attachRelatedContext(service, threadCandidate(thread), { allowFallback: false }))
       .filter(
         (candidate) =>
           !recommendationSourceKeys.has(candidate.source_key) &&
@@ -907,7 +917,7 @@ export async function buildFollowUpBlockWorkflowReport(
       ),
     ...context.worklist.items
       .filter((item) => ["task_overdue", "task_due_soon", "task_reminder_due"].includes(item.kind))
-      .map((item) => attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true })),
+      .map((item) => attachRelatedContext(service, worklistCandidate(item), { allowFallback: true })),
   ]);
   const topScore = candidates[0]?.score ?? 0;
   const needsReplyItems = [

@@ -28,6 +28,7 @@ import {
   Config,
   DriveDocRecord,
   DriveFileRecord,
+  DriveSheetRecord,
   DoctorCheck,
   GmailClientConfig,
   GithubAccount,
@@ -59,7 +60,7 @@ interface FixtureOptions {
     tokensJson: string,
     clientConfig: GmailClientConfig,
     config: Config,
-  ) => Promise<{ files: DriveFileRecord[]; docs: DriveDocRecord[] }>;
+  ) => Promise<{ files: DriveFileRecord[]; docs: DriveDocRecord[]; sheets: DriveSheetRecord[] }>;
   meetingPrepWarningMinutes?: number;
   sendImpl?: (providerDraftId: string) => Promise<{ provider_message_id: string; provider_thread_id?: string }>;
   updateImpl?: () => Promise<string>;
@@ -272,7 +273,9 @@ default_limit = 50
     verifyGoogleDriveScopes: async (tokensJson, activeClientConfig) =>
       options.driveScopesImpl ? options.driveScopesImpl(tokensJson, activeClientConfig) : [],
     syncDriveScope: async (tokensJson, activeClientConfig, activeConfig) =>
-      options.driveSyncImpl ? options.driveSyncImpl(tokensJson, activeClientConfig, activeConfig) : { files: [], docs: [] },
+      options.driveSyncImpl
+        ? options.driveSyncImpl(tokensJson, activeClientConfig, activeConfig)
+        : { files: [], docs: [], sheets: [] },
     getGoogleDoc: async () => null,
     listGmailMessageRefsByLabel: async (_tokensJson, _clientConfig, labelId, pageToken) =>
       options.listRefsImpl ? options.listRefsImpl(labelId, pageToken) : { message_ids: [] },
@@ -7377,16 +7380,16 @@ test("phase-7 workflows rank github pull request work above governance noise in 
   assert.equal(prepDay.actions[0]?.target_type, "github_pull_request");
 });
 
-test("phase-8 drive sync feeds status and read-only routes", async () => {
+test("assistant-led phase 5 drive sync feeds docs, sheets, and read-only routes", async () => {
   const syncedAt = "2026-03-29T14:00:00.000Z";
   const { service, config, policy } = createFixture({
     driveEnabled: true,
     includedDriveFolders: ["folder-123"],
-    includedDriveFiles: ["doc-123", "file-456"],
+    includedDriveFiles: ["doc-123", "file-456", "sheet-789"],
     driveVerifyImpl: async () => {},
     driveSyncImpl: async (_tokensJson, _clientConfig, activeConfig) => {
       assert.deepEqual(activeConfig.includedDriveFolders, ["folder-123"]);
-      assert.deepEqual(activeConfig.includedDriveFiles, ["doc-123", "file-456"]);
+      assert.deepEqual(activeConfig.includedDriveFiles, ["doc-123", "file-456", "sheet-789"]);
       return {
         files: [
           {
@@ -7411,6 +7414,17 @@ test("phase-8 drive sync feeds status and read-only routes", async () => {
             updated_at: syncedAt,
             synced_at: syncedAt,
           },
+          {
+            file_id: "sheet-789",
+            name: "Prep tracker",
+            mime_type: "application/vnd.google-apps.spreadsheet",
+            web_view_link: "https://docs.google.com/spreadsheets/d/sheet-789/edit",
+            parents: [],
+            scope_source: "included_file",
+            drive_modified_time: syncedAt,
+            updated_at: syncedAt,
+            synced_at: syncedAt,
+          },
         ],
         docs: [
           {
@@ -7424,6 +7438,20 @@ test("phase-8 drive sync feeds status and read-only routes", async () => {
             synced_at: syncedAt,
           },
         ],
+        sheets: [
+          {
+            file_id: "sheet-789",
+            title: "Prep tracker",
+            mime_type: "application/vnd.google-apps.spreadsheet",
+            web_view_link: "https://docs.google.com/spreadsheets/d/sheet-789/edit",
+            tab_names: ["Prep", "Status"],
+            header_preview: ["Owner", "Status"],
+            cell_preview: [["Sam", "Ready"]],
+            snippet: "Headers: Owner | Status Sam | Ready",
+            updated_at: syncedAt,
+            synced_at: syncedAt,
+          },
+        ],
       };
     },
   });
@@ -7433,8 +7461,9 @@ test("phase-8 drive sync feeds status and read-only routes", async () => {
   const status = await service.getStatusReport({ httpReachable: true });
   assert.equal(status.drive.enabled, true);
   assert.equal(status.drive.sync_status, "ready");
-  assert.equal(status.drive.indexed_file_count, 2);
+  assert.equal(status.drive.indexed_file_count, 3);
   assert.equal(status.drive.indexed_doc_count, 1);
+  assert.equal(status.drive.indexed_sheet_count, 1);
 
   const server = createHttpServer(service, config, policy);
   await new Promise<void>((resolve) => server.listen(0, config.serviceHost, () => resolve()));
@@ -7447,15 +7476,16 @@ test("phase-8 drive sync feeds status and read-only routes", async () => {
       headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
     });
     assert.equal(statusResponse.status, 200);
-    const statusPayload = (await statusResponse.json()) as { drive: { indexed_doc_count: number } };
+    const statusPayload = (await statusResponse.json()) as { drive: { indexed_doc_count: number; indexed_sheet_count: number } };
     assert.equal(statusPayload.drive.indexed_doc_count, 1);
+    assert.equal(statusPayload.drive.indexed_sheet_count, 1);
 
     const filesResponse = await fetch(`${baseUrl}/v1/drive/files`, {
       headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
     });
     assert.equal(filesResponse.status, 200);
     const filesPayload = (await filesResponse.json()) as { files: Array<{ file_id: string }> };
-    assert.deepEqual(filesPayload.files.map((file) => file.file_id), ["doc-123", "file-456"]);
+    assert.deepEqual(filesPayload.files.map((file) => file.file_id), ["doc-123", "sheet-789", "file-456"]);
 
     const docResponse = await fetch(`${baseUrl}/v1/drive/docs/doc-123`, {
       headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
@@ -7464,16 +7494,24 @@ test("phase-8 drive sync feeds status and read-only routes", async () => {
     const docPayload = (await docResponse.json()) as { doc: { file_id: string; snippet?: string } };
     assert.equal(docPayload.doc.file_id, "doc-123");
     assert.match(docPayload.doc.snippet ?? "", /Agenda/);
+
+    const sheetResponse = await fetch(`${baseUrl}/v1/drive/sheets/sheet-789`, {
+      headers: { authorization: `Bearer ${config.apiToken}`, "x-personal-ops-client": "drive-http-test" },
+    });
+    assert.equal(sheetResponse.status, 200);
+    const sheetPayload = (await sheetResponse.json()) as { sheet: { file_id: string; tab_names: string[] } };
+    assert.equal(sheetPayload.sheet.file_id, "sheet-789");
+    assert.deepEqual(sheetPayload.sheet.tab_names, ["Prep", "Status"]);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
-test("phase-8 related docs prefer explicit links and fall back to recent docs", async () => {
+test("assistant-led phase 5 related files prefer explicit links, shared parents, and recent fallback", async () => {
   const syncedAt = "2026-03-29T15:00:00.000Z";
   const { service, accountEmail } = createFixture({
     driveEnabled: true,
-    includedDriveFiles: ["doc-calendar", "doc-task", "doc-draft", "doc-fallback"],
+    includedDriveFiles: ["doc-calendar", "doc-task", "doc-draft", "doc-fallback", "sheet-sibling"],
   });
 
   service.db.replaceDriveFiles([
@@ -7482,7 +7520,7 @@ test("phase-8 related docs prefer explicit links and fall back to recent docs", 
       name: "Meeting doc",
       mime_type: "application/vnd.google-apps.document",
       web_view_link: "https://docs.google.com/document/d/doc-calendar/edit",
-      parents: [],
+      parents: ["folder-shared"],
       scope_source: "included_file",
       drive_modified_time: syncedAt,
       updated_at: syncedAt,
@@ -7520,6 +7558,17 @@ test("phase-8 related docs prefer explicit links and fall back to recent docs", 
       drive_modified_time: "2026-03-29T16:00:00.000Z",
       updated_at: "2026-03-29T16:00:00.000Z",
       synced_at: "2026-03-29T16:00:00.000Z",
+    },
+    {
+      file_id: "sheet-sibling",
+      name: "Shared tracker",
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      web_view_link: "https://docs.google.com/spreadsheets/d/sheet-sibling/edit",
+      parents: ["folder-shared"],
+      scope_source: "included_file",
+      drive_modified_time: "2026-03-29T15:30:00.000Z",
+      updated_at: "2026-03-29T15:30:00.000Z",
+      synced_at: "2026-03-29T15:30:00.000Z",
     },
   ]);
   service.db.replaceDriveDocs([
@@ -7564,6 +7613,20 @@ test("phase-8 related docs prefer explicit links and fall back to recent docs", 
       synced_at: "2026-03-29T16:00:00.000Z",
     },
   ]);
+  service.db.replaceDriveSheets([
+    {
+      file_id: "sheet-sibling",
+      title: "Shared tracker",
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      web_view_link: "https://docs.google.com/spreadsheets/d/sheet-sibling/edit",
+      tab_names: ["Prep"],
+      header_preview: ["Owner", "Status"],
+      cell_preview: [["Sam", "Ready"]],
+      snippet: "Headers: Owner | Status",
+      updated_at: "2026-03-29T15:30:00.000Z",
+      synced_at: "2026-03-29T15:30:00.000Z",
+    },
+  ]);
 
   service.db.upsertCalendarEvent({
     event_id: "event-drive",
@@ -7597,22 +7660,31 @@ test("phase-8 related docs prefer explicit links and fall back to recent docs", 
   (service as unknown as { refreshDriveLinkProvenance(): void }).refreshDriveLinkProvenance();
 
   const eventDocs = service.getRelatedDocsForTarget("calendar_event", "event-drive");
+  const eventFiles = service.getRelatedFilesForTarget("calendar_event", "event-drive", { allowFallback: true, maxItems: 3 });
   const taskDocs = service.getRelatedDocsForTarget("task", task.task_id);
   const draftDocs = service.getRelatedDocsForTarget("draft_artifact", draft.artifact_id);
   const fallbackDocs = service.getRelatedDocsForTarget("task", "missing-task", { allowFallback: true, fallbackLimit: 1 });
 
   assert.equal(eventDocs[0]?.file_id, "doc-calendar");
   assert.equal(eventDocs[0]?.match_type, "explicit_link");
+  assert.deepEqual(
+    eventFiles.map((file) => [file.file_id, file.match_type]),
+    [
+      ["doc-calendar", "explicit_link"],
+      ["sheet-sibling", "shared_parent_folder"],
+      ["doc-fallback", "recent_file_fallback"],
+    ],
+  );
   assert.equal(taskDocs[0]?.file_id, "doc-task");
   assert.equal(draftDocs[0]?.file_id, "doc-draft");
   assert.deepEqual(fallbackDocs.map((doc) => doc.file_id), ["doc-fallback"]);
   assert.equal(fallbackDocs[0]?.match_type, "recent_doc_fallback");
 });
 
-test("phase-8 prep-meetings attaches related docs without changing meeting ranking", async () => {
+test("assistant-led phase 5 prep-meetings attaches related files without changing meeting ranking", async () => {
   const { service, accountEmail } = createFixture({
     driveEnabled: true,
-    includedDriveFiles: ["doc-meeting"],
+    includedDriveFiles: ["doc-meeting", "sheet-meeting"],
   });
   const now = new Date().toISOString();
   const soonStart = new Date(Date.now() + 60 * 60 * 1000);
@@ -7628,6 +7700,17 @@ test("phase-8 prep-meetings attaches related docs without changing meeting ranki
       updated_at: now,
       synced_at: now,
     },
+    {
+      file_id: "sheet-meeting",
+      name: "Meeting tracker",
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      web_view_link: "https://docs.google.com/spreadsheets/d/sheet-meeting/edit",
+      parents: [],
+      scope_source: "included_file",
+      drive_modified_time: now,
+      updated_at: now,
+      synced_at: now,
+    },
   ]);
   service.db.replaceDriveDocs([
     {
@@ -7637,6 +7720,20 @@ test("phase-8 prep-meetings attaches related docs without changing meeting ranki
       web_view_link: "https://docs.google.com/document/d/doc-meeting/edit",
       text_content: "Meeting prep packet",
       snippet: "Meeting prep packet",
+      updated_at: now,
+      synced_at: now,
+    },
+  ]);
+  service.db.replaceDriveSheets([
+    {
+      file_id: "sheet-meeting",
+      title: "Meeting tracker",
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      web_view_link: "https://docs.google.com/spreadsheets/d/sheet-meeting/edit",
+      tab_names: ["Prep"],
+      header_preview: ["Owner", "Status"],
+      cell_preview: [["Dana", "Ready"]],
+      snippet: "Headers: Owner | Status Dana | Ready",
       updated_at: now,
       synced_at: now,
     },
@@ -7657,7 +7754,7 @@ test("phase-8 prep-meetings attaches related docs without changing meeting ranki
     created_by_personal_ops: false,
     updated_at: now,
     synced_at: now,
-    notes: "Packet https://docs.google.com/document/d/doc-meeting/edit",
+    notes: "Packet https://docs.google.com/document/d/doc-meeting/edit and tracker https://docs.google.com/spreadsheets/d/sheet-meeting/edit",
   });
 
   (service as unknown as { refreshDriveLinkProvenance(): void }).refreshDriveLinkProvenance();
@@ -7666,15 +7763,18 @@ test("phase-8 prep-meetings attaches related docs without changing meeting ranki
 
   assert.match(text, /Drive enriched meeting/);
   assert.match(text, /Meeting packet/);
+  assert.match(text, /Meeting tracker/);
 });
 
-test("phase-8 mcp drive tools are assistant-safe read-only tools", () => {
+test("assistant-led phase 5 mcp drive tools are assistant-safe read-only tools", () => {
   const source = fs.readFileSync(path.resolve(process.cwd(), "src/mcp-server.ts"), "utf8");
   assert.match(source, /name: "drive_status"/);
   assert.match(source, /name: "drive_files"/);
   assert.match(source, /name: "drive_doc_get"/);
+  assert.match(source, /name: "drive_sheet_get"/);
   assert.match(source, /requestJson\("GET", "\/v1\/drive\/status"\)/);
   assert.match(source, /requestJson\("GET", "\/v1\/drive\/files"\)/);
   assert.match(source, /requestJson\("GET", `\/v1\/drive\/docs\/\$\{encodeURIComponent\(String\(args\.file_id\)\)\}`\)/);
+  assert.match(source, /requestJson\("GET", `\/v1\/drive\/sheets\/\$\{encodeURIComponent\(String\(args\.file_id\)\)\}`\)/);
   assert.doesNotMatch(source, /name: "drive_sync"/);
 });

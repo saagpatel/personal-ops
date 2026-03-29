@@ -4,6 +4,7 @@ import type {
   DriveDocRecord,
   DriveFileRecord,
   DriveFileScopeSource,
+  DriveSheetRecord,
   DriveStatusReport,
   GmailClientConfig,
 } from "./types.js";
@@ -11,8 +12,12 @@ import { createOAuthClient } from "./gmail.js";
 
 const GOOGLE_DRIVE_METADATA_SCOPE = "https://www.googleapis.com/auth/drive.metadata.readonly";
 const GOOGLE_DOCS_READ_SCOPE = "https://www.googleapis.com/auth/documents.readonly";
+const GOOGLE_SHEETS_READ_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 const GOOGLE_DOCS_MIME_TYPE = "application/vnd.google-apps.document";
+const GOOGLE_SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet";
 const GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const SHEET_PREVIEW_COLUMN_LIMIT = 5;
+const SHEET_PREVIEW_ROW_LIMIT = 5;
 
 function createAuthorizedOAuthClient(tokensJson: string, clientConfig: GmailClientConfig) {
   const oauthClient = createOAuthClient(clientConfig);
@@ -33,6 +38,14 @@ function createAuthorizedDocs(tokensJson: string, clientConfig: GmailClientConfi
   return {
     oauthClient,
     docs: google.docs({ version: "v1", auth: oauthClient }),
+  };
+}
+
+function createAuthorizedSheets(tokensJson: string, clientConfig: GmailClientConfig) {
+  const oauthClient = createAuthorizedOAuthClient(tokensJson, clientConfig);
+  return {
+    oauthClient,
+    sheets: google.sheets({ version: "v4", auth: oauthClient }),
   };
 }
 
@@ -57,6 +70,19 @@ function buildSnippet(text: string, maxLength = 220): string | undefined {
     return compact;
   }
   return `${compact.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function limitRow(values: unknown[] | undefined): string[] {
+  return Array.isArray(values)
+    ? values
+        .slice(0, SHEET_PREVIEW_COLUMN_LIMIT)
+        .map((value) => normalizeWhitespace(String(value ?? "")))
+        .filter((value, index, list) => value.length > 0 || index < list.length - 1)
+    : [];
+}
+
+function escapeSheetRangeName(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function collectDocTextFromStructuralElement(element: any, parts: string[]): void {
@@ -124,9 +150,13 @@ export async function verifyGoogleDriveScopes(tokensJson: string, clientConfig: 
 
 export async function verifyGoogleDriveAccess(tokensJson: string, clientConfig: GmailClientConfig): Promise<void> {
   const scopes = await fetchGrantedScopes(tokensJson, clientConfig);
-  if (!scopes.includes(GOOGLE_DRIVE_METADATA_SCOPE) || !scopes.includes(GOOGLE_DOCS_READ_SCOPE)) {
+  if (
+    !scopes.includes(GOOGLE_DRIVE_METADATA_SCOPE) ||
+    !scopes.includes(GOOGLE_DOCS_READ_SCOPE) ||
+    !scopes.includes(GOOGLE_SHEETS_READ_SCOPE)
+  ) {
     throw new Error(
-      "Google token is missing one or more required Drive or Docs read scopes.",
+      "Google token is missing one or more required Drive, Docs, or Sheets read scopes.",
     );
   }
   const { drive } = createAuthorizedDrive(tokensJson, clientConfig);
@@ -200,6 +230,7 @@ export async function syncDriveScope(
 ): Promise<{
   files: DriveFileRecord[];
   docs: DriveDocRecord[];
+  sheets: DriveSheetRecord[];
 }> {
   const syncedAt = new Date().toISOString();
   const byId = new Map<string, DriveFileRecord>();
@@ -255,7 +286,16 @@ export async function syncDriveScope(
     }
   }
 
-  return { files, docs };
+  const sheets: DriveSheetRecord[] = [];
+  const sheetIds = files.filter((file) => file.mime_type === GOOGLE_SHEETS_MIME_TYPE).map((file) => file.file_id);
+  for (const fileId of sheetIds) {
+    const sheet = await getGoogleSheet(tokensJson, clientConfig, fileId);
+    if (sheet) {
+      sheets.push(sheet);
+    }
+  }
+
+  return { files, docs, sheets };
 }
 
 export async function getGoogleDoc(
@@ -295,6 +335,64 @@ export function isGoogleDocMimeType(mimeType: string | null | undefined): boolea
   return String(mimeType ?? "") === GOOGLE_DOCS_MIME_TYPE;
 }
 
+export async function getGoogleSheet(
+  tokensJson: string,
+  clientConfig: GmailClientConfig,
+  fileId: string,
+): Promise<DriveSheetRecord | null> {
+  const { sheets } = createAuthorizedSheets(tokensJson, clientConfig);
+  try {
+    const metadata = await sheets.spreadsheets.get({
+      spreadsheetId: fileId,
+      fields: "spreadsheetId,properties.title,sheets(properties(title))",
+      includeGridData: false,
+    });
+    if (!metadata.data.spreadsheetId) {
+      return null;
+    }
+    const tabNames = (metadata.data.sheets ?? [])
+      .map((sheet) => String(sheet.properties?.title ?? "").trim())
+      .filter(Boolean);
+    const primaryTab = tabNames[0];
+    let headerPreview: string[] = [];
+    let cellPreview: string[][] = [];
+    if (primaryTab) {
+      const values = await sheets.spreadsheets.values.get({
+        spreadsheetId: fileId,
+        range: `${escapeSheetRangeName(primaryTab)}!A1:${String.fromCharCode(64 + SHEET_PREVIEW_COLUMN_LIMIT)}${SHEET_PREVIEW_ROW_LIMIT}`,
+        majorDimension: "ROWS",
+      });
+      const rows = Array.isArray(values.data.values) ? values.data.values : [];
+      headerPreview = limitRow(rows[0]);
+      cellPreview = rows.slice(1, SHEET_PREVIEW_ROW_LIMIT).map((row) => limitRow(row)).filter((row) => row.length > 0);
+    }
+    const previewText = [
+      headerPreview.length > 0 ? `Headers: ${headerPreview.join(" | ")}` : "",
+      ...cellPreview.map((row) => row.join(" | ")),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return {
+      file_id: String(metadata.data.spreadsheetId),
+      title: String(metadata.data.properties?.title ?? fileId),
+      mime_type: GOOGLE_SHEETS_MIME_TYPE,
+      web_view_link: `https://docs.google.com/spreadsheets/d/${metadata.data.spreadsheetId}/edit`,
+      tab_names: tabNames,
+      header_preview: headerPreview,
+      cell_preview: cellPreview,
+      snippet: buildSnippet(previewText),
+      updated_at: new Date().toISOString(),
+      synced_at: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isGoogleSheetMimeType(mimeType: string | null | undefined): boolean {
+  return String(mimeType ?? "") === GOOGLE_SHEETS_MIME_TYPE;
+}
+
 export function buildDriveTopItemSummary(report: DriveStatusReport): string | null {
   if (!report.enabled) {
     return null;
@@ -304,6 +402,12 @@ export function buildDriveTopItemSummary(report: DriveStatusReport): string | nu
   }
   if (report.sync_status === "degraded") {
     return "Drive sync needs attention.";
+  }
+  if (report.indexed_sheet_count > 0 && report.indexed_doc_count > 0) {
+    return `${report.indexed_doc_count} Google Docs and ${report.indexed_sheet_count} Google Sheets are available for linked context.`;
+  }
+  if (report.indexed_sheet_count > 0) {
+    return `${report.indexed_sheet_count} Google Sheets are available for linked context.`;
   }
   if (report.indexed_doc_count > 0) {
     return `${report.indexed_doc_count} Google Docs are available for linked context.`;

@@ -18,6 +18,7 @@ It gives you one shared system for inbox state, calendar context, tasks, plannin
 - an optional macOS desktop shell that opens the same console in a native window
 - grouped inbox autopilot that prepares reply and follow-up drafts for review
 - meeting-prep packets that stage agenda, checklist, and linked context before imminent meetings
+- broader Google context inside the existing Drive scope, including narrow Google Sheets previews and richer related-file grouping
 - machine-aware backups and restore guardrails
 
 In practice, that means it can:
@@ -86,6 +87,7 @@ Today, the repo includes:
 - optional native shell install and launch with `personal-ops install desktop` and `personal-ops desktop open`
 - `personal-ops inbox autopilot` for grouped inbox draft preparation and review handoff
 - `personal-ops workflow prep-meetings --event <eventId> --prepare` for one-meeting packet staging and refresh
+- `personal-ops drive sheet <fileId>` for cached Google Sheets preview context
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

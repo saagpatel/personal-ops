@@ -9,6 +9,7 @@ import type {
   MeetingPrepTaskSummary,
   MeetingPrepThreadSummary,
   RelatedDriveDoc,
+  RelatedDriveFile,
   WorkflowScoreBand,
 } from "../types.js";
 
@@ -49,6 +50,7 @@ export interface MeetingPrepCandidate {
   signals: string[];
   packet_worthy: boolean;
   related_docs: RelatedDriveDoc[];
+  related_files: RelatedDriveFile[];
   related_threads: MeetingPrepThreadSummary[];
   related_tasks: MeetingPrepTaskSummary[];
   related_recommendations: MeetingPrepRecommendationSummary[];
@@ -261,8 +263,8 @@ function buildAgenda(candidate: MeetingPrepCandidate): string[] {
   const items: string[] = [];
   const title = candidate.event.summary?.trim() || "this meeting";
   items.push(`Open by confirming the goal and expected outcome for ${title}.`);
-  if (candidate.related_docs.length > 0) {
-    items.push(`Review ${candidate.related_docs[0]?.title ?? "the linked document"} together so everyone is aligned on the same source material.`);
+  if (candidate.related_files.length > 0) {
+    items.push(`Review ${candidate.related_files[0]?.title ?? "the linked context file"} together so everyone is aligned on the same source material.`);
   }
   if (candidate.related_tasks.length > 0 || candidate.related_recommendations.length > 0) {
     items.push("Check the remaining prep work and decide what still needs attention before the meeting ends.");
@@ -275,8 +277,8 @@ function buildAgenda(candidate: MeetingPrepCandidate): string[] {
 
 function buildChecklist(candidate: MeetingPrepCandidate): string[] {
   const items: string[] = [];
-  if (candidate.related_docs.length > 0) {
-    items.push(`Skim ${candidate.related_docs.map((doc) => doc.title).join(", ")} before the meeting.`);
+  if (candidate.related_files.length > 0) {
+    items.push(`Skim ${candidate.related_files.map((file) => file.title).join(", ")} before the meeting.`);
   } else {
     items.push("Find the primary doc or notes link before joining if one exists.");
   }
@@ -297,7 +299,7 @@ function buildChecklist(candidate: MeetingPrepCandidate): string[] {
 
 function buildOpenQuestions(candidate: MeetingPrepCandidate): string[] {
   const items: string[] = [];
-  if (candidate.related_docs.length === 0) {
+  if (candidate.related_files.length === 0) {
     items.push("Which document should anchor the discussion?");
   }
   if (candidate.related_tasks.length === 0 && candidate.related_recommendations.length === 0) {
@@ -324,7 +326,7 @@ function buildNextCommands(candidate: MeetingPrepCandidate): string[] {
   return [...new Set(commands)].slice(0, 3);
 }
 
-function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, docs: number, tasks: number, recs: number, threads: number): {
+function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, files: number, tasks: number, recs: number, threads: number): {
   score: number;
   summary: string;
   whyNow: string;
@@ -345,9 +347,9 @@ function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, doc
     score += 150;
     signals.push("meeting_today");
   }
-  if (docs > 0) {
+  if (files > 0) {
     score += 80;
-    signals.push("docs_linked");
+    signals.push("files_linked");
     packetWorthy = true;
   }
   if (tasks > 0) {
@@ -368,7 +370,7 @@ function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, doc
 
   const title = event.summary?.trim() || "Upcoming meeting";
   const parts: string[] = [];
-  if (docs > 0) parts.push(`${docs} linked doc${docs === 1 ? "" : "s"}`);
+  if (files > 0) parts.push(`${files} linked file${files === 1 ? "" : "s"}`);
   if (tasks > 0) parts.push(`${tasks} prep task${tasks === 1 ? "" : "s"}`);
   if (recs > 0) parts.push(`${recs} prep recommendation${recs === 1 ? "" : "s"}`);
   if (threads > 0) parts.push(`${threads} related thread${threads === 1 ? "" : "s"}`);
@@ -377,7 +379,7 @@ function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, doc
 
   if (!packetWorthy) {
     whyNow = "This meeting is visible, but there is not enough grounded context yet to justify a full prep packet.";
-  } else if (docs > 0 && (tasks > 0 || recs > 0 || threads > 0)) {
+  } else if (files > 0 && (tasks > 0 || recs > 0 || threads > 0)) {
     whyNow = "This meeting already has grounded context attached, so the assistant can assemble useful prep without guessing.";
   }
 
@@ -385,7 +387,7 @@ function summarizeCandidate(event: CalendarEvent, hoursUntil: number | null, doc
 }
 
 function buildPacketRecord(candidate: MeetingPrepCandidate): MeetingPrepPacketRecord {
-  const lowContext = candidate.related_docs.length === 0
+  const lowContext = candidate.related_files.length === 0
     && candidate.related_tasks.length === 0
     && candidate.related_recommendations.length === 0
     && candidate.related_threads.length === 0;
@@ -400,6 +402,7 @@ function buildPacketRecord(candidate: MeetingPrepCandidate): MeetingPrepPacketRe
     prep_checklist: lowContext ? ["Confirm the primary doc, notes, or context source before the meeting starts."] : buildChecklist(candidate),
     open_questions: lowContext ? lowContextOpenQuestions(candidate.event) : buildOpenQuestions(candidate),
     related_docs: candidate.related_docs,
+    related_files: candidate.related_files,
     related_threads: candidate.related_threads,
     related_tasks: candidate.related_tasks,
     related_recommendations: candidate.related_recommendations,
@@ -424,6 +427,7 @@ function hydratePacket(candidate: MeetingPrepCandidate, packetRecord: MeetingPre
     prep_checklist: record.prep_checklist,
     open_questions: record.open_questions,
     related_docs: record.related_docs,
+    related_files: record.related_files,
     related_threads: record.related_threads,
     related_tasks: record.related_tasks,
     related_recommendations: record.related_recommendations,
@@ -453,6 +457,11 @@ export async function listMeetingPrepCandidates(
     .map((event: CalendarEvent) => {
       const packetRecord = service.db.getMeetingPrepPacket(event.event_id);
       const relatedDocs = service.getRelatedDocsForTarget("calendar_event", event.event_id, { allowFallback: true, fallbackLimit: 3 });
+      const relatedFiles = service.getRelatedFilesForTarget("calendar_event", event.event_id, {
+        allowFallback: true,
+        fallbackLimit: 3,
+        maxItems: 4,
+      });
       const relatedTasks = buildRelatedTasks(service, event);
       const relatedRecommendations = buildRelatedRecommendations(service, event);
       const relatedThreads = buildRelatedThreads(service, event);
@@ -460,7 +469,7 @@ export async function listMeetingPrepCandidates(
       const summary = summarizeCandidate(
         event,
         hoursUntil,
-        relatedDocs.length,
+        relatedFiles.length,
         relatedTasks.length,
         relatedRecommendations.length,
         relatedThreads.length,
@@ -486,6 +495,7 @@ export async function listMeetingPrepCandidates(
         signals: packetRecord?.signals ?? summary.signals,
         packet_worthy: summary.packetWorthy,
         related_docs: packetRecord?.related_docs ?? relatedDocs,
+        related_files: packetRecord?.related_files ?? relatedFiles,
         related_threads: packetRecord?.related_threads ?? relatedThreads,
         related_tasks: packetRecord?.related_tasks ?? relatedTasks,
         related_recommendations: packetRecord?.related_recommendations ?? relatedRecommendations,
@@ -502,13 +512,18 @@ export async function getMeetingPrepPacketDetail(service: any, eventId: string):
   const candidates = await listMeetingPrepCandidates(service, { scope: "next_24h" });
   const candidate = candidates.find((item) => item.event.event_id === eventId) ?? (() => {
     const relatedDocs = service.getRelatedDocsForTarget("calendar_event", eventId, { allowFallback: true, fallbackLimit: 3 });
+    const relatedFiles = service.getRelatedFilesForTarget("calendar_event", eventId, {
+      allowFallback: true,
+      fallbackLimit: 3,
+      maxItems: 4,
+    });
     const relatedTasks = buildRelatedTasks(service, event);
     const relatedRecommendations = buildRelatedRecommendations(service, event);
     const relatedThreads = buildRelatedThreads(service, event);
     const summary = summarizeCandidate(
       event,
       maybeHoursUntil(event.start_at),
-      relatedDocs.length,
+      relatedFiles.length,
       relatedTasks.length,
       relatedRecommendations.length,
       relatedThreads.length,
@@ -534,6 +549,7 @@ export async function getMeetingPrepPacketDetail(service: any, eventId: string):
       signals: summary.signals,
       packet_worthy: summary.packetWorthy,
       related_docs: relatedDocs,
+      related_files: relatedFiles,
       related_threads: relatedThreads,
       related_tasks: relatedTasks,
       related_recommendations: relatedRecommendations,
@@ -568,6 +584,7 @@ export async function prepareMeetingPrepPacket(service: any, identity: any, even
       prep_checklist: packet.prep_checklist,
       open_questions: packet.open_questions,
       related_docs: packet.related_docs,
+      related_files: packet.related_files,
       related_threads: packet.related_threads,
       related_tasks: packet.related_tasks,
       related_recommendations: packet.related_recommendations,
@@ -578,7 +595,7 @@ export async function prepareMeetingPrepPacket(service: any, identity: any, even
     storedPacket = persisted;
     details.push(`Prepared packet for ${event.summary?.trim() || event.event_id}.`);
     details.push(
-      `${persisted.related_docs.length} docs, ${persisted.related_threads.length} threads, ${persisted.related_tasks.length} tasks, and ${persisted.related_recommendations.length} recommendations were attached.`,
+      `${persisted.related_files.length} files, ${persisted.related_threads.length} threads, ${persisted.related_tasks.length} tasks, and ${persisted.related_recommendations.length} recommendations were attached.`,
     );
   });
 

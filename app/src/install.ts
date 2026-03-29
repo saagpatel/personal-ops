@@ -666,7 +666,7 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     !authConfig.driveEnabled
       ? passCheck("drive_token_present", "Drive token", "Drive token is not required while the integration is disabled.", "integration")
       : driveToken
-        ? passCheck("drive_token_present", "Drive token", "Google token is present for Drive and Docs reads.", "integration")
+        ? passCheck("drive_token_present", "Drive token", "Google token is present for Drive, Docs, and Sheets reads.", "integration")
         : warnCheck(
             "drive_token_present",
             "Drive token",

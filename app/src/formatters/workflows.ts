@@ -37,7 +37,13 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
         if (item.signals?.length) {
           rendered.push(`  signals: ${item.signals.join(", ")}`);
         }
-        if (item.related_docs?.length) {
+        if (item.related_files?.length) {
+          rendered.push(
+            `  related files: ${item.related_files
+              .map((file) => file.title)
+              .join(", ")}`,
+          );
+        } else if (item.related_docs?.length) {
           rendered.push(
             `  related docs: ${item.related_docs
               .map((doc) => doc.title)
@@ -85,8 +91,12 @@ export function formatMeetingPrepPacket(packet: MeetingPrepPacket): string {
   );
   pushSection(
     lines,
-    "Related Docs",
-    packet.related_docs.length > 0 ? packet.related_docs.map((doc) => `- ${doc.title}`) : ["- No related docs are linked."],
+    "Related Files",
+    packet.related_files.length > 0
+      ? packet.related_files.map((file) => `- ${file.title}`)
+      : packet.related_docs.length > 0
+        ? packet.related_docs.map((doc) => `- ${doc.title}`)
+        : ["- No related files are linked."],
   );
   pushSection(
     lines,

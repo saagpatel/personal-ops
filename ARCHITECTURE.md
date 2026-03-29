@@ -6,7 +6,7 @@ This document describes the current `personal-ops` system shape after Phases 1 t
 
 `personal-ops` is a local control plane for personal workflow.
 
-It exists so assistants can help with inbox, calendar, task, planning, draft, narrow GitHub PR and review workflow, and narrow Google Docs context without taking direct ownership of provider-side logic or high-trust actions.
+It exists so assistants can help with inbox, calendar, task, planning, draft, narrow GitHub PR and review workflow, and narrow Google Docs plus Sheets context without taking direct ownership of provider-side logic or high-trust actions.
 
 The trust model is intentional:
 
@@ -46,7 +46,7 @@ flowchart LR
   service --> gmail["Gmail"]
   service --> calendar["Google Calendar"]
   service --> github["GitHub"]
-  service --> drive["Google Drive / Docs"]
+  service --> drive["Google Drive / Docs / Sheets"]
 ```
 
 ## Local state and path model
@@ -103,6 +103,7 @@ Recent operator-focused entrypoints:
 - `personal-ops drive status`
 - `personal-ops drive files`
 - `personal-ops drive doc <fileId>`
+- `personal-ops drive sheet <fileId>`
 - `personal-ops install desktop`
 - `personal-ops desktop open`
 - `personal-ops desktop status`
@@ -168,7 +169,7 @@ Assistants may read shared operational state such as:
 - inbox and calendar context
 - tasks and planning reads
 - assistant-safe GitHub PR and review reads
-- assistant-safe Drive status, file metadata, and cached Docs reads
+- assistant-safe Drive status, file metadata, cached Docs reads, and cached Sheets preview reads
 - assistant-safe audit reads
 
 Assistants may create only the limited suggestion surfaces already allowed by contract.
@@ -185,7 +186,7 @@ These remain outside assistant control:
 - policy and governance mutation
 - GitHub auth mutation and explicit GitHub sync mutation
 - any GitHub write action
-- any Google write action through Drive or Docs
+- any Google write action through Drive, Docs, or Sheets
 - any new high-trust mutation through the desktop shell
 
 `CLIENTS.md` remains the authoritative contract for the safe read surface and operator-only boundaries.

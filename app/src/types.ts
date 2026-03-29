@@ -203,12 +203,18 @@ export interface DriveSyncState {
   last_sync_duration_ms?: number | undefined;
   files_indexed_count?: number | undefined;
   docs_indexed_count?: number | undefined;
+  sheets_indexed_count?: number | undefined;
   updated_at: string;
 }
 
 export type DriveFileScopeSource = "included_file" | "included_folder_descendant";
 export type DriveLinkSourceType = "calendar_event" | "task" | "draft";
-export type DriveLinkMatchType = "explicit_link" | "recent_doc_fallback";
+export type DriveLinkMatchType =
+  | "explicit_link"
+  | "shared_parent_folder"
+  | "recent_doc_fallback"
+  | "recent_file_fallback";
+export type RelatedDriveFileKind = "doc" | "sheet" | "file";
 
 export interface DriveFileRecord {
   file_id: string;
@@ -235,6 +241,19 @@ export interface DriveDocRecord {
   synced_at: string;
 }
 
+export interface DriveSheetRecord {
+  file_id: string;
+  title: string;
+  mime_type: string;
+  web_view_link?: string | undefined;
+  tab_names: string[];
+  header_preview: string[];
+  cell_preview: string[][];
+  snippet?: string | undefined;
+  updated_at: string;
+  synced_at: string;
+}
+
 export interface DriveLinkProvenance {
   source_type: DriveLinkSourceType;
   source_id: string;
@@ -255,6 +274,20 @@ export interface RelatedDriveDoc {
   source_id?: string | undefined;
 }
 
+export interface RelatedDriveFile {
+  file_id: string;
+  title: string;
+  web_view_link?: string | undefined;
+  snippet?: string | undefined;
+  mime_type: string;
+  file_kind: RelatedDriveFileKind;
+  match_type: DriveLinkMatchType;
+  source_type?: DriveLinkSourceType | undefined;
+  source_id?: string | undefined;
+  tab_names?: string[] | undefined;
+  header_preview?: string[] | undefined;
+}
+
 export interface DriveStatusReport {
   enabled: boolean;
   authenticated: boolean;
@@ -264,6 +297,7 @@ export interface DriveStatusReport {
   included_file_count: number;
   indexed_file_count: number;
   indexed_doc_count: number;
+  indexed_sheet_count: number;
   top_item_summary: string | null;
 }
 
@@ -1322,6 +1356,7 @@ export interface MeetingPrepPacket {
   prep_checklist: string[];
   open_questions: string[];
   related_docs: RelatedDriveDoc[];
+  related_files: RelatedDriveFile[];
   related_threads: MeetingPrepThreadSummary[];
   related_tasks: MeetingPrepTaskSummary[];
   related_recommendations: MeetingPrepRecommendationSummary[];
@@ -1340,6 +1375,7 @@ export interface MeetingPrepPacketRecord {
   prep_checklist: string[];
   open_questions: string[];
   related_docs: RelatedDriveDoc[];
+  related_files: RelatedDriveFile[];
   related_threads: MeetingPrepThreadSummary[];
   related_tasks: MeetingPrepTaskSummary[];
   related_recommendations: MeetingPrepRecommendationSummary[];
@@ -1358,6 +1394,7 @@ export interface WorkflowBundleSectionItem {
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
+  related_files?: RelatedDriveFile[] | undefined;
 }
 
 export interface WorkflowBundleSection {
@@ -1377,6 +1414,7 @@ export interface WorkflowBundleAction {
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
+  related_files?: RelatedDriveFile[] | undefined;
 }
 
 export interface WorkflowBundleReport {

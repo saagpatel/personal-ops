@@ -500,32 +500,48 @@ function renderWorkflowItemMeta(item: WorkflowBundleReport["sections"][number]["
   return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" · "))}</p>` : "";
 }
 
-function renderRelatedDocs(
-  docs: WorkflowBundleReport["actions"][number]["related_docs"] | undefined,
+function renderRelatedFiles(
+  files:
+    | WorkflowBundleReport["actions"][number]["related_files"]
+    | WorkflowBundleReport["actions"][number]["related_docs"]
+    | MeetingPrepPacket["related_files"]
+    | MeetingPrepPacket["related_docs"]
+    | undefined,
 ): string {
-  if (!docs || docs.length === 0) {
+  if (!files || files.length === 0) {
     return "";
   }
   return `
     <div class="detail-stack">
-      <p class="eyebrow">Related Docs</p>
-      ${docs
-        .map(
-          (doc) => `
+      <p class="eyebrow">Related Files</p>
+      ${files
+        .map((file) => {
+          const kind = "file_kind" in file && file.file_kind ? file.file_kind : "doc";
+          const headerPreview =
+            "header_preview" in file && Array.isArray(file.header_preview) && file.header_preview.length > 0
+              ? `<p class="subtle subtle--body">${escapeHtml(`Headers: ${file.header_preview.join(" | ")}`)}</p>`
+              : "";
+          const tabPreview =
+            "tab_names" in file && Array.isArray(file.tab_names) && file.tab_names.length > 0
+              ? `<p class="subtle subtle--body">${escapeHtml(`Tabs: ${file.tab_names.join(", ")}`)}</p>`
+              : "";
+          return `
             <article class="list-item">
               <div class="list-item__top">
-                <h4>${escapeHtml(doc.title)}</h4>
-                <span class="pill">${escapeHtml(doc.match_type)}</span>
+                <h4>${escapeHtml(file.title)}</h4>
+                <span class="pill">${escapeHtml(`${kind} · ${file.match_type}`)}</span>
               </div>
-              <p class="subtle subtle--body">${escapeHtml(doc.snippet ?? "No snippet extracted.")}</p>
+              <p class="subtle subtle--body">${escapeHtml(file.snippet ?? "No preview extracted.")}</p>
+              ${tabPreview}
+              ${headerPreview}
               ${
-                doc.web_view_link
-                  ? `<div class="list-item__actions"><a class="button" href="${escapeHtml(doc.web_view_link)}" target="_blank" rel="noreferrer">Open Doc</a></div>`
+                file.web_view_link
+                  ? `<div class="list-item__actions"><a class="button" href="${escapeHtml(file.web_view_link)}" target="_blank" rel="noreferrer">Open File</a></div>`
                   : ""
               }
             </article>
-          `,
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
@@ -682,7 +698,7 @@ function renderWorkflowSections(report: WorkflowBundleReport): string {
                         <p>${escapeHtml(item.summary)}</p>
                         ${item.why_now ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>` : ""}
                         ${renderWorkflowItemMeta(item)}
-                        ${renderRelatedDocs(item.related_docs)}
+                        ${renderRelatedFiles(item.related_files ?? item.related_docs)}
                         ${
                           item.command
                             ? `<div class="list-item__actions">${commandAction(item.command, "Copy command")}</div>`
@@ -1071,7 +1087,7 @@ function renderOverview(payload: ConsolePayload): string {
       ${metricCard("Approvals", `${formatCount(status.approval_queue.pending_count)} pending`, `${formatCount(status.approval_queue.total_count)} total requests`)}
       ${metricCard("Reviews", `${formatCount(status.review_queue.pending_count)} pending`, `${formatCount(status.review_queue.total_count)} total review items`)}
       ${metricCard("GitHub", `${formatCount(status.github.review_requested_count)} reviews`, `${formatCount(status.github.authored_pr_attention_count)} authored PRs need attention`)}
-      ${metricCard("Drive", `${formatCount(status.drive.indexed_doc_count)} docs`, status.drive.top_item_summary ?? "No Drive context indexed yet")}
+      ${metricCard("Drive", `${formatCount(status.drive.indexed_doc_count)} docs · ${formatCount(status.drive.indexed_sheet_count)} sheets`, status.drive.top_item_summary ?? "No Drive context indexed yet")}
     </section>
     <section class="columns columns--wide-right">
       <div class="detail-stack">
@@ -1106,7 +1122,7 @@ function renderOverview(payload: ConsolePayload): string {
                   </div>
                   <p>${escapeHtml(topMeetingPrep.summary)}</p>
                   <p class="subtle subtle--body">${escapeHtml(topMeetingPrep.why_now ?? "This meeting packet is the strongest prep move right now.")}</p>
-                  ${renderRelatedDocs(topMeetingPrep.related_docs)}
+                  ${renderRelatedFiles(topMeetingPrep.related_files ?? topMeetingPrep.related_docs)}
                   <div class="list-item__actions">
                     <button class="button button--primary" data-workflow="${escapeHtml(prepMeetings.workflow)}" data-workflow-action="0" type="button">Open meeting prep</button>
                     <button class="copy-button" data-copy="${escapeHtml(topMeetingPrep.command)}" type="button">Copy CLI command</button>
@@ -1241,7 +1257,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <h4>Why this matters now</h4>
         <p>${escapeHtml(intelligence.why_now ?? "This item is part of the current intelligence layer.")}</p>
         <p class="subtle subtle--body">${escapeHtml(`Score band: ${intelligence.score_band ?? "medium"}${intelligence.signals?.length ? ` · Signals: ${intelligence.signals.join(", ")}` : ""}`)}</p>
-        ${renderRelatedDocs(intelligence.related_docs)}
+        ${renderRelatedFiles(intelligence.related_files ?? intelligence.related_docs)}
       </section>
     `
     : "";
@@ -1332,7 +1348,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <h4>Open questions</h4>
         ${packet.open_questions.length > 0 ? `<ul>${packet.open_questions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<div class="empty">No open questions are recorded.</div>`}
       </section>
-      ${renderRelatedDocs(packet.related_docs)}
+      ${renderRelatedFiles(packet.related_files ?? packet.related_docs)}
       <section class="panel">
         <h4>Related threads</h4>
         ${

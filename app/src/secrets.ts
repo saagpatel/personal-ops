@@ -326,7 +326,7 @@ export function explainGoogleGrantFailure(error: unknown, mailbox: string): stri
     return `Stored Google grant for ${mailbox} looks stale or revoked. Run \`personal-ops auth gmail login\` and \`personal-ops auth google login\` again.`;
   }
   if (/insufficient authentication scopes|insufficient permissions|insufficientpermissions/i.test(message)) {
-    return `Stored Google grant for ${mailbox} is missing one or more required Gmail, Calendar, Drive, or Docs permissions. Run \`personal-ops auth gmail login\` and \`personal-ops auth google login\` again and accept the requested access.`;
+    return `Stored Google grant for ${mailbox} is missing one or more required Gmail, Calendar, Drive, Docs, or Sheets permissions. Run \`personal-ops auth gmail login\` and \`personal-ops auth google login\` again and accept the requested access.`;
   }
   return message;
 }

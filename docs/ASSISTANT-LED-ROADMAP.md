@@ -33,7 +33,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 2 | Inbox and Follow-Up Autopilot | Reduce reply and follow-up labor through assistant-prepared drafts, grouped thread handling, and queue shaping | Complete |
 | 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Complete |
 | 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Complete |
-| 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Planned |
+| 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Complete |
 
 ## Phase 1
 
@@ -120,18 +120,22 @@ Delivered shape:
 
 ## Phase 5
 
-This phase should expand Google context only where it materially improves assistant execution.
+Phase 5 is now complete.
 
-Expected direction:
+Delivered shape:
 
-- narrow Google Sheets context for planning or project visibility
-- richer related-file grouping in Drive scope
-- stronger doc-aware meeting prep and workflow bundles
+- narrow cached Google Sheets previews inside the existing Drive scope
+- richer related-file grouping with explicit links first, shared-parent files second, and small recent fallback last
+- `personal-ops drive sheet <fileId>` plus `GET /v1/drive/sheets/:fileId`
+- assistant-safe MCP `drive_sheet_get`
+- meeting prep, day-start, now-next, and worklist detail can attach `Related Files` instead of only docs
+- Drive status now reports indexed sheet counts
+- no browser mutation expansion, no Google writes, no Slides extraction, and no Shared Drives support
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, and 4 are complete
+- Phases 1, 2, 3, 4, and 5 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work
