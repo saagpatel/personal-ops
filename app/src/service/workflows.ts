@@ -129,6 +129,7 @@ function toBundleAction(candidate: WorkflowCandidate, topScore: number): Workflo
     why_now: candidate.why_now,
     score_band: scoreBandFor(candidate.score, topScore),
     signals: candidate.signals,
+    related_docs: candidate.related_docs,
   };
 }
 
@@ -143,6 +144,7 @@ function toBundleItem(candidate: WorkflowCandidate, topScore: number): WorkflowB
     why_now: action.why_now,
     score_band: action.score_band,
     signals: action.signals,
+    related_docs: action.related_docs,
   };
 }
 
@@ -552,6 +554,22 @@ function dedupeAndSortCandidates(candidates: WorkflowCandidate[]): WorkflowCandi
   return [...byKey.values()].sort((left, right) => right.score - left.score || left.label.localeCompare(right.label));
 }
 
+function attachRelatedDocs(
+  service: any,
+  candidate: WorkflowCandidate,
+  options: { allowFallback: boolean },
+): WorkflowCandidate {
+  if (typeof service.getRelatedDocsForTarget !== "function") {
+    return candidate;
+  }
+  return {
+    ...candidate,
+    related_docs: service.getRelatedDocsForTarget(candidate.target_type, candidate.target_id, {
+      allowFallback: options.allowFallback,
+    }),
+  };
+}
+
 async function loadWorkflowContext(service: any, options: { httpReachable: boolean }): Promise<WorkflowContext> {
   const [status, worklist, recommendations, needsReplyThreads, staleFollowupThreads, upcomingEvents] = await Promise.all([
     service.getStatusReport(options),
@@ -577,12 +595,12 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
   };
 }
 
-function buildIntelligenceCandidates(context: WorkflowContext): WorkflowCandidate[] {
+function buildIntelligenceCandidates(service: any, context: WorkflowContext): WorkflowCandidate[] {
   const candidates: WorkflowCandidate[] = [];
   const recommendationSourceKeys = new Set<string>();
 
   for (const detail of context.recommendationDetails) {
-    const candidate = recommendationCandidate(detail);
+    const candidate = attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: true });
     recommendationSourceKeys.add(candidate.source_key);
     pushUniqueCandidate(candidates, candidate);
   }
@@ -595,11 +613,11 @@ function buildIntelligenceCandidates(context: WorkflowContext): WorkflowCandidat
     ) {
       continue;
     }
-    pushUniqueCandidate(candidates, worklistCandidate(item));
+    pushUniqueCandidate(candidates, attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true }));
   }
 
   for (const thread of context.needsReplyThreads) {
-    const candidate = threadCandidate(thread);
+    const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
     if (recommendationSourceKeys.has(candidate.source_key)) {
       continue;
     }
@@ -607,7 +625,7 @@ function buildIntelligenceCandidates(context: WorkflowContext): WorkflowCandidat
   }
 
   for (const thread of context.staleFollowupThreads) {
-    const candidate = threadCandidate(thread);
+    const candidate = attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false });
     if (recommendationSourceKeys.has(candidate.source_key)) {
       continue;
     }
@@ -620,7 +638,7 @@ function buildIntelligenceCandidates(context: WorkflowContext): WorkflowCandidat
     }
     const candidate = eventCandidate(event);
     if (candidate) {
-      pushUniqueCandidate(candidates, candidate);
+      pushUniqueCandidate(candidates, attachRelatedDocs(service, candidate, { allowFallback: true }));
     }
   }
 
@@ -652,7 +670,7 @@ function buildPrepDayTimeSensitive(
 
 export async function buildNowNextWorkflowReport(service: any, options: { httpReachable: boolean }): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
-  const candidates = buildIntelligenceCandidates(context);
+  const candidates = buildIntelligenceCandidates(service, context);
   const primary = candidates[0] ?? null;
   const topScore = primary?.score ?? 0;
   const alternatives = candidates.slice(1, 3);
@@ -694,6 +712,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
                   why_now: primary.why_now,
                   score_band: scoreBandFor(primary.score, topScore),
                   signals: primary.signals,
+                  related_docs: primary.related_docs,
                 },
               ]
             : [],
@@ -714,7 +733,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
 
 export async function buildPrepDayWorkflowReport(service: any, options: { httpReachable: boolean }): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
-  const candidates = buildIntelligenceCandidates(context);
+  const candidates = buildIntelligenceCandidates(service, context);
   const topScore = candidates[0]?.score ?? 0;
   const overall: WorkflowBundleSectionItem[] = [
     {
@@ -785,16 +804,16 @@ export async function buildFollowUpBlockWorkflowReport(
   const candidates = dedupeAndSortCandidates([
     ...context.recommendationDetails
       .filter((detail) => detail.recommendation.kind === "schedule_thread_followup")
-      .map((detail) => recommendationCandidate(detail)),
+      .map((detail) => attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: false })),
     ...context.needsReplyThreads
-      .map((thread) => threadCandidate(thread))
+      .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
       .filter((candidate) => !recommendationSourceKeys.has(candidate.source_key)),
     ...context.staleFollowupThreads
-      .map((thread) => threadCandidate(thread))
+      .map((thread) => attachRelatedDocs(service, threadCandidate(thread), { allowFallback: false }))
       .filter((candidate) => !recommendationSourceKeys.has(candidate.source_key)),
     ...context.worklist.items
       .filter((item) => ["task_overdue", "task_due_soon", "task_reminder_due"].includes(item.kind))
-      .map((item) => worklistCandidate(item)),
+      .map((item) => attachRelatedDocs(service, worklistCandidate(item), { allowFallback: true })),
   ]);
   const topScore = candidates[0]?.score ?? 0;
   const needsReplyItems = candidates
@@ -840,11 +859,12 @@ export async function buildPrepMeetingsWorkflowReport(
     .slice(0, 10);
   const recommendationCandidates = context.recommendationDetails
     .filter((detail) => detail.recommendation.kind === "schedule_event_prep")
-    .map((detail) => recommendationCandidate(detail));
+    .map((detail) => attachRelatedDocs(service, recommendationCandidate(detail), { allowFallback: false }));
   const recommendationEventKeys = new Set(recommendationCandidates.map((candidate) => candidate.source_key));
   const eventCandidates = scopedEvents
     .map((event) => eventCandidate(event))
     .filter((candidate): candidate is WorkflowCandidate => Boolean(candidate))
+    .map((candidate) => attachRelatedDocs(service, candidate, { allowFallback: false }))
     .filter((candidate) => !recommendationEventKeys.has(candidate.source_key));
   const candidates = dedupeAndSortCandidates([...recommendationCandidates, ...eventCandidates]);
   const topScore = candidates[0]?.score ?? 0;
@@ -862,7 +882,9 @@ export async function buildPrepMeetingsWorkflowReport(
         items: scopedEvents.slice(0, MAX_SECTION_ITEMS).map((event) => {
           const candidate = eventCandidate(event);
           return toBundleItem(
-            candidate ?? {
+            candidate
+              ? attachRelatedDocs(service, candidate, { allowFallback: false })
+              : {
               label: event.summary?.trim() || "Upcoming meeting",
               summary: `Starts ${formatTimestamp(event.start_at)}.`,
               command: commandForCalendarEvent(event.event_id),
@@ -873,6 +895,7 @@ export async function buildPrepMeetingsWorkflowReport(
               score: 200,
               category: "meeting",
               source_key: `event:${event.event_id}`,
+              related_docs: service.getRelatedDocsForTarget("calendar_event", event.event_id, { allowFallback: false }),
             },
             topScore || 200,
           );

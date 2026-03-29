@@ -46,6 +46,16 @@ async function runGithubSync() {
   }
 }
 
+async function runDriveSync() {
+  try {
+    await service.syncDrive(systemIdentity);
+  } catch (error) {
+    logger.error("drive_sync_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 const attentionSweep = setInterval(() => {
   service.runAttentionSweep({ httpReachable: true }).catch((error) => {
     logger.error("attention_sweep_failed", {
@@ -82,6 +92,15 @@ const githubSync = setInterval(() => {
 }, Math.max(1, config.githubSyncIntervalMinutes) * 60_000);
 githubSync.unref();
 
+const driveSync = setInterval(() => {
+  runDriveSync().catch((error) => {
+    logger.error("drive_sync_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}, Math.max(1, config.driveSyncIntervalMinutes) * 60_000);
+driveSync.unref();
+
 server.listen(config.servicePort, config.serviceHost, () => {
   logger.info("daemon_started", {
     host: config.serviceHost,
@@ -101,6 +120,11 @@ server.listen(config.servicePort, config.serviceHost, () => {
     });
     await runGithubSync().catch((error) => {
       logger.error("github_sync_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    await runDriveSync().catch((error) => {
+      logger.error("drive_sync_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -125,6 +149,7 @@ function shutdown(signal: string) {
   clearInterval(mailboxSync);
   clearInterval(calendarSync);
   clearInterval(githubSync);
+  clearInterval(driveSync);
   server.close(() => process.exit(0));
 }
 

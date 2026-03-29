@@ -58,7 +58,7 @@ function parseGoogleCalendarEvent(calendarId: string, item: any): GoogleCalendar
     etag: item.etag ?? undefined,
     summary: item.summary ?? undefined,
     location: item.location ?? undefined,
-    notes: createdByPersonalOps ? item.description ?? undefined : undefined,
+    notes: item.description ?? undefined,
     html_link: item.htmlLink ?? undefined,
     status: String(item.status ?? "confirmed"),
     event_type: item.eventType ?? undefined,

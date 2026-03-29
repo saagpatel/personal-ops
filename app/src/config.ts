@@ -23,6 +23,13 @@ included_repositories = []
 sync_interval_minutes = 10
 keychain_service = "personal-ops.github"
 
+[drive]
+enabled = false
+included_folders = []
+included_files = []
+sync_interval_minutes = 30
+recent_docs_limit = 10
+
 [calendar]
 enabled = true
 provider = "google"
@@ -71,6 +78,39 @@ function expandHome(input: string): string {
   return input;
 }
 
+function normalizeGoogleDriveScopeValue(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const fileMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (fileMatch?.[1]) {
+    return fileMatch[1];
+  }
+  const folderMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (folderMatch?.[1]) {
+    return folderMatch[1];
+  }
+  try {
+    const url = new URL(trimmed);
+    const id = url.searchParams.get("id");
+    if (id?.trim()) {
+      return id.trim();
+    }
+  } catch {
+    // Treat non-URL strings as raw IDs below.
+  }
+  return trimmed;
+}
+
+function normalizeGoogleDriveScopeList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => normalizeGoogleDriveScopeValue(String(entry)))
+        .filter(Boolean)
+    : [];
+}
+
 function ensureFile(path: string, contents: string): void {
   if (!fs.existsSync(path)) {
     fs.writeFileSync(path, contents, { encoding: "utf8", mode: 0o600 });
@@ -116,6 +156,11 @@ export function loadConfig(paths: Paths): Config {
       : [],
     githubSyncIntervalMinutes: Number(doc.github?.sync_interval_minutes ?? 10),
     githubKeychainService: String(doc.github?.keychain_service ?? "personal-ops.github"),
+    driveEnabled: Boolean(doc.drive?.enabled ?? false),
+    includedDriveFolders: normalizeGoogleDriveScopeList(doc.drive?.included_folders),
+    includedDriveFiles: normalizeGoogleDriveScopeList(doc.drive?.included_files),
+    driveSyncIntervalMinutes: Number(doc.drive?.sync_interval_minutes ?? 30),
+    driveRecentDocsLimit: Number(doc.drive?.recent_docs_limit ?? 10),
     calendarEnabled: Boolean(doc.calendar?.enabled ?? true),
     calendarProvider: String(doc.calendar?.provider ?? "google") as "google",
     includedCalendarIds: Array.isArray(doc.calendar?.included_calendar_ids)

@@ -303,6 +303,36 @@ const tools = [
     },
   },
   {
+    name: "drive_status",
+    description: "Show Google Drive and Docs integration readiness for personal-ops.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "drive_files",
+    description: "List in-scope Drive files and Docs metadata cached by personal-ops.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "drive_doc_get",
+    description: "Get extracted text context for a cached Google Doc by file id.",
+    inputSchema: {
+      type: "object",
+      required: ["file_id"],
+      properties: {
+        file_id: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_window_status",
     description: "Show the current timed send-window status without mutating it.",
     inputSchema: {
@@ -769,6 +799,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   if (name === "github_pull_get") {
     const response = await requestJson("GET", `/v1/github/pulls/${encodeURIComponent(String(args.pr_key))}`);
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "drive_status") {
+    const response = await requestJson("GET", "/v1/drive/status");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "drive_files") {
+    const response = await requestJson("GET", "/v1/drive/files");
+    return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+  }
+  if (name === "drive_doc_get") {
+    const response = await requestJson("GET", `/v1/drive/docs/${encodeURIComponent(String(args.file_id))}`);
     return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
   }
   if (name === "send_window_status") {

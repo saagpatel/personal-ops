@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import {
+  formatDriveDoc,
+  formatDriveFiles,
+  formatDriveStatus,
   formatDoctorReport,
   formatGithubPullDetail,
   formatGithubPullRequests,
@@ -147,6 +150,45 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
         `/v1/github/pulls/${encodeURIComponent(prKey)}`,
       );
       context.printOutput(response, (value) => formatGithubPullDetail(value.pull_request), options.json);
+    });
+
+  const drive = program.command("drive").description("Read the narrow Google Drive and Docs context.");
+  drive
+    .command("status")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ drive: unknown }>("GET", "/v1/drive/status");
+      context.printOutput(response, (value) => formatDriveStatus(value.drive), options.json);
+    });
+
+  drive
+    .command("sync")
+    .description("Run a foreground Drive and Docs sync now.")
+    .command("now")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ drive: unknown }>("POST", "/v1/drive/sync");
+      context.printOutput(response, (value) => formatDriveStatus(value.drive), options.json);
+    });
+
+  drive
+    .command("files")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ files: unknown[] }>("GET", "/v1/drive/files");
+      context.printOutput(response, (value) => formatDriveFiles(value.files), options.json);
+    });
+
+  drive
+    .command("doc")
+    .argument("<fileId>", "Google Drive file id")
+    .option("--json", "Print raw JSON")
+    .action(async (fileId, options) => {
+      const response = await context.requestJson<{ doc: unknown }>(
+        "GET",
+        `/v1/drive/docs/${encodeURIComponent(fileId)}`,
+      );
+      context.printOutput(response, (value) => formatDriveDoc(value.doc), options.json);
     });
 
   const workflow = program.command("workflow").description("Compose the day-start operator flow into bounded workflow bundles.");

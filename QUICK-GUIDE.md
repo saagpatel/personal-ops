@@ -6,7 +6,7 @@ This is the shortest role-based way to get oriented in `personal-ops`.
 
 ### What this system is
 
-`personal-ops` is a local workflow control layer that keeps mailbox, calendar, task, planning, approval, and audit state in one place on your Mac.
+`personal-ops` is a local workflow control layer that keeps mailbox, calendar, task, planning, approval, audit, and narrow external context in one place on your Mac.
 
 It lets assistants help with your workflow without giving them direct control over Gmail, Google Calendar, or other risky actions.
 
@@ -29,6 +29,7 @@ Keep these pieces separate:
 - the local API token files gate local CLI and assistant access
 - the Gmail refresh token lives in Keychain and is never restored from snapshots
 - the optional GitHub PAT also lives in Keychain and is scoped only to the repositories you explicitly opt into
+- the optional Drive and Docs context reuses the same Google account and refresh token; it does not add a second Google login silo
 - backups may move state intentionally, but auth and secrets still stay machine-local
 
 ### Daily commands
@@ -43,6 +44,8 @@ Keep these pieces separate:
   The preferred day-start bundle with exact next commands.
 - `personal-ops github status`
   The optional GitHub PR and review queue summary.
+- `personal-ops drive status`
+  The optional Google Docs and Drive metadata summary.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`
@@ -68,7 +71,7 @@ The briefing automations stay read-first. The reliability automations are limite
 
 The preferred operator rhythm now starts with `personal-ops workflow prep-day`, uses `personal-ops workflow now-next` when you need the single best next move, and then uses `worklist`, `follow-up-block`, or `prep-meetings` only when you need a narrower bundle.
 
-The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, and it can also surface GitHub PR and review attention when the optional integration is configured, while still keeping higher-trust flows in the CLI.
+The console now complements that loop by leading with the same now-next guidance and day-start bundle on Overview, and it can also surface GitHub PR and review attention plus related Google Docs context when those optional integrations are configured, while still keeping higher-trust flows in the CLI.
 
 Read next:
 
@@ -96,6 +99,7 @@ Safe assistant work includes:
 
 - reading status, worklist, inbox, calendar, task, planning, and assistant-safe audit context
 - reading assistant-safe GitHub PR and review queue context when the operator has enabled it
+- reading assistant-safe Drive status, file metadata, and cached Google Doc context when the operator has enabled it
 - creating limited assistant-safe suggestions where supported
 - explaining queue state, planning pressure, and operational context
 

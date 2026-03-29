@@ -19,6 +19,8 @@ const GOOGLE_SHARED_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events.readonly",
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "https://www.googleapis.com/auth/calendar.events.owned",
+  "https://www.googleapis.com/auth/drive.metadata.readonly",
+  "https://www.googleapis.com/auth/documents.readonly",
 ];
 
 export function startGoogleAuth(config: Config, callbackPort: number) {

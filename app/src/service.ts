@@ -22,6 +22,13 @@ import {
   verifyGoogleCalendarWriteAccess,
 } from "./calendar.js";
 import { CURRENT_SCHEMA_VERSION, PersonalOpsDb } from "./db.js";
+import {
+  buildDriveTopItemSummary,
+  getGoogleDoc,
+  syncDriveScope,
+  verifyGoogleDriveAccess,
+  verifyGoogleDriveScopes,
+} from "./drive.js";
 import { getInstallArtifactPaths } from "./install.js";
 import { getLaunchAgentLabel, inspectLaunchAgent as inspectInstalledLaunchAgent } from "./launchagent.js";
 import {
@@ -100,6 +107,9 @@ import {
   DoctorReport,
   DraftArtifact,
   DraftInput,
+  DriveDocRecord,
+  DriveFileRecord,
+  DriveStatusReport,
   GmailClientConfig,
   GoogleCalendarEventsPage,
   GoogleCalendarEventMetadata,
@@ -163,6 +173,7 @@ import {
   PlanningRecommendationTuningFamilyReport,
   PlanningRecommendationTuningHistoryReport,
   PlanningRecommendationTuningReport,
+  RelatedDriveDoc,
   ReviewDetail,
   SendWindow,
   ServiceState,
@@ -223,6 +234,10 @@ interface PersonalOpsDependencies {
   listGmailHistory: typeof listGmailHistory;
   verifyGoogleCalendarAccess: typeof verifyGoogleCalendarAccess;
   verifyGoogleCalendarWriteAccess: typeof verifyGoogleCalendarWriteAccess;
+  verifyGoogleDriveAccess: typeof verifyGoogleDriveAccess;
+  verifyGoogleDriveScopes: typeof verifyGoogleDriveScopes;
+  syncDriveScope: typeof syncDriveScope;
+  getGoogleDoc: typeof getGoogleDoc;
   listGoogleCalendarSources: typeof listGoogleCalendarSources;
   listGoogleCalendarEvents: typeof listGoogleCalendarEvents;
   getGoogleCalendarEvent: typeof getGoogleCalendarEvent;
@@ -509,6 +524,10 @@ const defaultDependencies: PersonalOpsDependencies = {
   listGmailHistory,
   verifyGoogleCalendarAccess,
   verifyGoogleCalendarWriteAccess,
+  verifyGoogleDriveAccess,
+  verifyGoogleDriveScopes,
+  syncDriveScope,
+  getGoogleDoc,
   listGoogleCalendarSources,
   listGoogleCalendarEvents,
   getGoogleCalendarEvent,
@@ -532,6 +551,7 @@ export class PersonalOpsService {
   private mailboxSyncInFlight: Promise<InboxStatusReport> | null = null;
   private calendarSyncInFlight: Promise<CalendarStatusReport> | null = null;
   private githubSyncInFlight: Promise<GithubStatusReport> | null = null;
+  private driveSyncInFlight: Promise<DriveStatusReport> | null = null;
 
   constructor(
     private readonly paths: Paths,
@@ -586,6 +606,7 @@ export class PersonalOpsService {
           : "idle",
       },
       github: this.getGithubStatusReport(),
+      drive: this.getDriveStatusReport(),
       send_window: activeSendWindow
         ? {
             active: true,
@@ -696,6 +717,41 @@ export class PersonalOpsService {
     };
   }
 
+  getDriveStatusReport(): DriveStatusReport {
+    const mailAccount = this.db.getMailAccount();
+    const sync = this.db.getDriveSyncState();
+    const docs = this.db.listDriveDocs();
+    const files = this.db.listDriveFiles();
+    const authenticated = Boolean(
+      mailAccount && this.dependencies.getKeychainSecret(this.config.keychainService, mailAccount.email),
+    );
+    const report: DriveStatusReport = {
+      enabled: this.config.driveEnabled,
+      authenticated,
+      sync_status: this.config.driveEnabled ? sync?.status ?? "not_configured" : "not_configured",
+      last_synced_at: sync?.last_synced_at ?? null,
+      included_folder_count: this.config.includedDriveFolders.length,
+      included_file_count: this.config.includedDriveFiles.length,
+      indexed_file_count: files.length,
+      indexed_doc_count: docs.length,
+      top_item_summary: null,
+    };
+    report.top_item_summary = buildDriveTopItemSummary(report);
+    return report;
+  }
+
+  listDriveFiles(): DriveFileRecord[] {
+    return this.db.listDriveFiles();
+  }
+
+  getDriveDoc(fileId: string): DriveDocRecord {
+    const doc = this.db.getDriveDoc(fileId);
+    if (!doc) {
+      throw new Error(`Drive doc ${fileId} was not found.`);
+    }
+    return doc;
+  }
+
   listGithubReviews(): GithubPullRequest[] {
     return this.db.listGithubPullRequests({ attention_kind: "github_review_requested" });
   }
@@ -775,6 +831,21 @@ export class PersonalOpsService {
     } finally {
       if (this.githubSyncInFlight === run) {
         this.githubSyncInFlight = null;
+      }
+    }
+  }
+
+  async syncDrive(identity: ClientIdentity): Promise<DriveStatusReport> {
+    if (this.driveSyncInFlight) {
+      return await this.driveSyncInFlight;
+    }
+    const run = this.performDriveSync(identity);
+    this.driveSyncInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (this.driveSyncInFlight === run) {
+        this.driveSyncInFlight = null;
       }
     }
   }
@@ -1401,6 +1472,239 @@ export class PersonalOpsService {
       });
       throw error;
     }
+  }
+
+  private async performDriveSync(identity: ClientIdentity): Promise<DriveStatusReport> {
+    this.assertOperatorOnly(identity, "sync Drive and Docs context");
+    if (!this.config.driveEnabled) {
+      return this.getDriveStatusReport();
+    }
+    this.db.registerClient(identity);
+    const mailAccount = this.db.getMailAccount();
+    if (!mailAccount) {
+      throw new Error("Drive is enabled, but no Google mailbox is connected. Run `personal-ops auth google login`.");
+    }
+    if (this.config.includedDriveFolders.length === 0 && this.config.includedDriveFiles.length === 0) {
+      throw new Error("Drive is enabled, but drive.included_folders and drive.included_files are both empty in config.toml.");
+    }
+    const stored = await this.dependencies.loadStoredGmailTokens(this.config, this.db);
+    const syncStartedAt = Date.now();
+    this.db.upsertDriveSyncState({
+      status: "syncing",
+      last_error_code: null,
+      last_error_message: null,
+    });
+    try {
+      await this.dependencies.verifyGoogleDriveAccess(stored.tokensJson, stored.clientConfig);
+      const synced = await this.dependencies.syncDriveScope(stored.tokensJson, stored.clientConfig, this.config);
+      const syncedAt = new Date().toISOString();
+      this.db.replaceDriveFiles(synced.files);
+      this.db.replaceDriveDocs(synced.docs);
+      this.db.upsertDriveSyncState({
+        status: "ready",
+        last_synced_at: syncedAt,
+        last_error_code: null,
+        last_error_message: null,
+        last_sync_duration_ms: Date.now() - syncStartedAt,
+        files_indexed_count: synced.files.length,
+        docs_indexed_count: synced.docs.length,
+      });
+      this.db.recordAuditEvent({
+        client_id: identity.client_id,
+        action: "drive_sync",
+        target_type: "drive_sync_state",
+        target_id: "google_drive",
+        outcome: "success",
+        metadata: {
+          indexed_file_count: synced.files.length,
+          indexed_doc_count: synced.docs.length,
+        },
+      });
+      this.refreshDriveLinkProvenance();
+      return this.getDriveStatusReport();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Drive sync failed.";
+      this.db.upsertDriveSyncState({
+        status: "degraded",
+        last_error_code: "drive_sync_error",
+        last_error_message: message,
+        last_sync_duration_ms: Date.now() - syncStartedAt,
+      });
+      this.db.recordAuditEvent({
+        client_id: identity.client_id,
+        action: "drive_sync",
+        target_type: "drive_sync_state",
+        target_id: "google_drive",
+        outcome: "failure",
+        metadata: { error_message: message },
+      });
+      throw error;
+    }
+  }
+
+  listRecentDriveDocs(limit = 10): DriveDocRecord[] {
+    return this.db.listDriveDocs().slice(0, Math.max(0, limit));
+  }
+
+  getRelatedDocsForTarget(
+    targetType: string | undefined,
+    targetId: string | undefined,
+    options: { allowFallback?: boolean; fallbackLimit?: number } = {},
+  ): RelatedDriveDoc[] {
+    if (!this.config.driveEnabled || !targetType || !targetId) {
+      return [];
+    }
+    const sourceType = this.mapTargetTypeToDriveSourceType(targetType);
+    const explicit = sourceType ? this.listExplicitRelatedDocs(sourceType, targetId) : [];
+    if (explicit.length > 0 || !options.allowFallback) {
+      return explicit;
+    }
+    return this.listRecentDriveDocs(options.fallbackLimit ?? this.config.driveRecentDocsLimit).map((doc) => ({
+      file_id: doc.file_id,
+      title: doc.title,
+      web_view_link: doc.web_view_link,
+      snippet: doc.snippet,
+      mime_type: doc.mime_type,
+      match_type: "recent_doc_fallback",
+    }));
+  }
+
+  private mapTargetTypeToDriveSourceType(targetType: string): "calendar_event" | "task" | "draft" | null {
+    if (targetType === "calendar_event") {
+      return "calendar_event";
+    }
+    if (targetType === "task") {
+      return "task";
+    }
+    if (targetType === "draft_artifact" || targetType === "draft") {
+      return "draft";
+    }
+    return null;
+  }
+
+  private listExplicitRelatedDocs(sourceType: "calendar_event" | "task" | "draft", sourceId: string): RelatedDriveDoc[] {
+    const docs: RelatedDriveDoc[] = [];
+    const seen = new Set<string>();
+    for (const match of this.db.listDriveLinkProvenance(sourceType, sourceId)) {
+      if (seen.has(match.file_id)) {
+        continue;
+      }
+      const file = this.db.getDriveFile(match.file_id);
+      const doc = this.db.getDriveDoc(match.file_id);
+      if (!file && !doc) {
+        continue;
+      }
+      seen.add(match.file_id);
+      docs.push({
+        file_id: match.file_id,
+        title: doc?.title ?? file?.name ?? match.file_id,
+        web_view_link: doc?.web_view_link ?? file?.web_view_link,
+        snippet: doc?.snippet,
+        mime_type: doc?.mime_type ?? file?.mime_type ?? "application/octet-stream",
+        match_type: "explicit_link",
+        source_type: match.source_type,
+        source_id: match.source_id,
+      });
+    }
+    return docs;
+  }
+
+  private refreshDriveLinkProvenance(): void {
+    if (!this.config.driveEnabled) {
+      this.db.replaceDriveLinkProvenance([]);
+      return;
+    }
+    const knownIds = new Set(this.db.listDriveFiles().map((file) => file.file_id));
+    const discoveredAt = new Date().toISOString();
+    const matches: Array<{
+      source_type: "calendar_event" | "task" | "draft";
+      source_id: string;
+      file_id: string;
+      match_type: "explicit_link";
+      matched_url?: string | undefined;
+      discovered_at: string;
+    }> = [];
+    const mailbox = (this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ?? null;
+    const calendarEvents = mailbox ? this.db.listCalendarEvents({ account: mailbox, limit: 500 }) : [];
+    for (const event of calendarEvents) {
+      for (const match of this.extractDriveMatchesFromText(event.notes)) {
+        if (!knownIds.has(match.fileId)) {
+          continue;
+        }
+        matches.push({
+          source_type: "calendar_event",
+          source_id: event.event_id,
+          file_id: match.fileId,
+          match_type: "explicit_link",
+          matched_url: match.url,
+          discovered_at: discoveredAt,
+        });
+      }
+    }
+    for (const task of this.db.listTasks()) {
+      for (const match of this.extractDriveMatchesFromText(task.notes)) {
+        if (!knownIds.has(match.fileId)) {
+          continue;
+        }
+        matches.push({
+          source_type: "task",
+          source_id: task.task_id,
+          file_id: match.fileId,
+          match_type: "explicit_link",
+          matched_url: match.url,
+          discovered_at: discoveredAt,
+        });
+      }
+    }
+    for (const draft of this.db.listDraftArtifacts()) {
+      const combined = [draft.body_text, this.stripHtml(draft.body_html)].filter(Boolean).join("\n");
+      for (const match of this.extractDriveMatchesFromText(combined)) {
+        if (!knownIds.has(match.fileId)) {
+          continue;
+        }
+        matches.push({
+          source_type: "draft",
+          source_id: draft.artifact_id,
+          file_id: match.fileId,
+          match_type: "explicit_link",
+          matched_url: match.url,
+          discovered_at: discoveredAt,
+        });
+      }
+    }
+    this.db.replaceDriveLinkProvenance(matches);
+  }
+
+  private stripHtml(value: string | undefined): string {
+    if (!value) {
+      return "";
+    }
+    return value.replace(/<[^>]+>/g, " ");
+  }
+
+  private extractDriveMatchesFromText(value: string | undefined): Array<{ fileId: string; url?: string }> {
+    if (!value) {
+      return [];
+    }
+    const matches: Array<{ fileId: string; url?: string }> = [];
+    const seen = new Set<string>();
+    const patterns = [
+      /https:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/g,
+      /https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/g,
+      /https:\/\/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)/g,
+      /https:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of value.matchAll(pattern)) {
+        const fileId = match[1]?.trim();
+        if (!fileId || seen.has(fileId)) {
+          continue;
+        }
+        seen.add(fileId);
+        matches.push({ fileId, url: match[0] });
+      }
+    }
+    return matches;
   }
 
   listUnreadInboxThreads(limit = DEFAULT_INBOX_LIMIT): InboxThreadSummary[] {
@@ -3407,6 +3711,10 @@ export class PersonalOpsService {
     const githubToken = githubAccount
       ? this.dependencies.getKeychainSecret(this.config.githubKeychainService, githubAccount.keychain_account)
       : null;
+    const driveSync = this.db.getDriveSyncState();
+    const driveToken = mailAccount
+      ? this.dependencies.getKeychainSecret(this.config.keychainService, mailAccount.email)
+      : null;
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
     checks.push(this.fileCheck("policy_file_valid", "Policy file", this.paths.policyFile, true));
@@ -3558,6 +3866,82 @@ export class PersonalOpsService {
                   "github_sync_fresh",
                   "GitHub sync freshness",
                   `GitHub sync is fresh as of ${githubSync.last_synced_at}.`,
+                  "integration",
+                ),
+    );
+    checks.push(
+      this.config.driveEnabled
+        ? this.passCheck("drive_enabled", "Drive integration", "Drive integration is enabled.", "integration")
+        : this.passCheck("drive_enabled", "Drive integration", "Drive integration is disabled.", "integration"),
+    );
+    checks.push(
+      !this.config.driveEnabled
+        ? this.passCheck(
+            "drive_scope_configured",
+            "Drive scope",
+            "Drive scope is not required while the integration is disabled.",
+            "integration",
+          )
+        : this.config.includedDriveFolders.length + this.config.includedDriveFiles.length > 0
+          ? this.passCheck(
+              "drive_scope_configured",
+              "Drive scope",
+              `${this.config.includedDriveFolders.length} folder scope item(s) and ${this.config.includedDriveFiles.length} file scope item(s) are configured.`,
+              "integration",
+            )
+          : this.warnCheck(
+              "drive_scope_configured",
+              "Drive scope",
+              "Drive is enabled, but drive.included_folders and drive.included_files are both empty in config.toml.",
+              "integration",
+            ),
+    );
+    checks.push(
+      !this.config.driveEnabled
+        ? this.passCheck(
+            "drive_token_present",
+            "Drive token",
+            "Drive token is not required while the integration is disabled.",
+            "integration",
+          )
+        : driveToken
+          ? this.passCheck("drive_token_present", "Drive token", "Google token is present for Drive and Docs reads.", "integration")
+          : this.warnCheck(
+              "drive_token_present",
+              "Drive token",
+              "Drive is enabled, but no Google token is available. Run `personal-ops auth google login`.",
+              "integration",
+            ),
+    );
+    const driveStaleMinutes = Math.max(30, this.config.driveSyncIntervalMinutes * 3);
+    checks.push(
+      !this.config.driveEnabled
+        ? this.passCheck("drive_sync_fresh", "Drive sync freshness", "Drive sync is not required while the integration is disabled.", "integration")
+        : driveSync?.status === "degraded"
+          ? this.warnCheck(
+              "drive_sync_fresh",
+              "Drive sync freshness",
+              driveSync.last_error_message ?? "Drive sync is degraded. Run `personal-ops drive sync now`.",
+              "integration",
+            )
+          : !driveSync?.last_synced_at
+            ? this.warnCheck(
+                "drive_sync_fresh",
+                "Drive sync freshness",
+                "Drive has not synced yet. Run `personal-ops drive sync now` after login.",
+                "integration",
+              )
+            : Date.now() - Date.parse(driveSync.last_synced_at) > driveStaleMinutes * 60_000
+              ? this.warnCheck(
+                  "drive_sync_fresh",
+                  "Drive sync freshness",
+                  `Drive sync is stale. Last synced at ${driveSync.last_synced_at}. Run \`personal-ops drive sync now\`.`,
+                  "integration",
+                )
+              : this.passCheck(
+                  "drive_sync_fresh",
+                  "Drive sync freshness",
+                  `Drive sync is fresh as of ${driveSync.last_synced_at}.`,
                   "integration",
                 ),
     );
@@ -4345,6 +4729,54 @@ export class PersonalOpsService {
               "runtime",
             ),
           );
+        }
+        if (!this.config.driveEnabled) {
+          checks.push(
+            this.passCheck(
+              "deep_google_drive_access",
+              "Deep Google Drive access",
+              "Drive integration is disabled, so Drive access is not required.",
+              "integration",
+            ),
+          );
+        } else {
+          try {
+            const stored = await this.dependencies.loadStoredGmailTokens(this.config, this.db);
+            this.assertStoredMailboxMatches(stored.email);
+            const scopes = await this.dependencies.verifyGoogleDriveScopes(stored.tokensJson, stored.clientConfig);
+            const missing = [
+              "https://www.googleapis.com/auth/drive.metadata.readonly",
+              "https://www.googleapis.com/auth/documents.readonly",
+            ].filter((scope) => !scopes.includes(scope));
+            if (missing.length === 0) {
+              checks.push(
+                this.passCheck(
+                  "deep_google_drive_access",
+                  "Deep Google Drive access",
+                  `Live Drive and Docs scope check succeeded for ${stored.email}.`,
+                  "integration",
+                ),
+              );
+            } else {
+              checks.push(
+                this.failCheck(
+                  "deep_google_drive_access",
+                  "Deep Google Drive access",
+                  `Google grant is missing required Drive/Docs scopes: ${missing.join(", ")}. Run \`personal-ops auth google login\` again.`,
+                  "integration",
+                ),
+              );
+            }
+          } catch (error) {
+            checks.push(
+              this.failCheck(
+                "deep_google_drive_access",
+                "Deep Google Drive access",
+                explainGoogleGrantFailure(error, mailAccount.email),
+                "integration",
+              ),
+            );
+          }
         }
       }
     }

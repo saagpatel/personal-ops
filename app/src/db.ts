@@ -22,6 +22,11 @@ import {
   DraftArtifactStatus,
   DraftInput,
   DraftReviewState,
+  DriveDocRecord,
+  DriveFileRecord,
+  DriveLinkProvenance,
+  DriveSyncState,
+  DriveSyncStatus,
   GmailMessageMetadata,
   GithubAccount,
   GithubPullRequest,
@@ -58,7 +63,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -300,6 +305,16 @@ export class PersonalOpsDb {
       };
     }
     for (const tableName of ["github_accounts", "github_sync_state", "github_pull_requests"]) {
+      if (!this.tableExists(tableName)) {
+        return {
+          current_version: current,
+          expected_version: SCHEMA_VERSION,
+          compatible: false,
+          message: `Schema is missing ${tableName}.`,
+        };
+      }
+    }
+    for (const tableName of ["drive_sync_state", "drive_files", "drive_docs", "drive_link_provenance"]) {
       if (!this.tableExists(tableName)) {
         return {
           current_version: current,
@@ -1673,6 +1688,192 @@ export class PersonalOpsDb {
     return row ? this.mapGithubPullRequest(row) : null;
   }
 
+  getDriveSyncState(): DriveSyncState | null {
+    const row = this.db
+      .prepare(`SELECT * FROM drive_sync_state WHERE provider = 'google_drive'`)
+      .get() as Record<string, unknown> | undefined;
+    return row ? this.mapDriveSyncState(row) : null;
+  }
+
+  upsertDriveSyncState(
+    updates: {
+      status?: DriveSyncStatus;
+      last_synced_at?: string | null;
+      last_error_code?: string | null;
+      last_error_message?: string | null;
+      last_sync_duration_ms?: number | null;
+      files_indexed_count?: number | null;
+      docs_indexed_count?: number | null;
+    },
+  ): DriveSyncState {
+    const existing = this.getDriveSyncState();
+    const now = nowIso();
+    if (!existing) {
+      this.db
+        .prepare(
+          `INSERT INTO drive_sync_state (
+            provider, status, last_synced_at, last_error_code, last_error_message, last_sync_duration_ms,
+            files_indexed_count, docs_indexed_count, updated_at
+          ) VALUES ('google_drive', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          updates.status ?? "idle",
+          updates.last_synced_at ?? null,
+          updates.last_error_code ?? null,
+          updates.last_error_message ?? null,
+          updates.last_sync_duration_ms ?? null,
+          updates.files_indexed_count ?? null,
+          updates.docs_indexed_count ?? null,
+          now,
+        );
+      return this.getDriveSyncState()!;
+    }
+    const sets: string[] = [];
+    const params: SQLInputValue[] = [];
+    const push = (column: string, value: SQLInputValue) => {
+      sets.push(`${column} = ?`);
+      params.push(value);
+    };
+    if (updates.status !== undefined) push("status", updates.status);
+    if (updates.last_synced_at !== undefined) push("last_synced_at", updates.last_synced_at);
+    if (updates.last_error_code !== undefined) push("last_error_code", updates.last_error_code);
+    if (updates.last_error_message !== undefined) push("last_error_message", updates.last_error_message);
+    if (updates.last_sync_duration_ms !== undefined) push("last_sync_duration_ms", updates.last_sync_duration_ms);
+    if (updates.files_indexed_count !== undefined) push("files_indexed_count", updates.files_indexed_count);
+    if (updates.docs_indexed_count !== undefined) push("docs_indexed_count", updates.docs_indexed_count);
+    push("updated_at", now);
+    this.db.prepare(`UPDATE drive_sync_state SET ${sets.join(", ")} WHERE provider = 'google_drive'`).run(...params);
+    return this.getDriveSyncState()!;
+  }
+
+  replaceDriveFiles(files: DriveFileRecord[]): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM drive_files`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO drive_files (
+          file_id, name, mime_type, web_view_link, icon_link, parents_json, scope_source,
+          drive_modified_time, created_time, updated_at, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const file of files) {
+        insert.run(
+          file.file_id,
+          file.name,
+          file.mime_type,
+          file.web_view_link ?? null,
+          file.icon_link ?? null,
+          toJson(file.parents),
+          file.scope_source,
+          file.drive_modified_time ?? null,
+          file.created_time ?? null,
+          file.updated_at,
+          file.synced_at,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listDriveFiles(): DriveFileRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM drive_files ORDER BY COALESCE(drive_modified_time, updated_at) DESC, name ASC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapDriveFileRecord(row));
+  }
+
+  getDriveFile(fileId: string): DriveFileRecord | null {
+    const row = this.db.prepare(`SELECT * FROM drive_files WHERE file_id = ?`).get(fileId) as Record<string, unknown> | undefined;
+    return row ? this.mapDriveFileRecord(row) : null;
+  }
+
+  replaceDriveDocs(docs: DriveDocRecord[]): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM drive_docs`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO drive_docs (
+          file_id, title, mime_type, web_view_link, snippet, text_content, updated_at, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const doc of docs) {
+        insert.run(
+          doc.file_id,
+          doc.title,
+          doc.mime_type,
+          doc.web_view_link ?? null,
+          doc.snippet ?? null,
+          doc.text_content,
+          doc.updated_at,
+          doc.synced_at,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getDriveDoc(fileId: string): DriveDocRecord | null {
+    const row = this.db.prepare(`SELECT * FROM drive_docs WHERE file_id = ?`).get(fileId) as Record<string, unknown> | undefined;
+    return row ? this.mapDriveDocRecord(row) : null;
+  }
+
+  listDriveDocs(): DriveDocRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM drive_docs ORDER BY updated_at DESC, title ASC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapDriveDocRecord(row));
+  }
+
+  replaceDriveLinkProvenance(items: DriveLinkProvenance[]): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM drive_link_provenance`).run();
+      const insert = this.db.prepare(
+        `INSERT INTO drive_link_provenance (
+          source_type, source_id, file_id, match_type, matched_url, discovered_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const item of items) {
+        insert.run(
+          item.source_type,
+          item.source_id,
+          item.file_id,
+          item.match_type,
+          item.matched_url ?? null,
+          item.discovered_at,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listDriveLinkProvenance(sourceType?: DriveLinkProvenance["source_type"], sourceId?: string): DriveLinkProvenance[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (sourceType) {
+      clauses.push(`source_type = ?`);
+      params.push(sourceType);
+    }
+    if (sourceId) {
+      clauses.push(`source_id = ?`);
+      params.push(sourceId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM drive_link_provenance ${where} ORDER BY discovered_at DESC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapDriveLinkProvenance(row));
+  }
+
   getCalendarSyncState(account: string): CalendarSyncState | null {
     const row = this.db
       .prepare(`SELECT * FROM calendar_sync_state WHERE account = ?`)
@@ -2828,7 +3029,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("github_pull_requests")
+      const inferred = this.tableExists("drive_files")
+        ? 16
+        : this.tableExists("github_pull_requests")
         ? 15
         : this.tableExists("planning_hygiene_policy_governance_events")
         ? 14
@@ -2918,6 +3121,10 @@ export class PersonalOpsDb {
       } else if (version === 14) {
         this.migrateToV15();
         version = 15;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 15) {
+        this.migrateToV16();
+        version = 16;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -3491,6 +3698,65 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV16() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS drive_sync_state (
+        provider TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        last_synced_at TEXT,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        last_sync_duration_ms INTEGER,
+        files_indexed_count INTEGER,
+        docs_indexed_count INTEGER,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS drive_files (
+        file_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        web_view_link TEXT,
+        icon_link TEXT,
+        parents_json TEXT NOT NULL,
+        scope_source TEXT NOT NULL,
+        drive_modified_time TEXT,
+        created_time TEXT,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS drive_docs (
+        file_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        web_view_link TEXT,
+        snippet TEXT,
+        text_content TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS drive_link_provenance (
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        match_type TEXT NOT NULL,
+        matched_url TEXT,
+        discovered_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_drive_files_updated_at
+        ON drive_files(updated_at DESC, name ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_drive_docs_updated_at
+        ON drive_docs(updated_at DESC, title ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_drive_link_provenance_source
+        ON drive_link_provenance(source_type, source_id, discovered_at DESC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -3566,6 +3832,69 @@ export class PersonalOpsDb {
       is_authored_by_viewer: Boolean(row.is_authored_by_viewer),
       attention_kind: row.attention_kind ? (String(row.attention_kind) as GithubPullRequest["attention_kind"]) : undefined,
       attention_summary: row.attention_summary ? String(row.attention_summary) : undefined,
+    };
+  }
+
+  private mapDriveSyncState(row: Record<string, unknown>): DriveSyncState {
+    return {
+      provider: "google_drive",
+      status: String(row.status) as DriveSyncStatus,
+      last_synced_at: row.last_synced_at ? String(row.last_synced_at) : undefined,
+      last_error_code: row.last_error_code ? String(row.last_error_code) : undefined,
+      last_error_message: row.last_error_message ? String(row.last_error_message) : undefined,
+      last_sync_duration_ms:
+        row.last_sync_duration_ms === null || row.last_sync_duration_ms === undefined
+          ? undefined
+          : Number(row.last_sync_duration_ms),
+      files_indexed_count:
+        row.files_indexed_count === null || row.files_indexed_count === undefined
+          ? undefined
+          : Number(row.files_indexed_count),
+      docs_indexed_count:
+        row.docs_indexed_count === null || row.docs_indexed_count === undefined
+          ? undefined
+          : Number(row.docs_indexed_count),
+      updated_at: String(row.updated_at),
+    };
+  }
+
+  private mapDriveFileRecord(row: Record<string, unknown>): DriveFileRecord {
+    return {
+      file_id: String(row.file_id),
+      name: String(row.name),
+      mime_type: String(row.mime_type),
+      web_view_link: row.web_view_link ? String(row.web_view_link) : undefined,
+      icon_link: row.icon_link ? String(row.icon_link) : undefined,
+      parents: fromJsonArray(String(row.parents_json ?? "[]")),
+      scope_source: String(row.scope_source) as DriveFileRecord["scope_source"],
+      drive_modified_time: row.drive_modified_time ? String(row.drive_modified_time) : undefined,
+      created_time: row.created_time ? String(row.created_time) : undefined,
+      updated_at: String(row.updated_at),
+      synced_at: String(row.synced_at),
+    };
+  }
+
+  private mapDriveDocRecord(row: Record<string, unknown>): DriveDocRecord {
+    return {
+      file_id: String(row.file_id),
+      title: String(row.title),
+      mime_type: String(row.mime_type),
+      web_view_link: row.web_view_link ? String(row.web_view_link) : undefined,
+      snippet: row.snippet ? String(row.snippet) : undefined,
+      text_content: String(row.text_content),
+      updated_at: String(row.updated_at),
+      synced_at: String(row.synced_at),
+    };
+  }
+
+  private mapDriveLinkProvenance(row: Record<string, unknown>): DriveLinkProvenance {
+    return {
+      source_type: String(row.source_type) as DriveLinkProvenance["source_type"],
+      source_id: String(row.source_id),
+      file_id: String(row.file_id),
+      match_type: String(row.match_type) as DriveLinkProvenance["match_type"],
+      matched_url: row.matched_url ? String(row.matched_url) : undefined,
+      discovered_at: String(row.discovered_at),
     };
   }
 

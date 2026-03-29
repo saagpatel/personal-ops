@@ -38,6 +38,9 @@ Planning recommendation reads now include ranking, grouping, trigger/suppression
 - `github_reviews`
 - `github_pulls`
 - `github_pull_get`
+- `drive_status`
+- `drive_files`
+- `drive_doc_get`
 - `send_window_status`
 - `inbox_status`
 - `inbox_unread_list`
@@ -119,7 +122,7 @@ These remain outside assistant control:
 
 ## Client rule
 
-Assistants must use `personal-ops` for shared mailbox, task, calendar, and supported GitHub PR and review workflows. If `personal-ops` is unavailable, they should report the issue instead of falling back to direct Gmail, direct calendar access, direct GitHub write flows, or another parallel provider path.
+Assistants must use `personal-ops` for shared mailbox, task, calendar, supported GitHub PR and review workflows, and supported Drive/Docs context. If `personal-ops` is unavailable, they should report the issue instead of falling back to direct Gmail, direct calendar access, direct GitHub write flows, direct Google Docs reads, or another parallel provider path.
 
 Phase 7 adds assistant-safe GitHub PR and review reads only:
 
@@ -128,6 +131,14 @@ Phase 7 adds assistant-safe GitHub PR and review reads only:
 - PR and review queue context only
 - no GitHub write actions
 - no issue ingestion
+
+Phase 8 adds assistant-safe Google Docs and Drive metadata reads only:
+
+- Google Docs plus Drive metadata only
+- explicit scope chosen by the operator
+- explicit stored links first, with only a small recent-doc fallback
+- no Google write actions
+- no Sheets, Slides, or Shared Drives
 
 Phase 23 keeps that rule intact while treating the current governance surfaces as the supported baseline. Assistants may inspect hygiene families, review-needed counts, follow-through state, safe tuning attention detail, grouped planning summaries, group detail, recommendation provenance, next-action recommendations, derived summary/backlog/closure/hygiene/tuning reports, and assistant-safe audit summaries, but they still do not apply, reject, snooze, replan, mutate recommendation groups, review hygiene families, record or dismiss hygiene proposals, archive, supersede, or prune policy governance, read the operator-only policy report, create active suppression state, hide recommendations, or directly calendar-write those recommendations.
 

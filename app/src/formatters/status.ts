@@ -214,6 +214,18 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Top GitHub item", topSummary(report.github.top_item_summary, "nothing notable")),
   ]);
 
+  pushSection(lines, "Drive", [
+    line("Enabled", yesNo(report.drive.enabled)),
+    line("Authenticated", yesNo(report.drive.authenticated)),
+    line("Sync status", report.drive.sync_status),
+    line("Included folders", String(report.drive.included_folder_count)),
+    line("Included files", String(report.drive.included_file_count)),
+    line("Indexed files", String(report.drive.indexed_file_count)),
+    line("Indexed docs", String(report.drive.indexed_doc_count)),
+    line("Last synced", report.drive.last_synced_at ?? "never"),
+    line("Top Drive item", topSummary(report.drive.top_item_summary, "nothing notable")),
+  ]);
+
   pushSection(lines, "Queues", [
     line("Review pending", String(report.review_queue.pending_count)),
     line("Approval pending", String(report.approval_queue.pending_count)),
