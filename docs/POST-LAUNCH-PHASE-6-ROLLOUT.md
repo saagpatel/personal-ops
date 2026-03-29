@@ -82,6 +82,14 @@ Branch:
 
 - `codex/post-launch-phase-6-intelligence-layer`
 
+Commit:
+
+- `1da37cf` `feat(workflow): add deterministic intelligence layer`
+
+Draft PR:
+
+- [#15](https://github.com/saagpatel/personal-ops/pull/15)
+
 Next recommended phase:
 
 - Post-Launch Phase 7: Integrations and Context Expansion
