@@ -30,8 +30,9 @@ Read in this order:
 
 1. [QUICK-GUIDE.md](QUICK-GUIDE.md)
 2. [OPERATIONS.md](OPERATIONS.md)
-3. [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
-4. [ARCHITECTURE.md](ARCHITECTURE.md)
+3. [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
+4. [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
+5. [ARCHITECTURE.md](ARCHITECTURE.md)
 
 Use this path if you want to:
 
@@ -65,6 +66,8 @@ Use this path if you want to:
   The practical runbook for install, auth, wrappers, LaunchAgent, console access, backup, restore, verification, and troubleshooting.
 - [RELEASING.md](RELEASING.md)
   The release and maintenance checklist for the formal local ship gate and recurring health checks.
+- [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
+  The operator automation runbook for the recurring briefing and health-check layer.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
   The current system shape after Phases 1 to 4, including trust boundaries and module layout.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
