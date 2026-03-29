@@ -34,6 +34,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 3 | Meeting Prep and Execution Support | Pre-assemble upcoming meeting context, prep packets, and staging notes | Complete |
 | 4 | Desktop Shell and Native UX | Wrap the matured console in a lightweight native shell with tray and notification support | Complete |
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Complete |
+| 6 | Planning Autopilot and Execution Bundles | Turn planning recommendations into prepared grouped execution work with explicit console apply | Complete |
 
 ## Phase 1
 
@@ -132,10 +133,24 @@ Delivered shape:
 - Drive status now reports indexed sheet counts
 - no browser mutation expansion, no Google writes, no Slides extraction, and no Shared Drives support
 
+## Phase 6
+
+Phase 6 is now complete.
+
+Delivered shape:
+
+- `personal-ops planning autopilot` plus bundle detail, prepare, and apply flows
+- at most three active planning bundles across task blocks, follow-up work, and meeting prep
+- proactive bundle preparation when readiness is healthy
+- reuse of inbox autopilot groups and meeting prep packets as upstream prep layers
+- console-first Planning bundle review with prepared note, execution preview, linked artifacts, and grouped apply
+- workflow ranking that now points to prepared bundles instead of raw planning translation when a bundle is the real execution layer
+- grouped apply remains explicit, note-required, confirmation-gated, and audit-logged
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, and 5 are complete
+- Phases 1, 2, 3, 4, 5, and 6 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

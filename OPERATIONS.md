@@ -210,6 +210,28 @@ Important Google context rules:
 - Sheets content is cached as a bounded preview only
 - Slides extraction and Shared Drives are intentionally deferred
 
+### Planning autopilot bundles
+
+Assistant-Led Phase 6 turns planning recommendations into prepared execution bundles.
+
+Use:
+
+```bash
+personal-ops planning autopilot
+personal-ops planning autopilot --bundle <bundleId>
+personal-ops planning autopilot --bundle <bundleId> --prepare
+personal-ops planning autopilot --bundle <bundleId> --apply --note "<reason>"
+```
+
+Important planning autopilot rules:
+
+- bundle preparation may happen automatically when the system is healthy
+- grouped apply never happens automatically
+- grouped apply is operator-only
+- grouped apply requires confirmation and a note
+- inbox autopilot groups and meeting packets are reused where possible
+- send, approval decisions, auth, restore, and destructive actions remain gated
+
 ### Safe re-auth path
 
 If auth is missing, stale, or attached to the wrong mailbox:
@@ -243,6 +265,8 @@ These are the main operator commands after setup:
   Shows the current product version, release tag, release gate, and official upgrade hint.
 - `personal-ops workflow prep-day`
   The preferred day-start bundle with current readiness, top attention, time-sensitive items, and exact next commands.
+- `personal-ops planning autopilot`
+  Prepared planning bundles with grouped review and explicit apply.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`

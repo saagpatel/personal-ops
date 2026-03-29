@@ -12,7 +12,15 @@ import { PersonalOpsDb } from "../src/db.js";
 import { createHttpServer } from "../src/http.js";
 import { Logger } from "../src/logger.js";
 import { PersonalOpsService } from "../src/service.js";
-import type { ClientIdentity, Config, GmailClientConfig, GmailMessageMetadata, Paths } from "../src/types.js";
+import type {
+  ClientIdentity,
+  Config,
+  GmailClientConfig,
+  GmailMessageMetadata,
+  GoogleCalendarEventMetadata,
+  GoogleCalendarEventWriteInput,
+  Paths,
+} from "../src/types.js";
 
 const TEST_IDENTITY: ClientIdentity = {
   client_id: "console-test",
@@ -110,6 +118,34 @@ function buildMessage(messageId: string, accountEmail: string, overrides: Partia
   };
 }
 
+function buildCalendarEventMetadata(
+  providerEventId: string,
+  calendarId: string,
+  overrides: Partial<GoogleCalendarEventMetadata> = {},
+): GoogleCalendarEventMetadata {
+  const startAt = overrides.start_at ?? new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const endAt = overrides.end_at ?? new Date(Date.now() + 90 * 60 * 1000).toISOString();
+  return {
+    event_id: `${calendarId}:${providerEventId}`,
+    calendar_id: calendarId,
+    summary: overrides.summary ?? "Console test event",
+    notes: overrides.notes,
+    location: overrides.location,
+    start_at: startAt,
+    end_at: endAt,
+    status: overrides.status ?? "confirmed",
+    html_link: overrides.html_link ?? `https://calendar.google.com/calendar/event?eid=${providerEventId}`,
+    organizer_email: overrides.organizer_email ?? "owner@example.com",
+    attendee_count: overrides.attendee_count ?? 0,
+    source_task_id: overrides.source_task_id,
+    created_by_personal_ops: overrides.created_by_personal_ops ?? true,
+    etag: overrides.etag ?? `etag-${providerEventId}`,
+    is_all_day: overrides.is_all_day ?? false,
+    is_busy: overrides.is_busy ?? true,
+    updated_at: overrides.updated_at ?? new Date().toISOString(),
+  };
+}
+
 async function createConsoleFixture(options: { mailbox?: string } = {}) {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-console-test-"));
   const homeDir = path.join(baseDir, "home");
@@ -124,7 +160,7 @@ async function createConsoleFixture(options: { mailbox?: string } = {}) {
   });
   const paths = withRuntimeEnv(env, () => ensureRuntimeFiles());
   const port = await reservePort();
-  const mailbox = options.mailbox ?? "";
+  const mailbox = options.mailbox ?? "machine@example.com";
   writeConfig(paths, port, mailbox);
   const config = withRuntimeEnv(env, () => loadConfig(paths));
   const policy = withRuntimeEnv(env, () => loadPolicy(paths));
@@ -142,10 +178,21 @@ async function createConsoleFixture(options: { mailbox?: string } = {}) {
       clientConfig,
       tokensJson: JSON.stringify({ refresh_token: "refresh-token" }),
     }),
+    verifyGoogleCalendarWriteAccess: async () => {},
     createGmailDraft: async () => "provider-draft-1",
     updateGmailDraft: async () => "provider-draft-1",
+    createGoogleCalendarEvent: async (_tokensJson, _clientConfig, calendarId, input: GoogleCalendarEventWriteInput) =>
+      buildCalendarEventMetadata("console-planning-autopilot", calendarId, {
+        summary: input.title ?? "Console planning autopilot",
+        start_at: input.start_at!,
+        end_at: input.end_at!,
+        source_task_id: input.source_task_id,
+      }),
     openExternalUrl: () => {},
   });
+  if (mailbox) {
+    service.db.upsertMailAccount(mailbox, config.keychainService, JSON.stringify({ emailAddress: mailbox }));
+  }
   const server = createHttpServer(service, config, policy);
   await new Promise<void>((resolve) => server.listen(config.servicePort, config.serviceHost, () => resolve()));
   return {
@@ -203,6 +250,56 @@ function seedPlanningFixture(paths: Paths): { recommendationId: string } {
   } finally {
     db.close();
   }
+}
+
+function seedPlanningAutopilotFixture(service: PersonalOpsService): { bundleRecommendationId: string } {
+  const mailbox = service.db.getMailAccount()?.email ?? "machine@example.com";
+  service.db.replaceCalendarSources(
+    mailbox,
+    "google",
+    [
+      {
+        calendar_id: "primary",
+        provider: "google",
+        account: mailbox,
+        title: "Primary",
+        is_primary: true,
+        is_selected: true,
+        access_role: "owner",
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    new Date().toISOString(),
+  );
+  const task = service.db.createTask(TEST_IDENTITY, {
+    title: "Console planning autopilot task",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+  const recommendation = service.db.createPlanningRecommendation(TEST_IDENTITY, {
+    kind: "schedule_task_block",
+    priority: "high",
+    source: "system_generated",
+    source_task_id: task.task_id,
+    proposed_start_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    proposed_end_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    proposed_title: "Console planning bundle",
+    reason_code: "due_soon",
+    reason_summary: "Protect time for the console bundle task.",
+    dedupe_key: `schedule_task_block:${task.task_id}`,
+    source_fingerprint: `task:${task.task_id}:console`,
+    source_last_seen_at: new Date().toISOString(),
+    slot_state: "ready",
+    slot_reason: "earliest_free_in_business_window",
+    trigger_signals: ["due_soon"],
+    suppressed_signals: [],
+    group_key: "urgent_unscheduled_tasks",
+    group_summary: "Urgent task blocks can be time-boxed",
+  });
+  (service as unknown as { refreshPlanningRecommendationReadModel(): void }).refreshPlanningRecommendationReadModel();
+  return { bundleRecommendationId: recommendation.recommendation_id };
 }
 
 function seedMeetingPrepFixture(paths: Paths, mailbox: string): string {
@@ -676,6 +773,80 @@ test("Phase 2 console sessions can run allowed planning group actions", async ()
       planning_recommendation_group: { group_key: string };
     };
     assert.equal(groupPayload.planning_recommendation_group.group_key, groupKey);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("assistant-led Phase 6 console sessions can prepare and apply planning bundles through browser-safe routes", async () => {
+  const fixture = await createConsoleFixture();
+  try {
+    seedPlanningAutopilotFixture(fixture.service);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const reportResponse = await fetch(`${baseUrl}/v1/planning/autopilot`, {
+      headers: { cookie },
+    });
+    assert.equal(reportResponse.status, 200);
+    const reportPayload = (await reportResponse.json()) as {
+      planning_autopilot: { bundles: Array<{ bundle_id: string }> };
+    };
+    const bundleId = reportPayload.planning_autopilot.bundles[0]?.bundle_id;
+    assert.ok(bundleId);
+
+    const prepareResponse = await fetch(
+      `${baseUrl}/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/prepare`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(prepareResponse.status, 200);
+    const preparePayload = (await prepareResponse.json()) as {
+      planning_autopilot_bundle: { bundle?: { bundle_id: string; state: string; apply_ready: boolean } };
+    };
+    const preparedBundle = preparePayload.planning_autopilot_bundle.bundle ?? (preparePayload.planning_autopilot_bundle as any);
+    assert.equal(preparedBundle.bundle_id, bundleId);
+    assert.equal(preparedBundle.state, "awaiting_review");
+    assert.equal(preparedBundle.apply_ready, true);
+
+    const applyResponse = await fetch(
+      `${baseUrl}/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/apply`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Console bundle apply", confirmed: true }),
+      },
+    );
+    assert.equal(applyResponse.status, 200);
+
+    const blockedResponse = await fetch(`${baseUrl}/v1/approval-queue/test-approval/send`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "still blocked" }),
+    });
+    assert.equal(blockedResponse.status, 403);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

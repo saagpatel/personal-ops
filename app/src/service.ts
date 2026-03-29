@@ -74,6 +74,13 @@ import { buildAssistantActionQueueReport, runAssistantAction } from "./service/a
 import { buildInboxAutopilotReport, prepareInboxAutopilotGroup } from "./service/inbox-autopilot.js";
 import { getMeetingPrepPacketDetail, maybeAutoPrepareMeetingPackets, prepareMeetingPrepPacket } from "./service/meeting-prep.js";
 import {
+  applyPlanningAutopilotBundle,
+  buildPlanningAutopilotReport,
+  getPlanningAutopilotBundleDetail,
+  maybeAutoPreparePlanningBundles,
+  preparePlanningAutopilotBundle,
+} from "./service/planning-autopilot.js";
+import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
   listSnapshots as listSnapshotsFromModule,
@@ -182,6 +189,8 @@ import {
   PlanningRecommendationTuningFamilyReport,
   PlanningRecommendationTuningHistoryReport,
   PlanningRecommendationTuningReport,
+  PlanningAutopilotBundle,
+  PlanningAutopilotReport,
   MeetingPrepPacket,
   RelatedDriveDoc,
   RelatedDriveFile,
@@ -656,6 +665,14 @@ export class PersonalOpsService {
     return buildInboxAutopilotReport(this, options);
   }
 
+  async getPlanningAutopilotReport(options: { httpReachable: boolean }): Promise<PlanningAutopilotReport> {
+    return buildPlanningAutopilotReport(this, options);
+  }
+
+  async getPlanningAutopilotBundle(bundleId: string): Promise<PlanningAutopilotBundle> {
+    return getPlanningAutopilotBundleDetail(this, bundleId);
+  }
+
   async getPrepMeetingsWorkflowReport(options: { httpReachable: boolean; scope: "today" | "next_24h" }) {
     return buildPrepMeetingsWorkflowReport(this, options);
   }
@@ -666,6 +683,14 @@ export class PersonalOpsService {
 
   async prepareMeetingPrepPacket(identity: ClientIdentity, eventId: string) {
     return prepareMeetingPrepPacket(this, identity, eventId);
+  }
+
+  async preparePlanningAutopilotBundle(identity: ClientIdentity, bundleId: string) {
+    return preparePlanningAutopilotBundle(this, identity, bundleId);
+  }
+
+  async applyPlanningAutopilotBundle(identity: ClientIdentity, bundleId: string, note: string, confirmed: boolean) {
+    return applyPlanningAutopilotBundle(this, identity, bundleId, note, confirmed);
   }
 
   async getAssistantActionQueueReport(options: { httpReachable: boolean }): Promise<AssistantActionQueueReport> {
@@ -3182,6 +3207,7 @@ export class PersonalOpsService {
   async runAttentionSweep(options: { httpReachable: boolean }) {
     this.normalizeRuntimeState();
     this.refreshPlanningRecommendationsInternal(this.systemPlanningIdentity("attention-sweep"));
+    await maybeAutoPreparePlanningBundles(this, options);
     await maybeAutoPrepareMeetingPackets(this, options);
     const worklist = await this.getWorklistReport(options);
     const notifyable = worklist.items.filter((item) => {

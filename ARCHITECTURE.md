@@ -118,22 +118,21 @@ It remains:
 - token-gated
 - intentionally narrow for audit and governance
 
-Phase 8 adds a same-origin browser session for the console, but it stays read-only and daemon-local.
+Phase 8 added a same-origin browser session for the console, and the Assistant-Led phases have since widened it only for narrow operator-safe actions. It remains daemon-local and intentionally allowlisted.
 
 ### Operator console
 
 The operator console is a same-origin local web UI served by the daemon.
 
-It is intentionally read-first in Phase 8:
+It now supports narrow operator-safe execution, including:
 
-- status and worklist visibility
-- approvals and drafts inspection
-- planning and audit inspection
-- backup list and provenance inspection
-- compact GitHub PR and review attention when configured
-- linked Google Docs context when present and in scope
+- assistant queue execution for low-risk local actions
+- inbox autopilot draft preparation and review handoff
+- meeting packet preparation and refresh
+- planning autopilot bundle preparation and explicit grouped apply
+- status, worklist, approvals, drafts, planning, audit, backup, GitHub, and Drive visibility
 
-It does not replace the CLI for high-trust or mutating actions.
+It still does not replace the CLI for high-trust actions like send, approval decisions, restore, auth mutation, or destructive flows.
 
 ### Desktop shell
 
@@ -182,7 +181,8 @@ These remain outside assistant control:
 - review opening and resolve flows
 - inbox and calendar sync mutation
 - calendar writes
-- planning recommendation apply, reject, snooze, refresh, and replan
+- raw planning recommendation apply, reject, snooze, refresh, and replan outside the narrow planning bundle path
+- planning bundle grouped apply is operator-only, confirmation-gated, note-required, and audit-logged
 - policy and governance mutation
 - GitHub auth mutation and explicit GitHub sync mutation
 - any GitHub write action

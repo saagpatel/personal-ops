@@ -4,6 +4,8 @@ import type {
   InboxAutopilotGroup,
   InboxAutopilotReport,
   InboxThreadSummary,
+  PlanningAutopilotBundle,
+  PlanningAutopilotReport,
   PlanningRecommendationDetail,
   ServiceState,
   WorkflowBundleAction,
@@ -29,6 +31,7 @@ interface WorkflowCandidate extends WorkflowBundleAction {
 interface WorkflowContext {
   status: any;
   worklist: WorklistReport;
+  planningAutopilot: PlanningAutopilotReport;
   recommendationDetails: PlanningRecommendationDetail[];
   inboxAutopilot: InboxAutopilotReport;
   needsReplyThreads: InboxThreadSummary[];
@@ -43,6 +46,10 @@ function commandForThread(threadId: string): string {
 
 function commandForRecommendation(recommendationId: string): string {
   return `personal-ops recommendation show ${recommendationId}`;
+}
+
+function commandForPlanningBundle(bundleId: string): string {
+  return `personal-ops planning autopilot --bundle ${bundleId}`;
 }
 
 function commandForCalendarEvent(eventId: string): string {
@@ -618,6 +625,42 @@ function meetingPacketCandidate(candidate: MeetingPrepCandidate): WorkflowCandid
   };
 }
 
+function planningBundleCandidate(bundle: PlanningAutopilotBundle): WorkflowCandidate {
+  const prepared = bundle.state === "awaiting_review";
+  return {
+    label: prepared ? "Review planning bundle" : "Prepare planning bundle",
+    summary: bundle.summary,
+    command: commandForPlanningBundle(bundle.bundle_id),
+    target_type: "planning_autopilot_bundle",
+    target_id: bundle.bundle_id,
+    why_now: bundle.why_now,
+    signals: bundle.signals,
+    score:
+      bundle.score_band === "highest"
+        ? 860
+        : bundle.score_band === "high"
+          ? 680
+          : 520,
+    category:
+      bundle.kind === "task_block"
+        ? "task"
+        : bundle.kind === "thread_followup"
+          ? "followup"
+          : "meeting",
+    source_key: `planning-bundle:${bundle.bundle_id}`,
+    related_files: bundle.related_artifacts
+      .filter((artifact) => artifact.artifact_type === "related_file")
+      .map((artifact) => ({
+        file_id: artifact.artifact_id,
+        title: artifact.title,
+        mime_type: "application/octet-stream",
+        file_kind: "file" as const,
+        match_type: "recent_file_fallback" as const,
+        snippet: artifact.summary,
+      })),
+  };
+}
+
 function dedupeAndSortCandidates(candidates: WorkflowCandidate[]): WorkflowCandidate[] {
   const byKey = new Map<string, WorkflowCandidate>();
   for (const candidate of candidates) {
@@ -650,10 +693,22 @@ function attachRelatedContext(
 }
 
 async function loadWorkflowContext(service: any, options: { httpReachable: boolean }): Promise<WorkflowContext> {
-  const [status, worklist, recommendations, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
+  const planningAutopilotPromise =
+    typeof service.getPlanningAutopilotReport === "function"
+      ? service.getPlanningAutopilotReport(options)
+      : Promise.resolve({
+          generated_at: new Date().toISOString(),
+          readiness: "ready" as const,
+          summary: "Planning autopilot unavailable.",
+          top_item_summary: null,
+          prepared_bundle_count: 0,
+          bundles: [],
+        });
+  const [status, worklist, recommendations, planningAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
     service.getStatusReport(options),
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
+    planningAutopilotPromise,
     service.getInboxAutopilotReport(options),
     Promise.resolve(service.listNeedsReplyThreads(10)),
     Promise.resolve(service.listFollowupThreads(10)),
@@ -669,6 +724,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
   return {
     status,
     worklist,
+    planningAutopilot,
     recommendationDetails,
     inboxAutopilot,
     needsReplyThreads,
@@ -684,8 +740,43 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
   const autopilotThreadKeys = new Set(
     context.inboxAutopilot.groups.flatMap((group) => group.threads.map((thread) => `thread:${thread.thread_id}`)),
   );
+  const bundledRecommendationIds = new Set(context.planningAutopilot.bundles.flatMap((bundle) => bundle.recommendation_ids));
+  const bundledThreadGroupIds = new Set(
+    context.planningAutopilot.bundles.flatMap((bundle) =>
+      bundle.related_artifacts
+        .filter((artifact) => artifact.artifact_type === "inbox_autopilot_group")
+        .map((artifact) => artifact.artifact_id),
+    ),
+  );
+  const bundledEventIds = new Set(
+    context.planningAutopilot.bundles.flatMap((bundle) =>
+      bundle.related_artifacts
+        .filter((artifact) => artifact.artifact_type === "meeting_prep_packet")
+        .map((artifact) => artifact.artifact_id),
+    ),
+  );
+  const bundledWorklistSourceKeys = new Set(
+    context.planningAutopilot.bundles.flatMap((bundle) =>
+      bundle.related_artifacts.flatMap((artifact) => {
+        if (artifact.artifact_type === "task") {
+          return [`task:${artifact.artifact_id}`];
+        }
+        if (artifact.artifact_type === "calendar_event") {
+          return [`calendar_event:${artifact.artifact_id}`];
+        }
+        return [];
+      }),
+    ),
+  );
+
+  for (const bundle of context.planningAutopilot.bundles) {
+    pushUniqueCandidate(candidates, planningBundleCandidate(bundle));
+  }
 
   for (const detail of context.recommendationDetails) {
+    if (bundledRecommendationIds.has(detail.recommendation.recommendation_id)) {
+      continue;
+    }
     const candidate = attachRelatedContext(service, recommendationCandidate(detail), { allowFallback: true });
     recommendationSourceKeys.add(candidate.source_key);
     pushUniqueCandidate(candidates, candidate);
@@ -699,10 +790,17 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     ) {
       continue;
     }
-    pushUniqueCandidate(candidates, attachRelatedContext(service, worklistCandidate(item), { allowFallback: true }));
+    const candidate = attachRelatedContext(service, worklistCandidate(item), { allowFallback: true });
+    if (bundledWorklistSourceKeys.has(candidate.source_key)) {
+      continue;
+    }
+    pushUniqueCandidate(candidates, candidate);
   }
 
   for (const group of context.inboxAutopilot.groups) {
+    if (bundledThreadGroupIds.has(group.group_id)) {
+      continue;
+    }
     pushUniqueCandidate(candidates, autopilotGroupCandidate(group));
   }
 
@@ -723,6 +821,9 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
   }
 
   for (const meetingCandidate of context.meetingPrepCandidates) {
+    if (bundledEventIds.has(meetingCandidate.event.event_id)) {
+      continue;
+    }
     if (recommendationSourceKeys.has(`event:${meetingCandidate.event.event_id}`)) {
       continue;
     }
@@ -889,6 +990,7 @@ export async function buildFollowUpBlockWorkflowReport(
   options: { httpReachable: boolean },
 ): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
+  const bundleFollowups = context.planningAutopilot.bundles.filter((bundle) => bundle.kind === "thread_followup");
   const needsReplyGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "needs_reply");
   const staleFollowupGroups = context.inboxAutopilot.groups.filter((group) => group.kind === "waiting_to_nudge");
   const recommendationSourceKeys = new Set(
@@ -897,6 +999,7 @@ export async function buildFollowUpBlockWorkflowReport(
       .map((detail) => `thread:${detail.recommendation.source_thread_id}`),
   );
   const candidates = dedupeAndSortCandidates([
+    ...bundleFollowups.map((bundle) => planningBundleCandidate(bundle)),
     ...context.inboxAutopilot.groups.map((group) => autopilotGroupCandidate(group)),
     ...context.recommendationDetails
       .filter((detail) => detail.recommendation.kind === "schedule_thread_followup")
@@ -960,6 +1063,7 @@ export async function buildPrepMeetingsWorkflowReport(
   options: { httpReachable: boolean; scope: "today" | "next_24h" },
 ): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
+  const bundleMeetings = context.planningAutopilot.bundles.filter((bundle) => bundle.kind === "event_prep");
   const scopedCandidates = context.meetingPrepCandidates
     .filter((candidate) =>
       options.scope === "today"
@@ -968,9 +1072,13 @@ export async function buildPrepMeetingsWorkflowReport(
     )
     .slice(0, 10);
   const packetCandidates = dedupeAndSortCandidates(
-    scopedCandidates
-      .filter((candidate) => candidate.packet_worthy)
-      .map((candidate) => meetingPacketCandidate(candidate)),
+    [
+      ...bundleMeetings.map((bundle) => planningBundleCandidate(bundle)),
+      ...scopedCandidates
+        .filter((candidate) => candidate.packet_worthy)
+        .filter((candidate) => !bundleMeetings.some((bundle) => bundle.related_artifacts.some((artifact) => artifact.artifact_id === candidate.event.event_id)))
+        .map((candidate) => meetingPacketCandidate(candidate)),
+    ],
   );
   const topScore = packetCandidates[0]?.score ?? 0;
 

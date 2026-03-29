@@ -7,6 +7,7 @@ import type {
   AssistantActionState,
   DraftArtifact,
   InboxAutopilotGroup,
+  PlanningAutopilotBundle,
   WorkflowBundleAction,
 } from "../types.js";
 import { listMeetingPrepCandidates, prepareMeetingPacketActionId } from "./meeting-prep.js";
@@ -191,11 +192,13 @@ async function buildCandidates(
     worklist,
     nowNext,
     inboxAutopilot,
+    planningAutopilot,
     meetingPrepCandidates,
   ] = await Promise.all([
     service.getWorklistReport(options),
     service.getNowNextWorkflowReport(options),
     service.getInboxAutopilotReport(options),
+    service.getPlanningAutopilotReport(options),
     listMeetingPrepCandidates(service, { scope: "today" }),
   ]);
   const inbox = service.getInboxStatusReport();
@@ -290,7 +293,29 @@ async function buildCandidates(
     },
   ];
 
-  if (planningNext?.recommendation) {
+  const planningBundles = planningAutopilot.bundles.slice(0, 3);
+  if (planningBundles.length > 0) {
+    for (const bundle of planningBundles) {
+      const reviewReady = bundle.state === "awaiting_review";
+      candidates.push({
+        action_id: bundle.assistant_action_id,
+        title: reviewReady ? "Review prepared planning bundle" : "Prepare planning bundle",
+        summary: bundle.summary,
+        section: "planning",
+        batch: true,
+        one_click: !reviewReady && bundle.state !== "blocked",
+        review_required: reviewReady,
+        why_now: bundle.why_now,
+        command: `personal-ops planning autopilot --bundle ${bundle.bundle_id}`,
+        target_type: "planning_autopilot_bundle",
+        target_id: bundle.bundle_id,
+        signals: bundle.signals,
+        ...(bundle.state === "blocked" ? { blocking_reason: "Underlying planning context needs repair before this bundle can be prepared." } : {}),
+        satisfied: bundle.state === "completed",
+        priority: reviewReady ? 9 : 11,
+      });
+    }
+  } else if (planningNext?.recommendation) {
     candidates.push({
       action_id: ACTION_REVIEW_PLANNING,
       title: "Review the next planning recommendation",
@@ -359,6 +384,16 @@ async function buildCandidates(
   }
 
   for (const group of inboxAutopilot.groups) {
+    const representedByPlanningBundle = planningBundles.some(
+      (bundle: PlanningAutopilotBundle) =>
+        bundle.kind === "thread_followup" &&
+        bundle.related_artifacts.some(
+          (artifact) => artifact.artifact_type === "inbox_autopilot_group" && artifact.artifact_id === group.group_id,
+        ),
+    );
+    if (representedByPlanningBundle) {
+      continue;
+    }
     const isReplyGroup = group.kind === "needs_reply";
     const reviewReady = group.state === "awaiting_review";
     candidates.push({
@@ -387,6 +422,17 @@ async function buildCandidates(
   }
 
   for (const packet of meetingPrepCandidates.filter((candidate) => candidate.packet_worthy).slice(0, 2)) {
+    const representedByPlanningBundle = planningBundles.some((bundle: PlanningAutopilotBundle) => {
+      if (bundle.kind !== "event_prep") {
+        return false;
+      }
+      return bundle.related_artifacts.some(
+        (artifact) => artifact.artifact_type === "meeting_prep_packet" && artifact.artifact_id === packet.event.event_id,
+      );
+    });
+    if (representedByPlanningBundle) {
+      continue;
+    }
     const prepared = Boolean(packet.packet_record);
     candidates.push({
       action_id: prepareMeetingPacketActionId(packet.event.event_id),
@@ -572,6 +618,10 @@ export async function runAssistantAction(
     if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
       const eventId = actionId.split(":").slice(1).join(":");
       return await service.prepareMeetingPrepPacket(identity, eventId);
+    }
+    if (actionId.startsWith("assistant.prepare-planning-bundle:")) {
+      const bundleId = actionId.split(":").slice(1).join(":");
+      return await service.preparePlanningAutopilotBundle(identity, bundleId);
     }
     if (actionId === ACTION_SYNC_WORKSPACE) {
       return await runWorkspaceSync(service, identity);

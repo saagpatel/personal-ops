@@ -62,6 +62,8 @@ export {
   formatAssistantActionRunResult,
 } from "./formatters/assistant.js";
 export {
+  formatPlanningAutopilotReport,
+  formatPlanningAutopilotBundle,
   formatPlanningRecommendations,
   formatPlanningRecommendationGroups,
   formatPlanningRecommendationGroupDetail,

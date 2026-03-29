@@ -100,6 +100,8 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/planning-recommendations/summary" ||
       pathname === "/v1/planning-recommendations/next" ||
       pathname.startsWith("/v1/planning-recommendations/") ||
+      pathname === "/v1/planning/autopilot" ||
+      pathname.startsWith("/v1/planning/autopilot/bundles/") ||
       pathname === "/v1/planning-recommendation-groups" ||
       pathname.startsWith("/v1/planning-recommendation-groups/") ||
       pathname.startsWith("/v1/tasks/") ||
@@ -121,6 +123,8 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       /^\/v1\/mail\/drafts\/[^/]+\/request-approval$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/open$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/resolve$/.test(pathname) ||
+      /^\/v1\/planning\/autopilot\/bundles\/[^/]+\/prepare$/.test(pathname) ||
+      /^\/v1\/planning\/autopilot\/bundles\/[^/]+\/apply$/.test(pathname) ||
       (/^\/v1\/planning-recommendations\/[^/]+\/(apply|snooze|reject)$/.test(pathname) &&
         !pathname.includes("/hygiene/") &&
         !pathname.includes("/policy/")) ||

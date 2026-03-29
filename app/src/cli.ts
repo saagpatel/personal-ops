@@ -26,6 +26,8 @@ import {
   formatCalendarUpcoming,
   formatFreeTimeWindows,
   formatOwnedCalendars,
+  formatPlanningAutopilotBundle,
+  formatPlanningAutopilotReport,
   formatPlanningRecommendationDetail,
   formatPlanningRecommendationBacklogReport,
   formatPlanningRecommendationClosureReport,
@@ -1300,6 +1302,61 @@ recommendation
   .action(async (options) => {
     const response = await requestJson<{ result: unknown }>("POST", "/v1/planning-recommendations/refresh");
     printOutput(response, undefined, options.json);
+  });
+
+const planning = program
+  .command("planning")
+  .description("Review assistant-prepared planning bundles and grouped apply paths.");
+
+planning
+  .command("autopilot")
+  .option("--bundle <bundleId>", "Show one planning bundle in detail")
+  .option("--prepare", "Prepare or refresh the selected bundle")
+  .option("--apply", "Apply the selected bundle")
+  .option("--note <text>", "Operator note for grouped apply")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    if ((options.prepare || options.apply) && !options.bundle) {
+      throw new Error("Use --prepare or --apply together with --bundle <bundleId>.");
+    }
+    if (options.prepare && options.apply) {
+      throw new Error("Choose either --prepare or --apply, not both.");
+    }
+    if (options.apply && !options.note) {
+      throw new Error("Use --apply together with --note <text>.");
+    }
+    if (options.bundle) {
+      const encodedBundleId = encodeURIComponent(String(options.bundle));
+      if (options.prepare) {
+        const response = await requestJson<{ planning_autopilot_bundle: { bundle: unknown } }>(
+          "POST",
+          `/v1/planning/autopilot/bundles/${encodedBundleId}/prepare`,
+        );
+        printOutput(
+          response,
+          (value) => formatPlanningAutopilotBundle((value.planning_autopilot_bundle as any).bundle ?? value.planning_autopilot_bundle),
+          options.json,
+        );
+        return;
+      }
+      if (options.apply) {
+        const response = await requestJson<{ planning_autopilot_bundle: unknown }>(
+          "POST",
+          `/v1/planning/autopilot/bundles/${encodedBundleId}/apply`,
+          { note: options.note, confirmed: true },
+        );
+        printOutput(response, (value) => formatPlanningAutopilotBundle(value.planning_autopilot_bundle as any), options.json);
+        return;
+      }
+      const response = await requestJson<{ planning_autopilot_bundle: unknown }>(
+        "GET",
+        `/v1/planning/autopilot/bundles/${encodedBundleId}`,
+      );
+      printOutput(response, (value) => formatPlanningAutopilotBundle(value.planning_autopilot_bundle as any), options.json);
+      return;
+    }
+    const response = await requestJson<{ planning_autopilot: unknown }>("GET", "/v1/planning/autopilot");
+    printOutput(response, (value) => formatPlanningAutopilotReport(value.planning_autopilot as any), options.json);
   });
 
 const audit = program

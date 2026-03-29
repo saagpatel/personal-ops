@@ -1132,6 +1132,64 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/planning/autopilot") {
+        sendJson(response, 200, {
+          planning_autopilot: await service.getPlanningAutopilotReport({ httpReachable: true }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/v1/planning/autopilot/bundles/")) {
+        const bundleId = decodeURIComponent(url.pathname.slice("/v1/planning/autopilot/bundles/".length));
+        if (bundleId && !bundleId.includes("/")) {
+          sendJson(response, 200, {
+            planning_autopilot_bundle: await service.getPlanningAutopilotBundle(bundleId),
+          });
+          return;
+        }
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/v1/planning/autopilot/bundles/") &&
+        url.pathname.endsWith("/prepare")
+      ) {
+        const bundleId = decodeURIComponent(
+          url.pathname.slice("/v1/planning/autopilot/bundles/".length, -"/prepare".length),
+        );
+        if (bundleId && !bundleId.includes("/")) {
+          sendJson(response, 200, {
+            planning_autopilot_bundle: await service.preparePlanningAutopilotBundle(
+              extractIdentity(request, auth?.role ?? "operator"),
+              bundleId,
+            ),
+          });
+          return;
+        }
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/v1/planning/autopilot/bundles/") &&
+        url.pathname.endsWith("/apply")
+      ) {
+        const bundleId = decodeURIComponent(
+          url.pathname.slice("/v1/planning/autopilot/bundles/".length, -"/apply".length),
+        );
+        if (bundleId && !bundleId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            planning_autopilot_bundle: await service.applyPlanningAutopilotBundle(
+              extractIdentity(request, auth?.role ?? "operator"),
+              bundleId,
+              String(body.note ?? ""),
+              Boolean(body.confirmed),
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/planning-recommendations") {
         const grouped = ["1", "true", "yes"].includes((url.searchParams.get("grouped") ?? "").toLowerCase());
         sendJson(response, 200, {

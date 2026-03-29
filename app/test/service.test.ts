@@ -421,6 +421,140 @@ function seedMailboxReadyState(service: PersonalOpsService, accountEmail: string
   });
 }
 
+function seedPlanningAutopilotFixture(service: PersonalOpsService, accountEmail: string) {
+  const now = Date.now();
+  seedMailboxReadyState(service, accountEmail, "planning-autopilot-ready");
+  service.db.upsertCalendarSyncState(accountEmail, "google", {
+    status: "ready",
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    calendars_refreshed_count: 1,
+    events_refreshed_count: 1,
+  });
+  service.db.replaceCalendarSources(
+    accountEmail,
+    "google",
+    [
+      {
+        calendar_id: "primary",
+        provider: "google",
+        account: accountEmail,
+        title: "Primary",
+        is_primary: true,
+        is_selected: true,
+        access_role: "owner",
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    new Date().toISOString(),
+  );
+  const task = service.db.createTask(cliIdentity, {
+    title: "Bundle task block",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(now + 2 * 60 * 60 * 1000).toISOString(),
+  });
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("planning-followup-msg", accountEmail, {
+      thread_id: "thread-planning-bundle-followup",
+      history_id: "planning-followup-1",
+      internal_date: String(now - 80 * 60 * 60 * 1000),
+      label_ids: ["SENT"],
+      from_header: `Machine <${accountEmail}>`,
+      to_header: "client@example.com",
+      subject: "Bundle follow-up thread",
+    }),
+    new Date(now - 80 * 60 * 60 * 1000).toISOString(),
+  );
+  service.db.upsertCalendarEvent({
+    event_id: "primary:planning-bundle-event",
+    provider_event_id: "planning-bundle-event",
+    calendar_id: "primary",
+    provider: "google",
+    account: accountEmail,
+    summary: "Bundle prep meeting",
+    status: "confirmed",
+    start_at: new Date(now + 90 * 60 * 1000).toISOString(),
+    end_at: new Date(now + 150 * 60 * 1000).toISOString(),
+    is_all_day: false,
+    is_busy: true,
+    attendee_count: 2,
+    created_by_personal_ops: false,
+    updated_at: new Date(now).toISOString(),
+    synced_at: new Date(now).toISOString(),
+    notes: "Meeting doc is linked separately.",
+  });
+  const taskRecommendation = service.db.createPlanningRecommendation(cliIdentity, {
+    kind: "schedule_task_block",
+    priority: "high",
+    source: "system_generated",
+    source_task_id: task.task_id,
+    proposed_start_at: new Date(now + 30 * 60 * 1000).toISOString(),
+    proposed_end_at: new Date(now + 60 * 60 * 1000).toISOString(),
+    proposed_title: "Task block bundle",
+    reason_code: "due_soon",
+    reason_summary: "Protect focused time for the bundle task.",
+    dedupe_key: `schedule_task_block:${task.task_id}`,
+    source_fingerprint: `task:${task.task_id}:bundle`,
+    source_last_seen_at: new Date(now).toISOString(),
+    slot_state: "ready",
+    slot_reason: "earliest_free_in_business_window",
+    trigger_signals: ["due_soon"],
+    suppressed_signals: [],
+    group_key: "urgent_unscheduled_tasks",
+    group_summary: "Urgent task blocks can be time-boxed",
+  });
+  const followupRecommendation = service.db.createPlanningRecommendation(cliIdentity, {
+    kind: "schedule_thread_followup",
+    priority: "high",
+    source: "system_generated",
+    source_thread_id: "thread-planning-bundle-followup",
+    proposed_start_at: new Date(now + 75 * 60 * 1000).toISOString(),
+    proposed_end_at: new Date(now + 105 * 60 * 1000).toISOString(),
+    proposed_title: "Thread follow-up bundle",
+    reason_code: "needs_reply",
+    reason_summary: "Follow up on the bundled thread.",
+    dedupe_key: "schedule_thread_followup:thread-planning-bundle-followup",
+    source_fingerprint: "thread:planning-bundle-followup:1",
+    source_last_seen_at: new Date(now).toISOString(),
+    slot_state: "ready",
+    slot_reason: "earliest_free_in_business_window",
+    trigger_signals: ["needs_reply"],
+    suppressed_signals: [],
+    group_key: "urgent_inbox_followups",
+    group_summary: "Urgent inbox follow-ups can be time-blocked",
+  });
+  const eventRecommendation = service.db.createPlanningRecommendation(cliIdentity, {
+    kind: "schedule_event_prep",
+    priority: "high",
+    source: "system_generated",
+    source_calendar_event_id: "primary:planning-bundle-event",
+    proposed_start_at: new Date(now + 45 * 60 * 1000).toISOString(),
+    proposed_end_at: new Date(now + 75 * 60 * 1000).toISOString(),
+    proposed_title: "Meeting prep bundle",
+    reason_code: "meeting_soon",
+    reason_summary: "Prepare for the bundled meeting.",
+    dedupe_key: "schedule_event_prep:primary:planning-bundle-event",
+    source_fingerprint: "event:planning-bundle-event:1",
+    source_last_seen_at: new Date(now).toISOString(),
+    slot_state: "ready",
+    slot_reason: "prep_window_available",
+    trigger_signals: ["meeting_soon"],
+    suppressed_signals: [],
+    group_key: "upcoming_meeting_prep",
+    group_summary: "Upcoming meeting prep is available",
+  });
+  (service as any).refreshPlanningRecommendationReadModel();
+  return {
+    task,
+    taskRecommendation,
+    followupRecommendation,
+    eventRecommendation,
+  };
+}
+
 const cliIdentity: ClientIdentity = { client_id: "operator-cli", requested_by: "operator", auth_role: "operator" };
 const mcpIdentity: ClientIdentity = {
   client_id: "codex-mcp",
@@ -551,7 +685,10 @@ test("assistant queue surfaces safe actions and review-gated work", async () => 
   assert.equal(actionIds.includes("assistant.sync-workspace"), true);
   assert.equal(actionIds.includes("assistant.create-snapshot"), true);
   assert.equal(actionIds.includes("assistant.review-top-attention"), true);
-  assert.equal(actionIds.includes("assistant.review-planning"), true);
+  assert.equal(
+    actionIds.includes("assistant.review-planning") || actionIds.some((actionId) => actionId.startsWith("assistant.prepare-planning-bundle:")),
+    true,
+  );
   assert.equal(actionIds.includes("assistant.review-approvals"), true);
   assert.equal(actionIds.includes("assistant.review-drafts"), true);
   assert.equal(queue.actions.find((action) => action.action_id === "assistant.create-snapshot")?.one_click, true);
@@ -7764,6 +7901,98 @@ test("assistant-led phase 5 prep-meetings attaches related files without changin
   assert.match(text, /Drive enriched meeting/);
   assert.match(text, /Meeting packet/);
   assert.match(text, /Meeting tracker/);
+});
+
+test("assistant-led phase 6 planning autopilot forms bounded bundles across task, follow-up, and event prep work", async () => {
+  const { service, accountEmail } = createFixture();
+  seedPlanningAutopilotFixture(service, accountEmail);
+
+  const report = await service.getPlanningAutopilotReport({ httpReachable: true });
+
+  assert.equal(report.bundles.length, 3);
+  assert.deepEqual(report.bundles.map((bundle) => bundle.kind).sort(), ["event_prep", "task_block", "thread_followup"]);
+  assert.equal(report.bundles.every((bundle) => bundle.recommendation_ids.length <= 3), true);
+  assert.equal(report.bundles.every((bundle) => bundle.next_commands.length >= 2), true);
+});
+
+test("assistant-led phase 6 planning autopilot reuses inbox autopilot groups and meeting packets during bundle prep", async () => {
+  const { service, accountEmail } = createFixture();
+  seedPlanningAutopilotFixture(service, accountEmail);
+
+  const report = await service.getPlanningAutopilotReport({ httpReachable: true });
+  const followupBundle = report.bundles.find((bundle) => bundle.kind === "thread_followup");
+  const eventBundle = report.bundles.find((bundle) => bundle.kind === "event_prep");
+  assert.ok(followupBundle);
+  assert.ok(eventBundle);
+
+  const preparedFollowup = await service.preparePlanningAutopilotBundle(cliIdentity, followupBundle!.bundle_id);
+  const preparedEvent = await service.preparePlanningAutopilotBundle(cliIdentity, eventBundle!.bundle_id);
+
+  assert.equal(preparedFollowup.success, true);
+  assert.equal(preparedEvent.success, true);
+  assert.equal(preparedFollowup.bundle.related_artifacts.some((artifact) => artifact.artifact_type === "inbox_autopilot_group"), true);
+  assert.equal(preparedEvent.bundle.related_artifacts.some((artifact) => artifact.artifact_type === "meeting_prep_packet"), true);
+  assert.equal(preparedFollowup.bundle.apply_ready, true);
+  assert.equal(preparedEvent.bundle.apply_ready, true);
+});
+
+test("assistant-led phase 6 grouped planning apply requires confirmation and records bundle audit history", async () => {
+  const { service, accountEmail } = createFixture({
+    verifyCalendarWriteImpl: async () => {},
+    createCalendarEventImpl: async (_calendarId, input) =>
+      buildCalendarEventMetadata("planning-autopilot-apply", "primary", {
+        summary: input.title ?? "Planning autopilot apply",
+        start_at: input.start_at!,
+        end_at: input.end_at!,
+        source_task_id: input.source_task_id,
+        created_by_personal_ops: true,
+        etag: "etag-planning-autopilot-apply",
+      }),
+  });
+  seedPlanningAutopilotFixture(service, accountEmail);
+
+  const report = await service.getPlanningAutopilotReport({ httpReachable: true });
+  const taskBundle = report.bundles.find((bundle) => bundle.kind === "task_block");
+  assert.ok(taskBundle);
+
+  await service.preparePlanningAutopilotBundle(cliIdentity, taskBundle!.bundle_id);
+  await assert.rejects(
+    () => service.applyPlanningAutopilotBundle(cliIdentity, taskBundle!.bundle_id, "Apply task bundle", false),
+    /confirmation/i,
+  );
+
+  const applied = await service.applyPlanningAutopilotBundle(cliIdentity, taskBundle!.bundle_id, "Apply task bundle", true);
+  const auditEvents = service.listAuditEvents({ limit: 20, action: "planning_autopilot_bundle_apply" });
+
+  assert.equal(applied.state, "completed");
+  assert.equal(auditEvents[0]?.target_id, taskBundle!.bundle_id);
+  assert.match(auditEvents[0]?.metadata_json ?? "", /Apply task bundle/);
+});
+
+test("assistant-led phase 6 workflows prefer prepared planning bundles when the system is healthy", async () => {
+  const { service, accountEmail } = createFixture({
+    verifyCalendarWriteImpl: async () => {},
+    createCalendarEventImpl: async (_calendarId, input) =>
+      buildCalendarEventMetadata("planning-autopilot-workflow", "primary", {
+        summary: input.title ?? "Planning autopilot workflow",
+        start_at: input.start_at!,
+        end_at: input.end_at!,
+        source_task_id: input.source_task_id,
+        created_by_personal_ops: true,
+        etag: "etag-planning-autopilot-workflow",
+      }),
+  });
+  seedPlanningAutopilotFixture(service, accountEmail);
+
+  const report = await service.getPlanningAutopilotReport({ httpReachable: true });
+  const taskBundle = report.bundles.find((bundle) => bundle.kind === "task_block");
+  assert.ok(taskBundle);
+  await service.preparePlanningAutopilotBundle(cliIdentity, taskBundle!.bundle_id);
+
+  const nowNext = await service.getNowNextWorkflowReport({ httpReachable: true });
+  const firstConcreteAction = nowNext.actions.find((action) => action.target_type !== "system");
+
+  assert.equal(firstConcreteAction?.target_type, "planning_autopilot_bundle");
 });
 
 test("assistant-led phase 5 mcp drive tools are assistant-safe read-only tools", () => {

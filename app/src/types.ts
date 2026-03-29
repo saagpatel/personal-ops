@@ -1308,6 +1308,54 @@ export interface InboxAutopilotReport {
   groups: InboxAutopilotGroup[];
 }
 
+export type PlanningAutopilotBundleKind = "task_block" | "thread_followup" | "event_prep";
+
+export interface PlanningAutopilotRelatedArtifact {
+  artifact_type: "inbox_autopilot_group" | "meeting_prep_packet" | "task" | "calendar_event" | "related_file";
+  artifact_id: string;
+  title: string;
+  summary: string;
+  command: string;
+  state?: AssistantActionState | TaskState | undefined;
+}
+
+export interface PlanningAutopilotBundleMember {
+  recommendation_id: string;
+  title: string;
+  summary: string;
+  status: PlanningRecommendationStatus;
+  slot_state: PlanningRecommendationSlotState;
+  command: string;
+}
+
+export interface PlanningAutopilotBundle {
+  bundle_id: string;
+  kind: PlanningAutopilotBundleKind;
+  state: AssistantActionState;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  signals: string[];
+  assistant_action_id: string;
+  review_required: boolean;
+  apply_ready: boolean;
+  recommendation_ids: string[];
+  prepared_note?: string | undefined;
+  execution_preview: string[];
+  related_artifacts: PlanningAutopilotRelatedArtifact[];
+  next_commands: string[];
+  recommendations?: PlanningAutopilotBundleMember[] | undefined;
+}
+
+export interface PlanningAutopilotReport {
+  generated_at: string;
+  readiness: ServiceState;
+  summary: string;
+  top_item_summary: string | null;
+  prepared_bundle_count: number;
+  bundles: PlanningAutopilotBundle[];
+}
+
 export interface MeetingPrepThreadSummary {
   thread_id: string;
   subject: string;

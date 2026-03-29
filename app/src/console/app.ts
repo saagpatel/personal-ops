@@ -14,6 +14,8 @@ import type {
   InboxAutopilotReport,
   MailThreadDetail,
   MeetingPrepPacket,
+  PlanningAutopilotBundle,
+  PlanningAutopilotReport,
   PlanningRecommendationDetail,
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
@@ -44,6 +46,7 @@ interface ConsolePayload {
   drafts: DraftArtifact[];
   reviewItems: ReviewItem[];
   planningSummary: PlanningRecommendationSummaryReport;
+  planningAutopilot: PlanningAutopilotReport;
   planningGroups: PlanningRecommendationGroup[];
   planningNext: PlanningRecommendationDetail | null;
   audit: AuditEvent[];
@@ -106,6 +109,19 @@ interface PlanningSummaryResponse {
   planning_recommendation_summary: PlanningRecommendationSummaryReport;
 }
 
+interface PlanningAutopilotResponse {
+  planning_autopilot: PlanningAutopilotReport;
+}
+
+interface PlanningAutopilotBundleResponse {
+  planning_autopilot_bundle:
+    | PlanningAutopilotBundle
+    | {
+        bundle?: PlanningAutopilotBundle;
+        summary?: string;
+      };
+}
+
 interface PlanningGroupsResponse {
   planning_recommendation_groups: PlanningRecommendationGroup[];
 }
@@ -146,6 +162,7 @@ type WorklistDetail =
   | { kind: "task"; item: AttentionItem; detail: TaskDetail }
   | { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
   | { kind: "meeting_packet"; item: AttentionItem; detail: MeetingPrepPacket }
+  | { kind: "planning_autopilot_bundle"; item: AttentionItem; detail: PlanningAutopilotBundle }
   | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
   | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
   | { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
@@ -163,11 +180,13 @@ interface ConsoleState {
   selectedApprovalId: string | null;
   selectedSnapshotId: string | null;
   selectedPlanningRecommendationId: string | null;
+  selectedPlanningBundleId: string | null;
   selectedPlanningGroupKey: string | null;
   selectedWorklistItemId: string | null;
   approvalDetail: ApprovalDetail | null;
   snapshotInspection: SnapshotInspection | null;
   planningRecommendationDetail: PlanningRecommendationDetail | null;
+  planningBundleDetail: PlanningAutopilotBundle | null;
   planningGroupDetail: PlanningRecommendationGroupDetail | null;
   worklistDetail: WorklistDetail | null;
 }
@@ -194,11 +213,13 @@ const state: ConsoleState = {
   selectedApprovalId: null,
   selectedSnapshotId: null,
   selectedPlanningRecommendationId: null,
+  selectedPlanningBundleId: null,
   selectedPlanningGroupKey: null,
   selectedWorklistItemId: null,
   approvalDetail: null,
   snapshotInspection: null,
   planningRecommendationDetail: null,
+  planningBundleDetail: null,
   planningGroupDetail: null,
   worklistDetail: null,
 };
@@ -285,6 +306,18 @@ function recommendationGroupRejectCommand(groupKey: string): string {
   return `personal-ops recommendation group reject ${groupKey} --reason handled_elsewhere --note "<reason>"`;
 }
 
+function planningBundleShowCommand(bundleId: string): string {
+  return `personal-ops planning autopilot --bundle ${bundleId}`;
+}
+
+function planningBundlePrepareCommand(bundleId: string): string {
+  return `personal-ops planning autopilot --bundle ${bundleId} --prepare`;
+}
+
+function planningBundleApplyCommand(bundleId: string): string {
+  return `personal-ops planning autopilot --bundle ${bundleId} --apply --note "<reason>"`;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -345,6 +378,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     draftsResponse,
     reviewQueueResponse,
     planningSummaryResponse,
+    planningAutopilotResponse,
     planningGroupsResponse,
     planningNextResponse,
     auditResponse,
@@ -362,6 +396,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<DraftResponse>("/v1/mail/drafts"),
     fetchJson<ReviewQueueResponse>("/v1/review-queue"),
     fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
+    fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
     fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
     fetchAudit(state.auditLimit, state.auditCategory),
@@ -381,6 +416,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     drafts: draftsResponse.drafts,
     reviewItems: reviewQueueResponse.review_items,
     planningSummary: planningSummaryResponse.planning_recommendation_summary,
+    planningAutopilot: planningAutopilotResponse.planning_autopilot,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
     planningNext: planningNextResponse.planning_recommendation,
     audit: auditResponse.events,
@@ -398,6 +434,14 @@ function autopilotGroupForThread(payload: ConsolePayload, threadId: string): Inb
 
 function autopilotGroupForDraft(payload: ConsolePayload, artifactId: string): InboxAutopilotGroup | null {
   return payload.inboxAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+}
+
+function planningBundleForRecommendation(payload: ConsolePayload, recommendationId: string): PlanningAutopilotBundle | null {
+  return payload.planningAutopilot.bundles.find((bundle) => bundle.recommendation_ids.includes(recommendationId)) ?? null;
+}
+
+function planningBundleById(payload: ConsolePayload, bundleId: string): PlanningAutopilotBundle | null {
+  return payload.planningAutopilot.bundles.find((bundle) => bundle.bundle_id === bundleId) ?? null;
 }
 
 function reviewItemForArtifact(payload: ConsolePayload, artifactId: string): ReviewItem | null {
@@ -838,6 +882,10 @@ function nextRecommendationId(payload: ConsolePayload): string | null {
   return payload.planningNext?.recommendation.recommendation_id ?? payload.planningGroups[0]?.top_recommendation_id ?? null;
 }
 
+function nextPlanningBundleId(payload: ConsolePayload): string | null {
+  return payload.planningAutopilot.bundles[0]?.bundle_id ?? null;
+}
+
 function syntheticAttentionItem(targetType: string, targetId: string, title: string, summary: string, command: string): AttentionItem {
   return {
     item_id: `${targetType}:${targetId}`,
@@ -871,6 +919,11 @@ function resolveSelections(payload: ConsolePayload): void {
 
   if (!state.selectedPlanningRecommendationId) {
     state.selectedPlanningRecommendationId = nextRecommendationId(payload);
+  }
+
+  const planningBundleIds = new Set(payload.planningAutopilot.bundles.map((bundle) => bundle.bundle_id));
+  if (!state.selectedPlanningBundleId || !planningBundleIds.has(state.selectedPlanningBundleId)) {
+    state.selectedPlanningBundleId = nextPlanningBundleId(payload);
   }
 
   if (!state.selectedPlanningGroupKey) {
@@ -936,6 +989,25 @@ async function loadSelectedPlanningRecommendationDetail(): Promise<void> {
   }
 }
 
+async function loadSelectedPlanningBundleDetail(): Promise<void> {
+  if (!state.selectedPlanningBundleId) {
+    state.planningBundleDetail = null;
+    return;
+  }
+  try {
+    const response = await fetchJson<PlanningAutopilotBundleResponse>(
+      `/v1/planning/autopilot/bundles/${encodeURIComponent(state.selectedPlanningBundleId)}`,
+    );
+    state.planningBundleDetail = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
+      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      throw error;
+    }
+    state.planningBundleDetail = null;
+  }
+}
+
 async function loadSelectedPlanningGroupDetail(): Promise<void> {
   if (!state.selectedPlanningGroupKey) {
     state.planningGroupDetail = null;
@@ -968,6 +1040,17 @@ async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail>
       `/v1/workflows/prep-meetings/${encodeURIComponent(item.target_id)}`,
     );
     return { kind: "meeting_packet", item, detail: response.meeting_prep_packet };
+  }
+  if (item.target_type === "planning_autopilot_bundle") {
+    const response = await fetchJson<PlanningAutopilotBundleResponse>(
+      `/v1/planning/autopilot/bundles/${encodeURIComponent(item.target_id)}`,
+    );
+    return {
+      kind: "planning_autopilot_bundle",
+      item,
+      detail: (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
+        ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle),
+    };
   }
   if (item.target_type === "planning_recommendation") {
     const response = await fetchJson<PlanningRecommendationDetailResponse>(
@@ -1032,6 +1115,7 @@ async function loadSelectedDetails(): Promise<void> {
   await Promise.all([
     loadSelectedApprovalDetail(),
     loadSelectedSnapshotInspection(),
+    loadSelectedPlanningBundleDetail(),
     loadSelectedPlanningRecommendationDetail(),
     loadSelectedPlanningGroupDetail(),
     loadSelectedWorklistDetail(),
@@ -1048,6 +1132,7 @@ function renderOverview(payload: ConsolePayload): string {
   const assistantQueue = payload.assistantQueue;
   const primaryNowNext = nowNext.actions[0] ?? null;
   const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
+  const topPlanningBundle = payload.planningAutopilot.bundles[0] ?? null;
   const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
   const topMeetingPrep = prepMeetings.actions[0] ?? null;
   return `
@@ -1098,6 +1183,15 @@ function renderOverview(payload: ConsolePayload): string {
             topAssistantAction
               ? renderAssistantActionCard(topAssistantAction)
               : `<div class="empty">The assistant queue is currently caught up.</div>`
+          }
+        </section>
+        <section class="detail-card">
+          <h3>Planning autopilot</h3>
+          <p class="subtle subtle--body">Prepared planning bundles turn recommendation clusters into one reviewable execution path instead of a queue you still have to translate by hand.</p>
+          ${
+            topPlanningBundle
+              ? renderPlanningBundleDetail(topPlanningBundle)
+              : `<div class="empty">No planning bundles are active right now.</div>`
           }
         </section>
         <section class="detail-card">
@@ -1375,8 +1469,15 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
     `;
   }
 
+  if (detail.kind === "planning_autopilot_bundle") {
+    const bundle = detail.detail;
+    return renderPlanningBundleDetail(bundle);
+  }
+
   if (detail.kind === "planning_recommendation") {
     const recommendation = detail.detail.recommendation;
+    const payload = state.payload;
+    const bundle = payload ? planningBundleForRecommendation(payload, recommendation.recommendation_id) : null;
     return `
       <div class="detail-list">
         <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(recommendation.status)}</dd></div>
@@ -1385,6 +1486,21 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(maybe(recommendation.group_summary, "not grouped"))}</dd></div>
       </div>
       <p class="subtle subtle--body">${escapeHtml(recommendation.reason_summary)}</p>
+      ${
+        bundle
+          ? `
+            <section class="panel">
+              <h4>Bundle context</h4>
+              <p>${escapeHtml(bundle.summary)}</p>
+              <p class="subtle subtle--body">${escapeHtml(bundle.why_now)}</p>
+              <div class="list-item__actions">
+                <button class="button button--primary" data-planning-bundle="${escapeHtml(bundle.bundle_id)}" type="button">Open bundle</button>
+                <button class="copy-button" data-copy="${escapeHtml(planningBundleShowCommand(bundle.bundle_id))}" type="button">Copy bundle command</button>
+              </div>
+            </section>
+          `
+          : ""
+      }
       ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button button--primary" data-open-planning="${escapeHtml(recommendation.recommendation_id)}" type="button">Open in Planning</button>
@@ -1485,6 +1601,65 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
     ${intelligenceBlock}
     <div class="list-item__actions list-item__actions--stack">
       ${commandStack([detail.item.suggested_command])}
+    </div>
+  `;
+}
+
+function renderPlanningBundleDetail(bundle: PlanningAutopilotBundle | null): string {
+  if (!bundle) {
+    return `<div class="empty">Choose a planning bundle to review the prepared execution path.</div>`;
+  }
+  return `
+    <div class="detail-list">
+      <div class="detail-row"><dt>Kind</dt><dd>${escapeHtml(bundle.kind)}</dd></div>
+      <div class="detail-row"><dt>State</dt><dd>${escapeHtml(bundle.state)}</dd></div>
+      <div class="detail-row"><dt>Apply ready</dt><dd>${escapeHtml(bundle.apply_ready ? "yes" : "no")}</dd></div>
+      <div class="detail-row"><dt>Recommendations</dt><dd>${escapeHtml(String(bundle.recommendation_ids.length))}</dd></div>
+      <div class="detail-row"><dt>Score band</dt><dd>${escapeHtml(bundle.score_band)}</dd></div>
+    </div>
+    <p class="subtle subtle--body">${escapeHtml(bundle.why_now)}</p>
+    ${
+      bundle.prepared_note
+        ? `<section class="panel"><h4>Prepared note</h4><p>${escapeHtml(bundle.prepared_note)}</p></section>`
+        : ""
+    }
+    <section class="panel">
+      <h4>Execution preview</h4>
+      ${
+        bundle.execution_preview.length > 0
+          ? `<ul>${bundle.execution_preview.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+          : `<div class="empty">No execution preview is staged yet.</div>`
+      }
+    </section>
+    <section class="panel">
+      <h4>Related artifacts</h4>
+      ${
+        bundle.related_artifacts.length > 0
+          ? `<ul>${bundle.related_artifacts.map((artifact) => `<li>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.summary)}</li>`).join("")}</ul>`
+          : `<div class="empty">No related artifacts are linked.</div>`
+      }
+    </section>
+    ${
+      bundle.recommendations?.length
+        ? `
+          <section class="panel">
+            <h4>Bundle members</h4>
+            <ul>${bundle.recommendations.map((member) => `<li>${escapeHtml(member.title)} · ${escapeHtml(member.slot_state)}</li>`).join("")}</ul>
+          </section>
+        `
+        : ""
+    }
+    <div class="list-item__actions">
+      <button class="button" data-planning-bundle-prepare="${escapeHtml(bundle.bundle_id)}" type="button">Refresh bundle prep</button>
+      ${
+        bundle.apply_ready
+          ? `<button class="button button--primary" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
+          : ""
+      }
+      <button class="copy-button" data-copy="${escapeHtml(planningBundleShowCommand(bundle.bundle_id))}" type="button">Copy CLI command</button>
+    </div>
+    <div class="list-item__actions list-item__actions--stack">
+      ${commandStack(bundle.next_commands)}
     </div>
   `;
 }
@@ -1781,6 +1956,7 @@ function renderPlanningGroupDetail(detail: PlanningRecommendationGroupDetail | n
 
 function renderPlanning(payload: ConsolePayload): string {
   const next = payload.planningNext?.recommendation ?? null;
+  const bundles = payload.planningAutopilot.bundles;
   const topBacklogSummary =
     payload.planningSummary.most_backlogged_group?.summary ?? "No active planning groups";
   const topReviewNeededSummary =
@@ -1796,8 +1972,35 @@ function renderPlanning(payload: ConsolePayload): string {
     </section>
     <section class="columns columns--wide-right">
       <div class="list-card">
-        <h3>Next action and groups</h3>
+        <h3>Prepared bundles and groups</h3>
         <div class="list">
+          ${
+            bundles.length === 0
+              ? `<div class="empty">No planning bundles are active right now.</div>`
+              : bundles
+                  .map(
+                    (bundle) => `
+                      <article class="list-item${selectedClass(bundle.bundle_id === state.selectedPlanningBundleId)}">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(bundle.summary)}</h4>
+                          <span class="pill ${bundle.apply_ready ? "pill--warn" : ""}">${escapeHtml(bundle.state)}</span>
+                        </div>
+                        <p>${escapeHtml(bundle.why_now)}</p>
+                        <div class="list-item__actions">
+                          <button class="button button--primary" data-planning-bundle="${escapeHtml(bundle.bundle_id)}" type="button">Inspect bundle</button>
+                          <button class="button" data-planning-bundle-prepare="${escapeHtml(bundle.bundle_id)}" type="button">Refresh prep</button>
+                          ${
+                            bundle.apply_ready
+                              ? `<button class="button" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
+                              : ""
+                          }
+                          <button class="copy-button" data-copy="${escapeHtml(planningBundleShowCommand(bundle.bundle_id))}" type="button">Copy CLI command</button>
+                        </div>
+                      </article>
+                    `,
+                  )
+                  .join("")
+          }
           ${
             next
               ? `
@@ -1839,6 +2042,10 @@ function renderPlanning(payload: ConsolePayload): string {
         </div>
       </div>
       <div class="detail-stack">
+        <section class="detail-card">
+          <h3>Selected bundle</h3>
+          ${renderPlanningBundleDetail(state.planningBundleDetail)}
+        </section>
         <section class="detail-card">
           <h3>Selected recommendation</h3>
           ${renderPlanningRecommendationDetail(state.planningRecommendationDetail)}
@@ -2100,10 +2307,33 @@ async function selectPlanningRecommendation(recommendationId: string): Promise<v
   state.section = "planning";
   try {
     await loadSelectedPlanningRecommendationDetail();
+    if (state.payload) {
+      const bundle = planningBundleForRecommendation(state.payload, recommendationId);
+      if (bundle) {
+        state.selectedPlanningBundleId = bundle.bundle_id;
+        await loadSelectedPlanningBundleDetail();
+      }
+    }
     if (state.planningRecommendationDetail?.recommendation.group_key) {
       state.selectedPlanningGroupKey = state.planningRecommendationDetail.recommendation.group_key;
       await loadSelectedPlanningGroupDetail();
     }
+    render();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(error instanceof Error ? error.message : String(error), "critical");
+    render();
+  }
+}
+
+async function selectPlanningBundle(bundleId: string): Promise<void> {
+  state.selectedPlanningBundleId = bundleId;
+  state.section = "planning";
+  try {
+    await loadSelectedPlanningBundleDetail();
     render();
   } catch (error) {
     if (error instanceof SessionLockedError) {
@@ -2202,6 +2432,10 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
     await selectPlanningRecommendation(action.target_id);
     return;
   }
+  if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
+    await selectPlanningBundle(action.target_id);
+    return;
+  }
   if (action.target_type === "inbox_autopilot_group" && action.target_id) {
     await openAutopilotGroup(action.target_id);
     return;
@@ -2257,6 +2491,10 @@ async function openAssistantAction(actionId: string): Promise<void> {
   }
   if (action.target_type === "planning_recommendation" && action.target_id) {
     await selectPlanningRecommendation(action.target_id);
+    return;
+  }
+  if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
+    await selectPlanningBundle(action.target_id);
     return;
   }
   if (action.target_type === "inbox_autopilot_group" && action.target_id) {
@@ -2384,6 +2622,73 @@ async function prepareMeetingPacketFromConsole(eventId: string): Promise<void> {
   }
 }
 
+async function preparePlanningBundleFromConsole(bundleId: string): Promise<void> {
+  if (!confirm("Refresh this planning bundle now? This only prepares grouped execution work and does not apply anything.")) {
+    return;
+  }
+  try {
+    const response = await postJson<PlanningAutopilotBundleResponse>(
+      `/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/prepare`,
+      {},
+    );
+    const bundle = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
+      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
+    state.selectedPlanningBundleId = bundle.bundle_id;
+    state.section = "planning";
+    location.hash = state.section;
+    setFlash("Planning bundle refreshed and ready for review.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run ${planningBundlePrepareCommand(bundleId)} if you need the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function applyPlanningBundleFromConsole(bundleId: string): Promise<void> {
+  const note = window.prompt("Add a short operator note before applying this bundle.", "Apply reviewed planning bundle");
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before applying this planning bundle.", "warn");
+    render();
+    return;
+  }
+  if (!confirm("Apply this prepared planning bundle now? This will create or update the underlying work.")) {
+    return;
+  }
+  try {
+    const response = await postJson<PlanningAutopilotBundleResponse>(
+      `/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/apply`,
+      { note: note.trim(), confirmed: true },
+    );
+    const bundle = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
+      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
+    state.selectedPlanningBundleId = bundle.bundle_id;
+    state.section = "planning";
+    location.hash = state.section;
+    setFlash("Planning bundle applied.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run ${planningBundleApplyCommand(bundleId)} if you need the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
 async function openReviewFromConsole(reviewId: string): Promise<void> {
   try {
     await postJson<{ review_item: ReviewItem; gmail_review_url: string }>(
@@ -2475,6 +2780,11 @@ async function runAssistantActionFromConsole(actionId: string): Promise<void> {
   if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
     const eventId = actionId.split(":").slice(1).join(":");
     await prepareMeetingPacketFromConsole(eventId);
+    return;
+  }
+  if (actionId.startsWith("assistant.prepare-planning-bundle:")) {
+    const bundleId = actionId.split(":").slice(1).join(":");
+    await preparePlanningBundleFromConsole(bundleId);
     return;
   }
   try {
@@ -2697,6 +3007,12 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const planningBundleButton = target.closest<HTMLButtonElement>("[data-planning-bundle]");
+  if (planningBundleButton?.dataset.planningBundle) {
+    await selectPlanningBundle(planningBundleButton.dataset.planningBundle);
+    return;
+  }
+
   const planningGroupButton = target.closest<HTMLButtonElement>("[data-planning-group]");
   if (planningGroupButton?.dataset.planningGroup) {
     await selectPlanningGroup(planningGroupButton.dataset.planningGroup);
@@ -2724,6 +3040,18 @@ document.addEventListener("click", async (event) => {
   const prepareMeetingPacketButton = target.closest<HTMLButtonElement>("[data-prepare-meeting-packet]");
   if (prepareMeetingPacketButton?.dataset.prepareMeetingPacket) {
     await prepareMeetingPacketFromConsole(prepareMeetingPacketButton.dataset.prepareMeetingPacket);
+    return;
+  }
+
+  const planningBundlePrepareButton = target.closest<HTMLButtonElement>("[data-planning-bundle-prepare]");
+  if (planningBundlePrepareButton?.dataset.planningBundlePrepare) {
+    await preparePlanningBundleFromConsole(planningBundlePrepareButton.dataset.planningBundlePrepare);
+    return;
+  }
+
+  const planningBundleApplyButton = target.closest<HTMLButtonElement>("[data-planning-bundle-apply]");
+  if (planningBundleApplyButton?.dataset.planningBundleApply) {
+    await applyPlanningBundleFromConsole(planningBundleApplyButton.dataset.planningBundleApply);
     return;
   }
 

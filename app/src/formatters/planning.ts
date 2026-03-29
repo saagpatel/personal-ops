@@ -1,4 +1,6 @@
 import type {
+  PlanningAutopilotBundle,
+  PlanningAutopilotReport,
   PlanningRecommendation,
   PlanningRecommendationBacklogReport,
   PlanningRecommendationClosureReport,
@@ -580,6 +582,82 @@ export function formatPlanningRecommendationDetail(detail: PlanningRecommendatio
     for (const event of detail.related_audit_events) {
       lines.push(`${event.timestamp} | ${event.action} | ${event.outcome} | ${event.client_id}`);
     }
+  }
+  return lines.join("\n");
+}
+
+function planningAutopilotCommand(bundleId: string): string {
+  return `personal-ops planning autopilot --bundle ${bundleId}`;
+}
+
+export function formatPlanningAutopilotBundle(bundle: PlanningAutopilotBundle): string {
+  const lines: string[] = [];
+  lines.push(`Planning Autopilot Bundle: ${bundle.bundle_id}`);
+  lines.push(line("Kind", humanizeKind(bundle.kind)));
+  lines.push(line("State", bundle.state));
+  lines.push(line("Summary", bundle.summary));
+  lines.push(line("Why now", bundle.why_now));
+  lines.push(line("Apply ready", yesNo(bundle.apply_ready)));
+  lines.push(line("Review required", yesNo(bundle.review_required)));
+  lines.push(line("Recommendations", String(bundle.recommendation_ids.length)));
+  lines.push(line("Signals", bundle.signals.join(", ") || "none"));
+  if (bundle.prepared_note) {
+    lines.push(line("Prepared note", bundle.prepared_note));
+  }
+  lines.push("");
+  lines.push("Execution Preview");
+  if (bundle.execution_preview.length === 0) {
+    lines.push("No execution preview available.");
+  } else {
+    for (const item of bundle.execution_preview) {
+      lines.push(`- ${item}`);
+    }
+  }
+  lines.push("");
+  lines.push("Related Artifacts");
+  if (bundle.related_artifacts.length === 0) {
+    lines.push("No linked artifacts.");
+  } else {
+    for (const artifact of bundle.related_artifacts) {
+      lines.push(`${artifact.artifact_type} | ${artifact.title} | ${artifact.summary}`);
+      lines.push(`  next: ${artifact.command}`);
+    }
+  }
+  lines.push("");
+  lines.push("Next Commands");
+  for (const command of bundle.next_commands) {
+    lines.push(command);
+  }
+  if (bundle.recommendations?.length) {
+    lines.push("");
+    lines.push("Members");
+    for (const member of bundle.recommendations) {
+      lines.push(`${member.recommendation_id} | ${member.status} | ${member.slot_state} | ${truncate(member.summary)}`);
+      lines.push(`  next: ${member.command}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatPlanningAutopilotReport(report: PlanningAutopilotReport): string {
+  const lines: string[] = [];
+  lines.push("Planning Autopilot");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Readiness", report.readiness));
+  lines.push(line("Summary", report.summary));
+  lines.push(line("Prepared bundles", String(report.prepared_bundle_count)));
+  if (report.top_item_summary) {
+    lines.push(line("Top item", report.top_item_summary));
+  }
+  lines.push("");
+  if (report.bundles.length === 0) {
+    lines.push("No planning bundles are active right now.");
+    return lines.join("\n");
+  }
+  for (const bundle of report.bundles) {
+    lines.push(`${bundle.bundle_id} | ${bundle.kind} | ${bundle.state} | apply_ready=${yesNo(bundle.apply_ready)} | ${bundle.summary}`);
+    lines.push(`  why now: ${bundle.why_now}`);
+    lines.push(`  next: ${planningAutopilotCommand(bundle.bundle_id)}`);
   }
   return lines.join("\n");
 }
