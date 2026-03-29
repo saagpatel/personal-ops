@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createSnapshotId } from "../snapshots.js";
 import type { SnapshotInspection, SnapshotManifest, SnapshotSummary } from "../types.js";
 
 export async function createSnapshot(service: any, stateOverride?: any): Promise<SnapshotManifest> {
-  const snapshotId = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
+  const snapshotId = createSnapshotId(service.paths.snapshotsDir);
   const snapshotDir = path.join(service.paths.snapshotsDir, snapshotId);
   fs.mkdirSync(snapshotDir, { recursive: true });
 

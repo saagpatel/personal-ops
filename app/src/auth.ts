@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import { google } from "googleapis";
 import { PersonalOpsDb } from "./db.js";
-import { parseGmailClientConfig, createOAuthClient, getGmailProfile } from "./gmail.js";
-import { getKeychainSecret, setKeychainSecret } from "./keychain.js";
+import { createOAuthClient, getGmailProfile } from "./gmail.js";
+import { setKeychainSecret } from "./keychain.js";
 import { Logger } from "./logger.js";
+import { explainGoogleGrantFailure, probeKeychainSecret, requireConfiguredOAuthClient } from "./secrets.js";
 import { Config, PendingAuthSession } from "./types.js";
 
 const pendingSessions = new Map<string, PendingAuthSession>();
@@ -22,7 +22,10 @@ const GOOGLE_SHARED_SCOPES = [
 ];
 
 export function startGoogleAuth(config: Config, callbackPort: number) {
-  const clientConfig = parseGmailClientConfig(fs.readFileSync(config.oauthClientFile, "utf8"));
+  const clientConfig = requireConfiguredOAuthClient(
+    config.oauthClientFile,
+    "Replace the OAuth client JSON, then rerun `personal-ops auth gmail login` and `personal-ops auth google login`.",
+  );
   const state = crypto.randomUUID();
   const codeVerifier = toBase64Url(crypto.randomBytes(48));
   const codeChallenge = toBase64Url(crypto.createHash("sha256").update(codeVerifier).digest());
@@ -65,7 +68,10 @@ export async function completeGoogleAuth(
   if (!pending) {
     throw new Error("The Gmail auth session was not found or has expired.");
   }
-  const clientConfig = parseGmailClientConfig(fs.readFileSync(config.oauthClientFile, "utf8"));
+  const clientConfig = requireConfiguredOAuthClient(
+    config.oauthClientFile,
+    "Replace the OAuth client JSON, then rerun `personal-ops auth gmail login` and `personal-ops auth google login`.",
+  );
   const oauthClient = createOAuthClient(clientConfig, pending.redirectUri);
   const tokenResponse = await oauthClient.getToken({
     code,
@@ -73,7 +79,9 @@ export async function completeGoogleAuth(
     redirect_uri: pending.redirectUri,
   });
   if (!tokenResponse.tokens.refresh_token) {
-    throw new Error("Google did not return a refresh token. Remove the existing grant and try again with prompt=consent.");
+    throw new Error(
+      "Google did not return a refresh token. Remove the existing grant, then rerun `personal-ops auth gmail login` and `personal-ops auth google login` and accept the consent screen.",
+    );
   }
   const tokensJson = JSON.stringify(tokenResponse.tokens);
   const profileResult = await getGmailProfile(tokensJson, clientConfig);
@@ -83,7 +91,7 @@ export async function completeGoogleAuth(
   }
   if (config.gmailAccountEmail && config.gmailAccountEmail !== email) {
     throw new Error(
-      `The configured mailbox (${config.gmailAccountEmail}) does not match the authenticated Gmail account (${email}).`,
+      `The configured mailbox (${config.gmailAccountEmail}) does not match the authenticated Gmail account (${email}). Update config.toml or rerun the auth login flow with the correct Google account.`,
     );
   }
   setKeychainSecret(config.keychainService, email, tokensJson);
@@ -108,14 +116,21 @@ export async function loadStoredGmailTokens(config: Config, db: PersonalOpsDb) {
   if (!account) {
     throw new Error("No Gmail account is connected. Run `personal-ops auth gmail login` first.");
   }
-  const secret = getKeychainSecret(account.keychain_service, account.keychain_account);
-  if (!secret) {
-    throw new Error("The Gmail refresh token is missing from Keychain.");
+  const secretProbe = probeKeychainSecret(account.keychain_service, account.keychain_account);
+  if (secretProbe.status !== "present" || !secretProbe.secret) {
+    throw new Error(secretProbe.message);
   }
-  const clientConfig = parseGmailClientConfig(fs.readFileSync(config.oauthClientFile, "utf8"));
+  const clientConfig = requireConfiguredOAuthClient(
+    config.oauthClientFile,
+    "Replace the OAuth client JSON, then rerun `personal-ops auth gmail login` and `personal-ops auth google login`.",
+  );
   return {
     email: account.email,
     clientConfig,
-    tokensJson: secret,
+    tokensJson: secretProbe.secret,
   };
+}
+
+export function formatLiveGoogleAccessError(error: unknown, mailbox: string): Error {
+  return new Error(explainGoogleGrantFailure(error, mailbox));
 }

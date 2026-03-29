@@ -2130,6 +2130,7 @@ export class PersonalOpsDb {
 
   async createBackup(destinationFile: string): Promise<number> {
     fs.mkdirSync(path.dirname(destinationFile), { recursive: true });
+    this.db.exec(`PRAGMA wal_checkpoint(FULL);`);
     return await backup(this.db, destinationFile);
   }
 

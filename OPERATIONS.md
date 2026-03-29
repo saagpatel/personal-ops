@@ -1,11 +1,12 @@
 # OPERATIONS
 
-This is the practical runbook for operating `personal-ops` after Phases 1 to 4.
+This is the practical runbook for operating `personal-ops` after Phases 1 to 6.
 
 Use this document for:
 
 - install and bootstrap
 - auth and local runtime setup
+- local secret handling and re-auth recovery
 - daily commands
 - backup and restore
 - verification and troubleshooting
@@ -25,6 +26,29 @@ Main directories:
 - state: `~/Library/Application Support/personal-ops`
 - logs: `~/Library/Logs/personal-ops`
 - default repo path: `~/.local/share/personal-ops`
+
+## Secret model
+
+`personal-ops` uses a small set of machine-local secrets and control files:
+
+- `~/.config/personal-ops/config.toml`
+  The local mailbox, runtime, and auth path configuration.
+- `~/.config/personal-ops/policy.toml`
+  Local policy such as `allow_send`.
+- `~/.config/personal-ops/gmail-oauth-client.json`
+  The Google Desktop OAuth client JSON for this operator workflow.
+- `~/Library/Application Support/personal-ops/local-api-token`
+  The operator CLI bearer token for the local HTTP API.
+- `~/Library/Application Support/personal-ops/assistant-api-token`
+  The assistant-safe bearer token for local assistant clients.
+- Keychain item for the configured mailbox
+  The stored Gmail refresh token used to reach Gmail and Google Calendar.
+
+Important rules:
+
+- snapshots do not restore OAuth client JSON, API tokens, or Keychain secrets
+- rerunning install commands is safe; deleting secrets by hand is not a normal workflow
+- if auth breaks, prefer install-check, doctor, and re-auth over ad hoc local cleanup
 
 ## Install and bootstrap
 
@@ -78,6 +102,23 @@ Finish with:
 ```bash
 personal-ops doctor --deep
 ```
+
+### Safe re-auth path
+
+If auth is missing, stale, or attached to the wrong mailbox:
+
+1. confirm `config.toml` has the mailbox you intend to use
+2. confirm `gmail-oauth-client.json` is present and configured
+3. run `personal-ops install check`
+4. rerun:
+
+```bash
+personal-ops auth gmail login
+personal-ops auth google login
+personal-ops doctor --deep
+```
+
+Use the same mailbox for both login flows. If the signed-in Google account does not match `config.toml`, update the config or rerun auth with the correct account.
 
 ## Daily commands
 
@@ -228,6 +269,7 @@ Likely fixes:
 
 - fill in `config.toml`
 - place the OAuth client JSON
+- replace the OAuth client JSON if it is malformed, placeholder-only, or not a Desktop OAuth client
 - rerun auth login commands
 - rerun `personal-ops install all`
 
@@ -265,6 +307,19 @@ personal-ops doctor --deep
 personal-ops auth gmail login
 personal-ops auth google login
 ```
+
+Common auth and secret interpretations:
+
+- missing or placeholder OAuth client JSON
+  Replace `~/.config/personal-ops/gmail-oauth-client.json`, then rerun install-check and the auth login flow.
+- wrong mailbox authenticated
+  Update `config.toml` or rerun auth with the intended Google account.
+- Keychain token missing
+  Rerun both auth login commands so the refresh token is stored again.
+- Keychain access unavailable
+  Check local Keychain access on this Mac, then rerun auth if needed.
+- stale or revoked Google grant
+  Rerun both auth login commands and accept the requested access again.
 
 ## Read next
 

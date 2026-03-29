@@ -12,6 +12,7 @@ import {
   formatStatusReport,
   formatWorklistReport,
 } from "../src/formatters.js";
+import { formatGoogleLoginError as formatCliGoogleLoginError } from "../src/cli/http-client.js";
 import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
 import { PersonalOpsService } from "../src/service.js";
@@ -281,4 +282,20 @@ test("Phase 4 daemon-unreachable errors point the operator to the next local che
       return true;
     },
   );
+});
+
+test("Phase 6 auth login errors point the operator to config and re-auth recovery", () => {
+  const startError = formatCliGoogleLoginError("start", new Error("OAuth client file is not valid JSON."));
+  const completeError = formatCliGoogleLoginError(
+    "complete",
+    new Error("Google did not return a refresh token. Remove the existing grant and try again."),
+  );
+
+  assert.match(startError.message, /Could not start the Google login flow/i);
+  assert.match(startError.message, /install check/i);
+  assert.match(startError.message, /OAuth client JSON/i);
+  assert.match(completeError.message, /could not save the grant/i);
+  assert.match(completeError.message, /auth gmail login/i);
+  assert.match(completeError.message, /auth google login/i);
+  assert.match(completeError.message, /doctor --deep/i);
 });

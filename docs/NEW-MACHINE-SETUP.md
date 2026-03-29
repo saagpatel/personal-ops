@@ -23,6 +23,7 @@ You should **not** move live machine state or secrets:
 - `~/Library/Application Support/personal-ops/local-api-token`
 - `~/Library/Application Support/personal-ops/assistant-api-token`
 - `~/Library/Logs/personal-ops/`
+- the Gmail refresh token stored in Keychain
 - any real OAuth credential JSON with populated secrets unless you intentionally want to reuse that Google Cloud client
 
 The new machine should create its own runtime state locally.
@@ -110,6 +111,12 @@ personal-ops auth google login
 
 Use the Gmail and Calendar account you want this machine to operate against.
 
+Important:
+
+- `config.toml` mailbox and the signed-in Google account should match
+- if install-check says the OAuth file is placeholder, malformed, or not a Desktop OAuth client, replace it before continuing
+- if deep doctor later says the grant is stale or missing required access, rerun both auth login commands
+
 ## 5. Verify the install
 
 ```bash
@@ -125,6 +132,7 @@ Healthy expected outcomes:
 - schema matches expected version
 - mailbox setup recognized
 - calendar checks pass if Google auth is complete
+- secret and auth findings are either clean or give explicit recovery steps
 
 ## Beginner checklist
 

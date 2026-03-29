@@ -9,6 +9,7 @@ import { buildInstallCheckReport, getInstallArtifactPaths, installAll, installWr
 import { getLaunchAgentLabel, renderLaunchAgentPlist } from "../src/launchagent.js";
 import { Logger } from "../src/logger.js";
 import { restoreSnapshot } from "../src/restore.js";
+import { createSnapshotId } from "../src/snapshots.js";
 import { PersonalOpsService } from "../src/service.js";
 import { ClientIdentity, Paths } from "../src/types.js";
 
@@ -221,8 +222,30 @@ test("install check reports placeholder oauth, missing LaunchAgent, and stale wr
     const report = buildInstallCheckReport(fixture.paths);
     assert.equal(report.state, "degraded");
     assert.equal(report.checks.some((check) => check.id === "oauth_client_configured" && check.severity === "warn"), true);
+    assert.equal(report.checks.some((check) => check.id === "oauth_client_file_valid" && check.severity === "warn"), true);
     assert.equal(report.checks.some((check) => check.id === "launch_agent_exists" && check.severity === "fail"), true);
     assert.equal(report.checks.some((check) => check.id === "cli_wrapper_exists" && check.severity === "fail"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("Phase 6 install check reports blank keychain service, empty tokens, and broad secret-file permissions", () => {
+  const fixture = createFixture();
+  try {
+    const rawConfig = fs.readFileSync(fixture.paths.configFile, "utf8");
+    fs.writeFileSync(fixture.paths.configFile, rawConfig.replace('keychain_service = "personal-ops.gmail"', 'keychain_service = ""'), "utf8");
+    fs.writeFileSync(fixture.paths.apiTokenFile, "", { encoding: "utf8", mode: 0o644 });
+    fs.writeFileSync(fixture.paths.assistantApiTokenFile, "assistant-token", { encoding: "utf8", mode: 0o644 });
+    fs.chmodSync(fixture.paths.apiTokenFile, 0o644);
+    fs.chmodSync(fixture.paths.assistantApiTokenFile, 0o644);
+
+    const report = buildInstallCheckReport(fixture.paths);
+
+    assert.equal(report.checks.some((check) => check.id === "keychain_service_configured" && check.severity === "warn"), true);
+    assert.equal(report.checks.some((check) => check.id === "local_api_token_nonempty" && check.severity === "fail"), true);
+    assert.equal(report.checks.some((check) => check.id === "local_api_token_permissions_secure" && check.severity === "warn"), true);
+    assert.equal(report.checks.some((check) => check.id === "assistant_api_token_permissions_secure" && check.severity === "warn"), true);
   } finally {
     fixture.restoreEnv();
   }
@@ -299,6 +322,22 @@ test("restore creates a rescue snapshot and restores db and config selectively",
     assert.equal(fs.existsSync(path.join(fixture.paths.snapshotsDir, result.rescue_snapshot_id, "manifest.json")), true);
     assert.equal(result.launch_agent_was_running, true);
     assert.equal(result.launch_agent_restarted, true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("snapshot ids remain unique when two snapshots are created in the same second", () => {
+  const fixture = createFixture();
+  try {
+    const now = new Date("2026-03-29T07:30:00.000Z");
+    const firstId = createSnapshotId(fixture.paths.snapshotsDir, now);
+    fs.mkdirSync(path.join(fixture.paths.snapshotsDir, firstId), { recursive: true });
+
+    const secondId = createSnapshotId(fixture.paths.snapshotsDir, now);
+
+    assert.equal(firstId, "2026-03-29T07-30-00Z");
+    assert.equal(secondId, "2026-03-29T07-30-00Z-1");
   } finally {
     fixture.restoreEnv();
   }
