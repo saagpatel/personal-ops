@@ -4,6 +4,10 @@
 
 Assistants are clients of this system. They must not implement provider-side mail logic on their own.
 
+For general repo orientation, start with [START-HERE.md](START-HERE.md).
+
+For the fastest role-based onboarding, read [QUICK-GUIDE.md](QUICK-GUIDE.md) before using the rest of this contract.
+
 ## MCP identity env vars
 
 The shared MCP bridge reads assistant identity from these optional environment variables:
