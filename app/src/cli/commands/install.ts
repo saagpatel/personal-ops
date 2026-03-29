@@ -13,8 +13,8 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .command("all")
     .description("Install or update local wrappers and the LaunchAgent.")
     .option("--json", "Print raw JSON")
-    .action((options) => {
-      const manifest = installAll(paths);
+    .action(async (options) => {
+      const manifest = await installAll(paths);
       context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
     });
 
@@ -50,8 +50,8 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .command("launchagent")
     .description("Install or update the personal-ops LaunchAgent.")
     .option("--json", "Print raw JSON")
-    .action((options) => {
-      const manifest = installLaunchAgent(paths);
+    .action(async (options) => {
+      const manifest = await installLaunchAgent(paths);
       context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
     });
 

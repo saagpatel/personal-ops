@@ -1,7 +1,9 @@
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { loadConfig } from "./config.js";
 import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath,
@@ -48,6 +50,8 @@ export interface InstallArtifactPaths {
 
 interface InstallDependencies {
   launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
+  waitForDaemonReadyImpl?: (host: string, port: number, timeoutMs: number) => Promise<void>;
+  daemonReadyTimeoutMs?: number;
 }
 
 const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Paths) => string }> = [
@@ -57,6 +61,7 @@ const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Pat
   { label: "Local API token", resolvePath: (paths) => paths.apiTokenFile },
   { label: "Assistant API token", resolvePath: (paths) => paths.assistantApiTokenFile },
 ];
+const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
 
 function shellQuote(value: string): string {
   return JSON.stringify(value);
@@ -162,6 +167,45 @@ function writeExecutable(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, contents, { encoding: "utf8", mode: 0o755 });
   fs.chmodSync(filePath, 0o755);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForDaemonReady(host: string, port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const connected = await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port });
+      let settled = false;
+      const finish = (result: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        socket.destroy();
+        resolve(result);
+      };
+
+      socket.once("connect", () => finish(true));
+      socket.once("error", () => finish(false));
+      socket.setTimeout(500, () => finish(false));
+    });
+
+    if (connected) {
+      return;
+    }
+
+    await delay(250);
+  }
+
+  throw new Error(
+    `LaunchAgent reloaded, but the daemon did not become reachable at ${host}:${port} within ${Math.ceil(timeoutMs / 1000)}s. Run \`personal-ops doctor\` or \`launchctl kickstart -k gui/$(id -u)/${getLaunchAgentLabel()}\`.`,
+  );
 }
 
 function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: AssistantKind[]): InstallManifest {
@@ -294,11 +338,11 @@ export function installWrapper(
   return manifest;
 }
 
-export function installLaunchAgent(
+export async function installLaunchAgent(
   paths: Paths,
   nodeExecutable = process.execPath,
   dependencies: InstallDependencies = {},
-): InstallManifest {
+): Promise<InstallManifest> {
   const artifacts = getInstallArtifactPaths(paths);
   const launchAgentLabel = getLaunchAgentLabel();
   if (!fs.existsSync(artifacts.daemonWrapperPath)) {
@@ -314,6 +358,12 @@ export function installLaunchAgent(
     environmentVariables: buildLaunchAgentEnvironment(paths),
   });
   reloadLaunchAgent(artifacts.launchAgentPlistPath, launchAgentLabel, dependencies.launchAgentDependencies);
+  const config = loadConfig(paths);
+  await (dependencies.waitForDaemonReadyImpl ?? waitForDaemonReady)(
+    config.serviceHost,
+    config.servicePort,
+    dependencies.daemonReadyTimeoutMs ?? DEFAULT_DAEMON_READY_TIMEOUT_MS,
+  );
   const manifest = buildInstallManifest(
     paths,
     nodeExecutable,
@@ -323,16 +373,16 @@ export function installLaunchAgent(
   return manifest;
 }
 
-export function installAll(
+export async function installAll(
   paths: Paths,
   nodeExecutable = process.execPath,
   dependencies: InstallDependencies = {},
-): InstallManifest {
+): Promise<InstallManifest> {
   installWrapper(paths, "cli", undefined, nodeExecutable);
   installWrapper(paths, "daemon", undefined, nodeExecutable);
   installWrapper(paths, "mcp", "codex", nodeExecutable);
   installWrapper(paths, "mcp", "claude", nodeExecutable);
-  installLaunchAgent(paths, nodeExecutable, dependencies);
+  await installLaunchAgent(paths, nodeExecutable, dependencies);
   const manifest = buildInstallManifest(paths, nodeExecutable, DEFAULT_ASSISTANTS);
   writeInstallManifest(paths, manifest);
   return manifest;
