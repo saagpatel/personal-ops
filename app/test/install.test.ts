@@ -252,6 +252,10 @@ test("wrapper generation writes the expected targets and assistant env vars", ()
     const codexWrapper = fs.readFileSync(artifacts.codexMcpWrapperPath, "utf8");
     const claudeWrapper = fs.readFileSync(artifacts.claudeMcpWrapperPath, "utf8");
 
+    assert.match(cliWrapper, /^#!\/bin\/sh\nset -eu\n/);
+    assert.match(daemonWrapper, /^#!\/bin\/sh\nset -eu\n/);
+    assert.match(codexWrapper, /^#!\/bin\/sh\nset -eu\n/);
+    assert.match(claudeWrapper, /^#!\/bin\/sh\nset -eu\n/);
     assert.match(cliWrapper, /exec "\/node\/custom" ".*dist\/src\/cli\.js" "\$@"/);
     assert.match(daemonWrapper, /exec "\/node\/custom" ".*dist\/src\/daemon\.js" "\$@"/);
     assert.match(codexWrapper, /PERSONAL_OPS_CLIENT_ID="\$\{PERSONAL_OPS_CLIENT_ID:-codex-mcp\}"/);
