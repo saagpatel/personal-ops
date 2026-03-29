@@ -65,8 +65,9 @@ Also confirm:
 
 - branch name
   `codex/phase-5-documentation-layers`
-- commit hash
+- commit hashes
   `46ad8e8` (`docs(ops): add the phase 5 documentation layer`)
+  `a49342c` (`docs(roadmap): record phase 5 closeout metadata`)
 - pushed remote branch
   `origin/codex/phase-5-documentation-layers`
 - draft PR link
