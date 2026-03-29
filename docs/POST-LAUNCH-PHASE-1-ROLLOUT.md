@@ -89,6 +89,7 @@ Commits:
 
 - `aa8a906` `docs(roadmap): record post-launch roadmap handoff`
 - `d7d3959` `docs(automation): add daily briefing runbook`
+- `a0f6a02` `docs(automation): finalize phase 1 rollout`
 
 Draft PR:
 
