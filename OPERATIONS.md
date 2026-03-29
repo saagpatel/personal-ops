@@ -1,12 +1,13 @@
 # OPERATIONS
 
-This is the practical runbook for operating `personal-ops` after Phases 1 to 6.
+This is the practical runbook for operating `personal-ops` after Phases 1 to 7.
 
 Use this document for:
 
 - install and bootstrap
 - auth and local runtime setup
 - local secret handling and re-auth recovery
+- machine ownership and intentional migration
 - daily commands
 - backup and restore
 - verification and troubleshooting
@@ -46,6 +47,9 @@ Main directories:
 
 Important rules:
 
+- `personal-ops` is single-primary-machine by default
+- backups are the supported recovery and intentional migration path
+- restore replaces local state; it does not merge state
 - snapshots do not restore OAuth client JSON, API tokens, or Keychain secrets
 - rerunning install commands is safe; deleting secrets by hand is not a normal workflow
 - if auth breaks, prefer install-check, doctor, and re-auth over ad hoc local cleanup
@@ -140,7 +144,7 @@ Other common commands:
 - `personal-ops doctor --deep`
   Adds live Gmail and Google Calendar verification.
 - `personal-ops backup create`
-  Creates a same-machine recovery snapshot.
+  Creates a recovery snapshot with machine provenance.
 - `personal-ops backup inspect <snapshotId>`
   Inspects snapshot contents and warnings.
 
@@ -190,7 +194,7 @@ personal-ops backup inspect <snapshotId>
 
 ### Restore behavior
 
-Restore is a same-machine recovery path, not a sync or multi-machine workflow.
+Restore is a recovery and intentional migration path, not a sync or multi-machine workflow.
 
 Default behavior:
 
@@ -200,13 +204,22 @@ Default behavior:
 - the live database is restored
 - config and policy restore are opt-in
 - tokens, OAuth client JSON, and Keychain secrets are not restored automatically
+- cross-machine restore requires `--allow-cross-machine`
+- legacy snapshots without machine provenance still restore, but they warn as unknown provenance
 
 Example:
 
 ```bash
 personal-ops backup restore <snapshotId> --yes
 personal-ops backup restore <snapshotId> --yes --with-config --with-policy
+personal-ops backup restore <snapshotId> --yes --allow-cross-machine
 ```
+
+After a cross-machine restore:
+
+- rerun `personal-ops doctor --deep`
+- rerun local auth if Gmail or Google Calendar access needs to be re-established
+- treat the restored state as intentional migration or recovery, not sync
 
 ## What is safe to rerun
 

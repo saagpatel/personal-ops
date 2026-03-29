@@ -18,6 +18,12 @@ import {
   ServiceState,
 } from "./types.js";
 import {
+  describeStateOrigin,
+  ensureMachineIdentity,
+  readMachineIdentity,
+  readRestoreProvenance,
+} from "./machine.js";
+import {
   validateOAuthClientFile,
   validateSecretFilePermissions,
   validateSecretTextFile,
@@ -150,10 +156,13 @@ function writeExecutable(filePath: string, contents: string): void {
 function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: AssistantKind[]): InstallManifest {
   const artifacts = getInstallArtifactPaths(paths);
   const launchAgentLabel = getLaunchAgentLabel();
+  const machine = ensureMachineIdentity(paths);
   return {
     generated_at: new Date().toISOString(),
     node_executable: nodeExecutable,
     app_dir: paths.appDir,
+    machine_id: machine.machine_id,
+    machine_label: machine.machine_label,
     launch_agent_label: launchAgentLabel,
     launch_agent_plist_path: artifacts.launchAgentPlistPath,
     assistant_wrappers: [...assistants].sort(),
@@ -335,6 +344,8 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   const assistantApiToken = validateSecretTextFile(paths.assistantApiTokenFile, "Assistant API token");
   const localApiTokenPermissions = validateSecretFilePermissions(paths.apiTokenFile, "Local API token");
   const assistantApiTokenPermissions = validateSecretFilePermissions(paths.assistantApiTokenFile, "Assistant API token");
+  const machineIdentity = readMachineIdentity(paths);
+  const restoreProvenance = readRestoreProvenance(paths);
 
   checks.push(fileCheck("config_file_valid", "Config file", paths.configFile, true));
   checks.push(fileCheck("policy_file_valid", "Policy file", paths.policyFile, true));
@@ -384,6 +395,62 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
           "setup",
         ),
   );
+  checks.push(
+    machineIdentity.status === "configured"
+      ? passCheck(
+          "machine_identity_exists",
+          "Machine identity",
+          `Machine identity exists for ${machineIdentity.identity?.machine_label}.`,
+          "setup",
+        )
+      : warnCheck("machine_identity_exists", "Machine identity", machineIdentity.message, "setup"),
+  );
+  checks.push(
+    machineIdentity.status === "configured"
+      ? passCheck(
+          "machine_identity_valid",
+          "Machine identity validity",
+          `Machine identity is valid for ${machineIdentity.identity?.machine_label}.`,
+          "setup",
+        )
+      : warnCheck(
+          "machine_identity_valid",
+          "Machine identity validity",
+          machineIdentity.status === "missing"
+            ? "Machine identity cannot be validated until it is initialized."
+            : machineIdentity.message,
+          "setup",
+        ),
+  );
+  if (restoreProvenance.status === "configured" && restoreProvenance.provenance) {
+    const stateOrigin = describeStateOrigin(restoreProvenance.provenance);
+    checks.push(
+      stateOrigin === "restored_cross_machine"
+        ? warnCheck(
+            "state_origin_safe",
+            "State origin",
+            `State was restored from ${restoreProvenance.provenance.source_machine_label ?? "another machine"}. Rerun \`personal-ops doctor --deep\` and local auth checks before trusting live access.`,
+            "setup",
+          )
+        : stateOrigin === "unknown_legacy_restore"
+          ? warnCheck(
+              "state_origin_safe",
+              "State origin",
+              "State was restored from a legacy snapshot with unknown machine provenance.",
+              "setup",
+            )
+          : passCheck(
+              "state_origin_safe",
+              "State origin",
+              "Latest recorded restore provenance is same-machine.",
+              "setup",
+            ),
+    );
+  } else if (restoreProvenance.status === "invalid") {
+    checks.push(warnCheck("state_origin_safe", "State origin", restoreProvenance.message, "setup"));
+  } else {
+    checks.push(passCheck("state_origin_safe", "State origin", "No cross-machine restore provenance is recorded.", "setup"));
+  }
 
   checks.push(directoryWritableCheck("state_dir_writable", "State directory", paths.stateDir));
   checks.push(directoryWritableCheck("log_dir_writable", "Log directory", paths.logDir));

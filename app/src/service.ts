@@ -35,6 +35,7 @@ import {
   verifyGmailMetadataAccess,
 } from "./gmail.js";
 import { Logger } from "./logger.js";
+import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
 import {
   explainGoogleGrantFailure,
@@ -3160,6 +3161,8 @@ export class PersonalOpsService {
     const assistantApiToken = validateSecretTextFile(this.paths.assistantApiTokenFile, "Assistant API token");
     const localApiTokenPermissions = validateSecretFilePermissions(this.paths.apiTokenFile, "Local API token");
     const assistantApiTokenPermissions = validateSecretFilePermissions(this.paths.assistantApiTokenFile, "Assistant API token");
+    const machineIdentity = readMachineIdentity(this.paths);
+    const restoreProvenance = readRestoreProvenance(this.paths);
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
     checks.push(this.fileCheck("policy_file_valid", "Policy file", this.paths.policyFile, true));
@@ -3216,6 +3219,62 @@ export class PersonalOpsService {
             "setup",
           ),
     );
+    checks.push(
+      machineIdentity.status === "configured"
+        ? this.passCheck(
+            "machine_identity_exists",
+            "Machine identity",
+            `Machine identity exists for ${machineIdentity.identity?.machine_label}.`,
+            "setup",
+          )
+        : this.warnCheck("machine_identity_exists", "Machine identity", machineIdentity.message, "setup"),
+    );
+    checks.push(
+      machineIdentity.status === "configured"
+        ? this.passCheck(
+            "machine_identity_valid",
+            "Machine identity validity",
+            `Machine identity is valid for ${machineIdentity.identity?.machine_label}.`,
+            "setup",
+          )
+        : this.warnCheck(
+            "machine_identity_valid",
+            "Machine identity validity",
+            machineIdentity.status === "missing"
+              ? "Machine identity cannot be validated until it is initialized."
+              : machineIdentity.message,
+            "setup",
+          ),
+    );
+    if (restoreProvenance.status === "configured" && restoreProvenance.provenance) {
+      const stateOrigin = describeStateOrigin(restoreProvenance.provenance);
+      checks.push(
+        stateOrigin === "restored_cross_machine"
+          ? this.warnCheck(
+              "state_origin_safe",
+              "State origin",
+              `State was restored from ${restoreProvenance.provenance.source_machine_label ?? "another machine"}. Rerun \`personal-ops doctor --deep\` and local auth checks before trusting live access.`,
+              "setup",
+            )
+          : stateOrigin === "unknown_legacy_restore"
+            ? this.warnCheck(
+                "state_origin_safe",
+                "State origin",
+                "State was restored from a legacy snapshot with unknown machine provenance.",
+                "setup",
+              )
+            : this.passCheck(
+                "state_origin_safe",
+                "State origin",
+                "Latest recorded restore provenance is same-machine.",
+                "setup",
+              ),
+      );
+    } else if (restoreProvenance.status === "invalid") {
+      checks.push(this.warnCheck("state_origin_safe", "State origin", restoreProvenance.message, "setup"));
+    } else {
+      checks.push(this.passCheck("state_origin_safe", "State origin", "No cross-machine restore provenance is recorded.", "setup"));
+    }
     checks.push(
       options.httpReachable
         ? this.passCheck("daemon_http_reachable", "Daemon HTTP", "Daemon responded on localhost.", "runtime")

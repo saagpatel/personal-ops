@@ -21,6 +21,12 @@ function pushSection(lines: string[], title: string, rows: string[]) {
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
 
+  if (report.machine.state_origin === "restored_cross_machine") {
+    actions.push("This state was restored from another machine. Run `personal-ops doctor --deep` and the local auth flow before trusting live access.");
+  } else if (report.machine.state_origin === "unknown_legacy_restore") {
+    actions.push("This state came from a legacy snapshot with unknown machine provenance. Treat it as intentional recovery, not sync.");
+  }
+
   if (!report.daemon_reachable) {
     actions.push("The daemon is not reachable. Run `personal-ops install check`, then `personal-ops doctor`.");
     actions.push("If you manage the daemon directly, start `personal-opsd`. If you use launchd, restart the LaunchAgent.");
@@ -55,6 +61,12 @@ function doctorFollowUp(check: DoctorCheck): string | null {
   if (check.id.includes("keychain")) {
     return "Confirm Keychain access on this Mac, then rerun `personal-ops auth gmail login` and `personal-ops auth google login` if needed.";
   }
+  if (check.id === "state_origin_safe") {
+    return "If this state came from another machine, rerun `personal-ops doctor --deep` and the local auth flow before trusting live access.";
+  }
+  if (check.id.startsWith("machine_identity")) {
+    return "Run `personal-ops install all` to initialize local machine metadata, then rerun install check or doctor.";
+  }
   if (check.id.includes("oauth_client")) {
     return "Replace or fix the OAuth client JSON, then rerun `personal-ops install check` and the auth login flow.";
   }
@@ -88,6 +100,24 @@ function formatDoctorCheck(check: DoctorCheck): string[] {
   return lines;
 }
 
+function shortMachine(report: ServiceStatusReport): string {
+  if (!report.machine.machine_label || !report.machine.machine_id) {
+    return "not initialized";
+  }
+  return `${report.machine.machine_label} (${report.machine.machine_id.slice(0, 8)})`;
+}
+
+function lastRestoreSummary(report: ServiceStatusReport): string {
+  const restore = report.machine.last_restore;
+  if (!restore) {
+    return "none recorded";
+  }
+  if (report.machine.state_origin === "unknown_legacy_restore") {
+    return `${restore.restored_snapshot_id} from legacy snapshot provenance`;
+  }
+  return `${restore.restored_snapshot_id} from ${restore.source_machine_label ?? "unknown machine"}`;
+}
+
 export function formatStatusReport(report: ServiceStatusReport): string {
   const lines: string[] = [];
   lines.push(`Personal Ops Status: ${formatStateLabel(report.state)}`);
@@ -114,6 +144,19 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Keychain token present", yesNo(report.mailbox.keychain_token_present)),
     line("LaunchAgent", `${report.launch_agent.label} (${report.launch_agent.loaded ? "loaded" : "not loaded"})`),
     line("Schema", report.schema.compatibility_message),
+  ]);
+
+  pushSection(lines, "Machine", [
+    line("Current machine", shortMachine(report)),
+    line("Hostname", report.machine.hostname ?? "not recorded"),
+    line("State origin", formatStateLabel(report.machine.state_origin)),
+    line("Last restore", lastRestoreSummary(report)),
+    line(
+      "Last snapshot source",
+      report.machine.last_snapshot_source_machine
+        ? `${report.machine.last_snapshot_source_machine.machine_label} (${report.machine.last_snapshot_source_machine.machine_id.slice(0, 8)})`
+        : "not recorded",
+    ),
   ]);
 
   pushSection(lines, "Attention", [

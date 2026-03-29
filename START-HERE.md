@@ -36,6 +36,7 @@ Read in this order:
 Use this path if you want to:
 
 - install or move the system to another Mac
+- understand the single-primary-machine model before using backups to migrate state
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands
