@@ -1,7 +1,16 @@
-import http from "node:http";
-import { execFileSync } from "node:child_process";
-import { once } from "node:events";
 import { Command } from "commander";
+import { registerAuthAndMailCommands } from "./cli/commands/auth-mail.js";
+import { registerInstallAndBackupCommands } from "./cli/commands/install.js";
+import { registerRuntimeCommands } from "./cli/commands/runtime.js";
+import { createRequestJson } from "./cli/http-client.js";
+import {
+  parseEmails,
+  printOutput,
+  requireCliOption,
+  resolveCliFlag,
+  resolveCliOption,
+  type CliContext,
+} from "./cli/shared.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
 import {
   formatApprovalConfirmation,
@@ -29,6 +38,8 @@ import {
   formatPlanningRecommendationSummaryReport,
   formatPlanningRecommendationTuningReport,
   formatDoctorReport,
+  formatInstallCheckReport,
+  formatInstallManifest,
   formatInboxStatus,
   formatInboxThreadDetail,
   formatInboxThreads,
@@ -36,6 +47,7 @@ import {
   formatReviewItems,
   formatReviewOpenResult,
   formatReviewResolveResult,
+  formatRestoreResult,
   formatSendWindowStatus,
   formatSnapshotInspection,
   formatSnapshotList,
@@ -45,240 +57,42 @@ import {
   formatTaskItems,
   formatTaskSuggestionDetail,
   formatTaskSuggestions,
-  formatWorklistReport,
 } from "./formatters.js";
 import { Logger } from "./logger.js";
 
 const paths = ensureRuntimeFiles();
 const config = loadConfig(paths);
 const logger = new Logger(paths);
-
-function requestJson<T>(method: string, path: string, body?: unknown): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const payload = body ? JSON.stringify(body) : undefined;
-    const request = http.request(
-      {
-        host: config.serviceHost,
-        port: config.servicePort,
-        method,
-        path,
-        agent: false,
-        headers: {
-          Authorization: `Bearer ${config.apiToken}`,
-          "Content-Type": "application/json",
-          Connection: "close",
-          "x-personal-ops-client": "operator-cli",
-          "x-personal-ops-requested-by": process.env.USER ?? "operator",
-          ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
-        },
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-        response.on("end", () => {
-          const raw = Buffer.concat(chunks).toString("utf8");
-          const parsed = raw ? JSON.parse(raw) : {};
-          response.socket?.destroy();
-          if ((response.statusCode ?? 500) >= 400) {
-            reject(new Error(parsed.error ?? `Request failed with status ${response.statusCode}`));
-            return;
-          }
-          resolve(parsed);
-        });
-      },
-    );
-    request.on("error", reject);
-    if (payload) {
-      request.write(payload);
-    }
-    request.end();
-  });
-}
-
-async function runGoogleLogin(authBasePath: "/v1/auth/google" | "/v1/auth/gmail" = "/v1/auth/google") {
-  const callbackServer = http.createServer();
-  callbackServer.listen(0, "127.0.0.1");
-  await once(callbackServer, "listening");
-  const address = callbackServer.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Could not allocate a loopback port for Google login.");
-  }
-  const start = await requestJson<{ auth_url: string; state: string }>("POST", `${authBasePath}/start`, {
-    callback_port: address.port,
-  });
-
-  const callbackPromise = new Promise<{ state: string; code: string }>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for the Google OAuth callback.")), 300000);
-    callbackServer.on("request", (request, response) => {
-      const url = new URL(request.url ?? "/", `http://127.0.0.1:${address.port}`);
-      if (url.pathname !== "/oauth2/callback") {
-        response.statusCode = 404;
-        response.end("Not found");
-        return;
-      }
-      clearTimeout(timeout);
-      const state = url.searchParams.get("state");
-      const code = url.searchParams.get("code");
-      response.end("Google authorization received. You can return to the terminal.");
-      if (!state || !code) {
-        reject(new Error("Google callback did not include both state and code."));
-        return;
-      }
-      resolve({ state, code });
-    });
-  });
-
-  execFileSync("open", [start.auth_url]);
-  const callback = await callbackPromise;
-  callbackServer.close();
-  const completed = await requestJson<{ email: string }>("POST", `${authBasePath}/callback/complete`, callback);
-  process.stdout.write(`Connected Google account: ${completed.email}\n`);
-}
-
-function parseEmails(values: string[] | undefined): string[] {
-  return values?.flatMap((value) => value.split(",").map((part) => part.trim()).filter(Boolean)) ?? [];
-}
-
-function readRawCliOption(flag: string): string | undefined {
-  const args = process.argv.slice(2);
-  for (let index = 0; index < args.length; index += 1) {
-    const current = args[index];
-    if (!current) {
-      continue;
-    }
-    if (current === flag) {
-      const next = args[index + 1];
-      if (!next || next.startsWith("-")) {
-        return undefined;
-      }
-      return next;
-    }
-    if (current.startsWith(`${flag}=`)) {
-      return current.slice(flag.length + 1);
-    }
-  }
-  return undefined;
-}
-
-function hasRawCliFlag(flag: string): boolean {
-  return process.argv.slice(2).some((current) => current === flag);
-}
-
-function resolveCliOption(options: Record<string, unknown>, key: string, flag: string): string | undefined {
-  const value = options[key];
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value.trim();
-  }
-  return readRawCliOption(flag);
-}
-
-function requireCliOption(value: string | undefined, flag: string): string {
-  if (!value) {
-    throw new Error(`required option '${flag}' not specified`);
-  }
-  return value;
-}
-
-function resolveCliFlag(options: Record<string, unknown>, key: string, flag: string): boolean {
-  const value = options[key];
-  if (typeof value === "boolean") {
-    return value;
-  }
-  return hasRawCliFlag(flag);
-}
-
-function printOutput(payload: unknown, formatter?: (value: any) => string, asJson?: boolean) {
-  if (asJson || !formatter) {
-    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-    return;
-  }
-  process.stdout.write(`${formatter(payload)}\n`);
-}
+const requestJson = createRequestJson(config);
+const cliContext: CliContext = {
+  requestJson,
+  printOutput,
+  parseEmails,
+  resolveCliOption,
+  requireCliOption,
+  resolveCliFlag,
+};
 
 const program = new Command();
-program.name("personal-ops");
-const auth = program.command("auth");
+program
+  .name("personal-ops")
+  .description("Operate the local personal-ops control layer for status, recovery, inbox, calendar, planning, and governance.")
+  .showHelpAfterError()
+  .showSuggestionAfterError()
+  .addHelpText(
+    "after",
+    `
+Start here:
+  personal-ops install check   Verify local setup without needing the daemon
+  personal-ops status          See full readiness and next attention
+  personal-ops now             See the shortest operator summary
+  personal-ops worklist        See the full attention queue
+  personal-ops doctor          Run local diagnostics
+`,
+  );
+registerAuthAndMailCommands(program, cliContext);
 
-auth
-  .command("gmail")
-  .command("login")
-  .description("Run the installed-app Gmail OAuth login flow for the dedicated mailbox.")
-  .action(async () => {
-    await runGoogleLogin("/v1/auth/gmail");
-  });
-
-auth
-  .command("google")
-  .command("login")
-  .description("Run the installed-app Google OAuth login flow for the shared mailbox and calendar scopes.")
-  .action(async () => {
-    await runGoogleLogin("/v1/auth/google");
-  });
-
-const mail = program.command("mail");
-const draft = mail.command("draft");
-
-draft
-  .command("create")
-  .requiredOption("--to <emails...>", "Comma-separated or repeated recipient list")
-  .requiredOption("--subject <subject>", "Draft subject")
-  .option("--cc <emails...>", "Comma-separated or repeated CC list")
-  .option("--bcc <emails...>", "Comma-separated or repeated BCC list")
-  .option("--body-text <bodyText>", "Plain text body")
-  .option("--body-html <bodyHtml>", "HTML body")
-  .action(async (options) => {
-    const response = await requestJson<{ draft: unknown }>("POST", "/v1/mail/drafts", {
-      to: parseEmails(options.to),
-      cc: parseEmails(options.cc),
-      bcc: parseEmails(options.bcc),
-      subject: options.subject,
-      body_text: options.bodyText,
-      body_html: options.bodyHtml,
-    });
-    process.stdout.write(`${JSON.stringify(response, null, 2)}\n`);
-  });
-
-draft
-  .command("update")
-  .argument("<artifactId>", "Local draft artifact id")
-  .requiredOption("--to <emails...>", "Comma-separated or repeated recipient list")
-  .requiredOption("--subject <subject>", "Draft subject")
-  .option("--cc <emails...>", "Comma-separated or repeated CC list")
-  .option("--bcc <emails...>", "Comma-separated or repeated BCC list")
-  .option("--body-text <bodyText>", "Plain text body")
-  .option("--body-html <bodyHtml>", "HTML body")
-  .action(async (artifactId, options) => {
-    const response = await requestJson<{ draft: unknown }>("PATCH", `/v1/mail/drafts/${artifactId}`, {
-      to: parseEmails(options.to),
-      cc: parseEmails(options.cc),
-      bcc: parseEmails(options.bcc),
-      subject: options.subject,
-      body_text: options.bodyText,
-      body_html: options.bodyHtml,
-    });
-    process.stdout.write(`${JSON.stringify(response, null, 2)}\n`);
-  });
-
-draft.command("list").action(async () => {
-  const response = await requestJson<{ drafts: unknown }>("GET", "/v1/mail/drafts");
-  process.stdout.write(`${JSON.stringify(response, null, 2)}\n`);
-});
-
-draft
-  .command("request-approval")
-  .argument("<artifactId>", "Local draft artifact id")
-  .option("--note <text>", "Optional approval request note")
-  .option("--json", "Print raw JSON")
-  .action(async (artifactId, options) => {
-    const response = await requestJson<{ approval_request: unknown }>(
-      "POST",
-      `/v1/mail/drafts/${artifactId}/request-approval`,
-      { note: options.note },
-    );
-    printOutput(response, (value) => formatApprovalItems("Approval Queue", [value.approval_request]), options.json);
-  });
-
-const review = program.command("review");
+const review = program.command("review").description("Open and resolve higher-trust review items.");
 review
   .command("list")
   .option("--json", "Print raw JSON")
@@ -330,7 +144,7 @@ review
     printOutput(response, (value) => formatReviewResolveResult(value), options.json);
   });
 
-const approval = program.command("approval");
+const approval = program.command("approval").description("Work approval requests for outbound draft sends.");
 approval
   .command("list")
   .option("--state <state>", "Filter by approval state")
@@ -448,7 +262,7 @@ approval
     printOutput(response, (value) => formatApprovalConfirmation(value.confirmation), options.json);
   });
 
-const inbox = program.command("inbox");
+const inbox = program.command("inbox").description("Inspect inbox state, unread threads, and follow-up queues.");
 inbox
   .command("status")
   .option("--json", "Print raw JSON")
@@ -526,7 +340,7 @@ inbox
     printOutput(response, (value) => formatInboxThreads("Recent Mail Activity", value.threads), options.json);
   });
 
-const calendar = program.command("calendar");
+const calendar = program.command("calendar").description("Inspect calendar sync, upcoming events, and scheduling context.");
 calendar
   .command("status")
   .option("--json", "Print raw JSON")
@@ -713,7 +527,7 @@ calendar
     printOutput(response, (value) => formatCalendarTaskScheduleResult(value.scheduled), options.json);
   });
 
-const task = program.command("task");
+const task = program.command("task").description("Create and manage tracked operator or assistant tasks.");
 task
   .command("list")
   .option("--state <state>", "Filter by task state")
@@ -858,7 +672,7 @@ task
     printOutput(response, undefined, options.json);
   });
 
-const suggestion = program.command("suggestion");
+const suggestion = program.command("suggestion").description("Review assistant task suggestions before accepting them.");
 suggestion
   .command("list")
   .option("--status <status>", "Filter by suggestion status")
@@ -919,7 +733,9 @@ suggestion
     printOutput(response, undefined, options.json);
   });
 
-const recommendation = program.command("recommendation");
+const recommendation = program
+  .command("recommendation")
+  .description("Inspect and act on planning recommendations and hygiene summaries.");
 recommendation
   .command("list")
   .option("--status <status>", "Filter by recommendation status")
@@ -1308,7 +1124,9 @@ recommendationPolicy
     );
   });
 
-const recommendationGroup = recommendation.command("group");
+const recommendationGroup = recommendation
+  .command("group")
+  .description("Work grouped planning recommendations as one family.");
 recommendationGroup
   .command("show")
   .argument("<groupKey>", "Planning recommendation group key")
@@ -1469,8 +1287,11 @@ recommendation
     printOutput(response, undefined, options.json);
   });
 
-program
+const audit = program
   .command("audit")
+  .description("Read narrow assistant-safe audit history and operator-safe event traces.");
+
+audit
   .command("tail")
   .option("--limit <number>", "Number of audit events to return", "20")
   .option("--action <action>", "Filter by audit action")
@@ -1489,107 +1310,11 @@ program
     printOutput(response, (value) => formatAuditEvents(value.events), options.json);
   });
 
-program
-  .command("notify")
-  .command("test")
-  .action(() => {
-    execFileSync("osascript", [
-      "-e",
-      'display notification "personal-ops local notification path is working." with title "Personal Ops: Test"',
-    ]);
-    logger.info("notify_test");
-    process.stdout.write("Notification sent.\n");
-  });
-
-program
-  .command("status")
-  .description("Show high-level readiness for the local personal-ops service.")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ status: unknown }>("GET", "/v1/status");
-    printOutput(response, (value) => formatStatusReport(value.status), options.json);
-  });
-
-program
-  .command("worklist")
-  .description("Show what needs attention right now.")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ worklist: unknown }>("GET", "/v1/worklist");
-    printOutput(response, (value) => formatWorklistReport(value.worklist), options.json);
-  });
-
-program
-  .command("doctor")
-  .description("Run local diagnostics for the personal-ops service.")
-  .option("--deep", "Run a live Gmail verification call in addition to local checks")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const query = options.deep ? "?deep=true" : "";
-    const response = await requestJson<{ doctor: unknown }>("GET", `/v1/doctor${query}`);
-    printOutput(response, (value) => formatDoctorReport(value.doctor), options.json);
-  });
-
-const backup = program.command("backup");
-backup
-  .command("create")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ snapshot: unknown }>("POST", "/v1/snapshots");
-    printOutput(response, (value) => formatSnapshotManifest(value.snapshot), options.json);
-  });
-
-backup
-  .command("list")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ snapshots: unknown[] }>("GET", "/v1/snapshots");
-    printOutput(response, (value) => formatSnapshotList(value.snapshots), options.json);
-  });
-
-backup
-  .command("inspect")
-  .argument("<snapshotId>", "Snapshot id")
-  .option("--json", "Print raw JSON")
-  .action(async (snapshotId, options) => {
-    const response = await requestJson<{ snapshot: unknown }>("GET", `/v1/snapshots/${snapshotId}`);
-    printOutput(response, (value) => formatSnapshotInspection(value.snapshot), options.json);
-  });
-
-const sendWindow = program.command("send-window");
-sendWindow
-  .command("status")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ send_window: unknown }>("GET", "/v1/send-window");
-    printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
-  });
-
-sendWindow
-  .command("enable")
-  .option("--minutes <number>", "Minutes to keep the send window open", "15")
-  .requiredOption("--reason <text>", "Reason for enabling the send window")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ send_window: unknown }>("POST", "/v1/send-window/enable", {
-      minutes: Number(options.minutes),
-      reason: options.reason,
-    });
-    printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
-  });
-
-sendWindow
-  .command("disable")
-  .requiredOption("--reason <text>", "Reason for disabling the send window")
-  .option("--json", "Print raw JSON")
-  .action(async (options) => {
-    const response = await requestJson<{ send_window: unknown }>("POST", "/v1/send-window/disable", {
-      reason: options.reason,
-    });
-    printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
-  });
+registerRuntimeCommands(program, cliContext, logger);
+registerInstallAndBackupCommands(program, cliContext, paths);
 
 program.parseAsync(process.argv).catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  const message = error instanceof Error ? error.message.trimEnd() : String(error);
+  process.stderr.write(`${message}\n`);
   process.exit(1);
 });

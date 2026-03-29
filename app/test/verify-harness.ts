@@ -1,0 +1,744 @@
+import assert from "node:assert/strict";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { createRequestJson } from "../src/cli/http-client.js";
+import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
+import { PersonalOpsDb } from "../src/db.js";
+import type {
+  ClientIdentity,
+  Config,
+  InstallCheckReport,
+  Paths,
+  RestoreResult,
+  SnapshotInspection,
+  SnapshotManifest,
+  SnapshotSummary,
+} from "../src/types.js";
+
+const execFileAsync = promisify(execFile);
+const DEFAULT_TIMEOUT_MS = 20_000;
+const MCP_CLIENT_INFO = {
+  name: "personal-ops-verify",
+  version: "0.1.0",
+};
+const VERIFY_IDENTITY: ClientIdentity = {
+  client_id: "phase3-verify",
+  requested_by: "phase3-verify",
+  auth_role: "operator",
+};
+
+interface VerificationEnvironment {
+  appDir: string;
+  repoRoot: string;
+  baseDir: string;
+  homeDir: string;
+  env: Record<string, string>;
+  paths: Paths;
+  config: Config;
+  port: number;
+  launchAgentLabel: string;
+}
+
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+interface DaemonHandle {
+  child: ChildProcess;
+  stdoutLines: string[];
+  stderrLines: string[];
+  descriptor: string;
+}
+
+interface MpcCheckResult {
+  tools: string[];
+}
+
+function repoAppDir() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+function repoRootDir() {
+  return path.resolve(repoAppDir(), "..");
+}
+
+function buildChildEnv(overrides: Record<string, string>): Record<string, string> {
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+  return {
+    ...inherited,
+    ...overrides,
+  };
+}
+
+function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
+  const keys = [
+    "HOME",
+    "PATH",
+    "PERSONAL_OPS_APP_DIR",
+    "PERSONAL_OPS_CONFIG_DIR",
+    "PERSONAL_OPS_STATE_DIR",
+    "PERSONAL_OPS_LOG_DIR",
+    "PERSONAL_OPS_LAUNCH_AGENT_LABEL",
+  ];
+  const previous = new Map<string, string | undefined>();
+  for (const key of keys) {
+    previous.set(key, process.env[key]);
+    const nextValue = env[key];
+    if (nextValue === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = nextValue;
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    for (const key of keys) {
+      const value = previous.get(key);
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+async function reservePort(): Promise<number> {
+  const server = net.createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Could not reserve a loopback port for verification.");
+  }
+  const port = address.port;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+  return port;
+}
+
+function writeIsolatedConfig(paths: Paths, port: number, mailbox = ""): void {
+  fs.writeFileSync(
+    paths.configFile,
+    `[service]
+host = "127.0.0.1"
+port = ${port}
+
+[http]
+allowed_origins = []
+
+[gmail]
+account_email = "${mailbox}"
+review_url = "https://mail.google.com/mail/u/0/#drafts"
+
+[calendar]
+enabled = true
+provider = "google"
+included_calendar_ids = []
+sync_past_days = 30
+sync_future_days = 90
+sync_interval_minutes = 5
+workday_start_local = "09:00"
+workday_end_local = "18:00"
+meeting_prep_warning_minutes = 30
+day_overload_event_threshold = 6
+schedule_pressure_free_minutes_threshold = 60
+
+[auth]
+keychain_service = "personal-ops.gmail.verify"
+oauth_client_file = "${paths.oauthClientFile}"
+`,
+    "utf8",
+  );
+}
+
+async function createVerificationEnvironment(name: string): Promise<VerificationEnvironment> {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), `personal-ops-verify-${name}-`));
+  const homeDir = path.join(baseDir, "home");
+  fs.mkdirSync(homeDir, { recursive: true });
+  const port = await reservePort();
+  const launchAgentLabel = `com.d.personal-ops.verify.${name}.${process.pid}.${Date.now()}`;
+  const appDir = repoAppDir();
+  const repoRoot = repoRootDir();
+  const env = buildChildEnv({
+    HOME: homeDir,
+    PERSONAL_OPS_APP_DIR: appDir,
+    PERSONAL_OPS_CONFIG_DIR: path.join(homeDir, ".config", "personal-ops"),
+    PERSONAL_OPS_STATE_DIR: path.join(homeDir, "Library", "Application Support", "personal-ops"),
+    PERSONAL_OPS_LOG_DIR: path.join(homeDir, "Library", "Logs", "personal-ops"),
+    PERSONAL_OPS_LAUNCH_AGENT_LABEL: launchAgentLabel,
+  });
+  const paths = withRuntimeEnv(env, () => ensureRuntimeFiles());
+  writeIsolatedConfig(paths, port);
+  const config = loadConfig(paths);
+  return { appDir, repoRoot, baseDir, homeDir, env, paths, config, port, launchAgentLabel };
+}
+
+function wrapperPaths(env: VerificationEnvironment) {
+  return {
+    cli: path.join(env.homeDir, ".local", "bin", "personal-ops"),
+    daemon: path.join(env.homeDir, ".local", "bin", "personal-opsd"),
+    codexMcp: path.join(env.homeDir, ".codex", "bin", "personal-ops-mcp"),
+    claudeMcp: path.join(env.homeDir, ".claude", "bin", "personal-ops-mcp"),
+    launchAgentPlist: path.join(env.homeDir, "Library", "LaunchAgents", `${env.launchAgentLabel}.plist`),
+  };
+}
+
+function parseWrapperTarget(wrapperPath: string): string | null {
+  if (!fs.existsSync(wrapperPath)) {
+    return null;
+  }
+  const raw = fs.readFileSync(wrapperPath, "utf8");
+  return raw.match(/exec\s+"[^"]+"\s+"([^"]+)"\s+"\$@"/)?.[1] ?? null;
+}
+
+function assertExecutable(wrapperPath: string): void {
+  const stats = fs.statSync(wrapperPath);
+  assert.notEqual(stats.mode & 0o111, 0, `${wrapperPath} should be executable.`);
+}
+
+async function runCommand(
+  phase: string,
+  command: string,
+  args: string[],
+  options: { cwd: string; env: Record<string, string> },
+): Promise<CommandResult> {
+  try {
+    const result = await execFileAsync(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return {
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
+  } catch (error) {
+    const details =
+      error instanceof Error
+        ? `\nstdout:\n${String((error as { stdout?: string }).stdout ?? "")}\nstderr:\n${String(
+            (error as { stderr?: string }).stderr ?? "",
+          )}`
+        : "";
+    throw new Error(`${phase} failed while running ${command} ${args.join(" ")}.${details}`);
+  }
+}
+
+function parseJsonOutput<T>(raw: string, label: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    throw new Error(`${label} did not produce valid JSON.\nOutput:\n${raw}\n${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function tailLines(lines: string[], count = 20): string {
+  return lines.slice(-count).join("\n");
+}
+
+async function waitForHealth(config: Config, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = net.connect(config.servicePort, config.serviceHost, () => {
+          request.end();
+          resolve();
+        });
+        request.on("error", reject);
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+  throw new Error(`Timed out waiting for daemon health on ${config.serviceHost}:${config.servicePort}.`);
+}
+
+async function startDaemonProcess(
+  env: VerificationEnvironment,
+  command: string,
+  args: string[],
+  descriptor: string,
+): Promise<DaemonHandle> {
+  const child = spawn(command, args, {
+    cwd: env.repoRoot,
+    env: env.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdoutLines.push(...chunk.split(/\r?\n/).filter(Boolean));
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderrLines.push(...chunk.split(/\r?\n/).filter(Boolean));
+  });
+
+  const exitPromise = once(child, "exit").then(([code, signal]) => ({ code, signal }));
+  try {
+    await Promise.race([
+      waitForHealth(env.config),
+      exitPromise.then((result) => {
+        throw new Error(`${descriptor} exited before becoming healthy (code=${String(result.code)}, signal=${String(result.signal)}).`);
+      }),
+    ]);
+  } catch (error) {
+    child.kill("SIGTERM");
+    throw new Error(
+      `${descriptor} failed to start.\n${error instanceof Error ? error.message : String(error)}\nstdout:\n${tailLines(
+        stdoutLines,
+      )}\nstderr:\n${tailLines(stderrLines)}`,
+    );
+  }
+
+  return { child, stdoutLines, stderrLines, descriptor };
+}
+
+async function stopDaemonProcess(handle: DaemonHandle | null): Promise<void> {
+  if (!handle) {
+    return;
+  }
+  if (handle.child.exitCode !== null || handle.child.signalCode !== null) {
+    return;
+  }
+  handle.child.kill("SIGTERM");
+  const exited = once(handle.child, "exit");
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`${handle.descriptor} did not stop within 10 seconds.`)), 10_000),
+  );
+  try {
+    await Promise.race([exited, timeout]);
+  } catch {
+    handle.child.kill("SIGKILL");
+    await once(handle.child, "exit");
+  }
+}
+
+function createHttpClient(config: Config) {
+  return createRequestJson(config);
+}
+
+async function runHttpSmoke(env: VerificationEnvironment): Promise<void> {
+  const requestJson = createHttpClient(env.config);
+  const status = await requestJson<{ status: { state: string } }>("GET", "/v1/status");
+  assert.ok(status.status.state, "status report should include a state.");
+  const worklist = await requestJson<{ worklist: { items: unknown[] } }>("GET", "/v1/worklist");
+  assert.ok(Array.isArray(worklist.worklist.items), "worklist should include items.");
+  const doctor = await requestJson<{ doctor: { checks: unknown[] } }>("GET", "/v1/doctor");
+  assert.ok(Array.isArray(doctor.doctor.checks), "doctor should include checks.");
+}
+
+function parseMcpJson(result: { content?: Array<{ type: string; text?: string }>; toolResult?: unknown }, label: string): any {
+  if ("toolResult" in result && result.toolResult) {
+    return result.toolResult;
+  }
+  const textPayload = result.content?.find((item) => item.type === "text")?.text;
+  if (!textPayload) {
+    throw new Error(`${label} did not return text content.`);
+  }
+  return parseJsonOutput(textPayload, label);
+}
+
+async function runMcpSmoke(
+  env: VerificationEnvironment,
+  server: { command: string; args?: string[] },
+  options: { planningTool?: boolean } = {},
+): Promise<MpcCheckResult> {
+  const transport = new StdioClientTransport({
+    command: server.command,
+    cwd: env.repoRoot,
+    env: env.env,
+    stderr: "pipe",
+    ...(server.args ? { args: server.args } : {}),
+  });
+  const stderrLines: string[] = [];
+  const stderr = transport.stderr;
+  if (stderr) {
+    const readable = stderr as unknown as NodeJS.ReadableStream & { setEncoding?: (encoding: BufferEncoding) => void };
+    readable.setEncoding?.("utf8");
+    readable.on("data", (chunk: string) => {
+      stderrLines.push(...chunk.split(/\r?\n/).filter(Boolean));
+    });
+  }
+
+  const client = new Client(MCP_CLIENT_INFO, { capabilities: {} });
+  try {
+    await client.connect(transport);
+    const toolsResponse = await client.listTools();
+    const toolNames = toolsResponse.tools.map((tool) => tool.name);
+    assert.ok(toolNames.includes("personal_ops_status"), "MCP tools should include personal_ops_status.");
+    assert.ok(toolNames.includes("inbox_status"), "MCP tools should include inbox_status.");
+
+    const statusResult = await client.callTool({ name: "personal_ops_status", arguments: {} });
+    const statusPayload = parseMcpJson(statusResult, "personal_ops_status");
+    assert.ok(statusPayload.status?.state, "personal_ops_status should return a status payload.");
+
+    if (options.planningTool) {
+      const planningResult = await client.callTool({ name: "planning_recommendation_summary", arguments: {} });
+      const planningPayload = parseMcpJson(planningResult, "planning_recommendation_summary");
+      assert.ok(
+        planningPayload.planning_recommendation_summary,
+        "planning_recommendation_summary should return summary data.",
+      );
+    } else {
+      const inboxResult = await client.callTool({ name: "inbox_status", arguments: {} });
+      const inboxPayload = parseMcpJson(inboxResult, "inbox_status");
+      assert.ok(inboxPayload.inbox, "inbox_status should return inbox data.");
+    }
+    await transport.close();
+    return { tools: toolNames };
+  } catch (error) {
+    try {
+      await transport.close();
+    } catch {
+      // best effort close for failing verification harnesses
+    }
+    throw new Error(
+      `MCP smoke failed.\n${error instanceof Error ? error.message : String(error)}\nstderr:\n${tailLines(stderrLines)}`,
+    );
+  }
+}
+
+async function createSnapshotViaHttp(env: VerificationEnvironment): Promise<SnapshotManifest> {
+  const requestJson = createHttpClient(env.config);
+  const created = await requestJson<{ snapshot: SnapshotManifest }>("POST", "/v1/snapshots");
+  assert.ok(created.snapshot.snapshot_id, "snapshot create should return an id.");
+  const inspected = await requestJson<{ snapshot: SnapshotInspection }>(
+    "GET",
+    `/v1/snapshots/${encodeURIComponent(created.snapshot.snapshot_id)}`,
+  );
+  assert.equal(inspected.snapshot.manifest.snapshot_id, created.snapshot.snapshot_id);
+  return created.snapshot;
+}
+
+function seedFixtureState(paths: Paths): { taskId: string; suggestionId: string; recommendationId: string } {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    const task = db.createTask(VERIFY_IDENTITY, {
+      title: "Verify fixture task",
+      kind: "human_reminder",
+      priority: "high",
+      owner: "operator",
+    });
+    const suggestion = db.createTaskSuggestion(VERIFY_IDENTITY, {
+      title: "Verify fixture suggestion",
+      kind: "human_reminder",
+      priority: "normal",
+    });
+    const recommendation = db.createPlanningRecommendation(VERIFY_IDENTITY, {
+      kind: "schedule_task_block",
+      priority: "normal",
+      source: "system_generated",
+      reason_code: "verify_fixture",
+      reason_summary: "Verification harness fixture recommendation.",
+      dedupe_key: "verify-fixture",
+      source_fingerprint: "verify-fixture",
+      proposed_calendar_id: "primary",
+      proposed_start_at: "2026-04-01T18:00:00.000Z",
+      proposed_end_at: "2026-04-01T18:30:00.000Z",
+      proposed_title: "Verify fixture block",
+      slot_state: "ready",
+      outcome_state: "none",
+    });
+    return {
+      taskId: task.task_id,
+      suggestionId: suggestion.suggestion_id,
+      recommendationId: recommendation.recommendation_id,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function mutateFixtureState(paths: Paths): void {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    db.createTask(VERIFY_IDENTITY, {
+      title: "Mutated task after snapshot",
+      kind: "human_reminder",
+      priority: "low",
+      owner: "operator",
+    });
+  } finally {
+    db.close();
+  }
+  fs.writeFileSync(
+    paths.configFile,
+    fs.readFileSync(paths.configFile, "utf8").replace('account_email = ""', 'account_email = "mutated@example.com"'),
+    "utf8",
+  );
+  fs.writeFileSync(
+    paths.policyFile,
+    fs.readFileSync(paths.policyFile, "utf8").replace("allow_send = false", "allow_send = true"),
+    "utf8",
+  );
+}
+
+function assertFixtureRestored(paths: Paths, originalSnapshotId: string, restoreResult: RestoreResult): void {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    const tasks = db.listTasks();
+    const suggestions = db.listTaskSuggestions();
+    const recommendations = db.listPlanningRecommendations({ include_resolved: true });
+    assert.equal(tasks.some((task) => task.title === "Verify fixture task"), true, "restored DB should contain the fixture task.");
+    assert.equal(tasks.some((task) => task.title === "Mutated task after snapshot"), false, "restored DB should not contain post-snapshot mutations.");
+    assert.equal(suggestions.some((suggestion) => suggestion.title === "Verify fixture suggestion"), true);
+    assert.equal(
+      recommendations.some((recommendation) => recommendation.reason_code === "verify_fixture"),
+      true,
+      "restored DB should contain the fixture planning recommendation.",
+    );
+  } finally {
+    db.close();
+  }
+  assert.equal(fs.existsSync(path.join(paths.snapshotsDir, originalSnapshotId, "manifest.json")), true);
+  assert.equal(fs.existsSync(path.join(paths.snapshotsDir, restoreResult.rescue_snapshot_id, "manifest.json")), true);
+  const configText = fs.readFileSync(paths.configFile, "utf8");
+  const policyText = fs.readFileSync(paths.policyFile, "utf8");
+  assert.match(configText, /account_email = ""/);
+  assert.match(policyText, /allow_send = false/);
+}
+
+function assertBootstrapArtifacts(env: VerificationEnvironment): void {
+  const wrappers = wrapperPaths(env);
+  for (const wrapperPath of [wrappers.cli, wrappers.daemon, wrappers.codexMcp, wrappers.claudeMcp]) {
+    assert.equal(fs.existsSync(wrapperPath), true, `${wrapperPath} should exist after bootstrap.`);
+    assertExecutable(wrapperPath);
+  }
+  assert.equal(parseWrapperTarget(wrappers.cli), path.join(env.appDir, "dist", "src", "cli.js"));
+  assert.equal(parseWrapperTarget(wrappers.daemon), path.join(env.appDir, "dist", "src", "daemon.js"));
+  assert.equal(parseWrapperTarget(wrappers.codexMcp), path.join(env.appDir, "dist", "src", "mcp-server.js"));
+  assert.equal(parseWrapperTarget(wrappers.claudeMcp), path.join(env.appDir, "dist", "src", "mcp-server.js"));
+  const plist = fs.readFileSync(wrappers.launchAgentPlist, "utf8");
+  assert.match(plist, new RegExp(env.launchAgentLabel.replaceAll(".", "\\.")));
+  assert.match(plist, new RegExp(wrapperPaths(env).daemon.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(plist, /<key>EnvironmentVariables<\/key>/);
+}
+
+function launchctlDomain() {
+  return `gui/${process.getuid?.() ?? 501}`;
+}
+
+async function stopLaunchAgentIfPresent(env: VerificationEnvironment): Promise<void> {
+  const plistPath = wrapperPaths(env).launchAgentPlist;
+  if (!fs.existsSync(plistPath)) {
+    return;
+  }
+  try {
+    await runCommand("launchagent cleanup", "launchctl", ["bootout", launchctlDomain(), plistPath], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+  } catch {
+    // best effort cleanup for temporary verification agents
+  }
+}
+
+async function verifyLaunchAgentLoaded(env: VerificationEnvironment): Promise<void> {
+  const plistPath = wrapperPaths(env).launchAgentPlist;
+  const printResult = await runCommand(
+    "launchagent print",
+    "launchctl",
+    ["print", `${launchctlDomain()}/${env.launchAgentLabel}`],
+    { cwd: env.repoRoot, env: env.env },
+  );
+  assert.match(printResult.stdout, /state = (running|spawn scheduled|waiting)/);
+  assert.equal(fs.existsSync(plistPath), true, "launchagent plist should exist.");
+}
+
+async function runCliJson<T>(env: VerificationEnvironment, args: string[]): Promise<T> {
+  const cliPath = wrapperPaths(env).cli;
+  const result = await runCommand(`cli ${args.join(" ")}`, cliPath, args, {
+    cwd: env.repoRoot,
+    env: env.env,
+  });
+  return parseJsonOutput<T>(result.stdout, `CLI ${args.join(" ")}`);
+}
+
+async function runBootstrap(env: VerificationEnvironment): Promise<void> {
+  const bootstrapPath = path.join(env.repoRoot, "bootstrap");
+  assert.equal(fs.existsSync(bootstrapPath), true, "bootstrap script should exist.");
+  await runCommand("bootstrap", bootstrapPath, [], {
+    cwd: env.repoRoot,
+    env: env.env,
+  });
+}
+
+function cleanupEnvironment(env: VerificationEnvironment): void {
+  fs.rmSync(env.baseDir, { recursive: true, force: true });
+}
+
+function formatFailureContext(
+  env: VerificationEnvironment,
+  daemon: DaemonHandle | null,
+  extra?: { endpoint?: string; command?: string },
+): string {
+  const details = [`Temp home: ${env.homeDir}`];
+  if (extra?.command) {
+    details.push(`Command: ${extra.command}`);
+  }
+  if (extra?.endpoint) {
+    details.push(`Endpoint: ${extra.endpoint}`);
+  }
+  if (daemon) {
+    details.push(`Daemon stdout:\n${tailLines(daemon.stdoutLines) || "(none)"}`);
+    details.push(`Daemon stderr:\n${tailLines(daemon.stderrLines) || "(none)"}`);
+  }
+  return details.join("\n");
+}
+
+export async function runSmokeVerification(): Promise<void> {
+  const env = await createVerificationEnvironment("smoke");
+  let daemon: DaemonHandle | null = null;
+  try {
+    await runCommand("install cli wrapper", "node", [path.join(env.appDir, "dist", "src", "cli.js"), "install", "wrapper", "--kind", "cli", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    await runCommand("install daemon wrapper", "node", [path.join(env.appDir, "dist", "src", "cli.js"), "install", "wrapper", "--kind", "daemon", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    await runCommand("install codex mcp wrapper", "node", [path.join(env.appDir, "dist", "src", "cli.js"), "install", "wrapper", "--kind", "mcp", "--assistant", "codex", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    await runCommand("install claude mcp wrapper", "node", [path.join(env.appDir, "dist", "src", "cli.js"), "install", "wrapper", "--kind", "mcp", "--assistant", "claude", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+
+    const wrappers = wrapperPaths(env);
+    for (const wrapperPath of [wrappers.cli, wrappers.daemon, wrappers.codexMcp, wrappers.claudeMcp]) {
+      assert.equal(fs.existsSync(wrapperPath), true);
+      assertExecutable(wrapperPath);
+    }
+
+    daemon = await startDaemonProcess(env, wrappers.daemon, [], "smoke daemon wrapper");
+    await runHttpSmoke(env);
+    await runMcpSmoke(env, { command: wrappers.codexMcp });
+    await createSnapshotViaHttp(env);
+  } catch (error) {
+    throw new Error(
+      `Smoke verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
+    );
+  } finally {
+    await stopDaemonProcess(daemon);
+    cleanupEnvironment(env);
+  }
+}
+
+export async function runLaunchAgentVerification(): Promise<void> {
+  if (process.platform !== "darwin") {
+    process.stdout.write("Skipping launchagent verification: macOS only.\n");
+    return;
+  }
+  const env = await createVerificationEnvironment("launchagent");
+  try {
+    const cliEntry = path.join(env.appDir, "dist", "src", "cli.js");
+    await runCommand("install all", "node", [cliEntry, "install", "all", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    await verifyLaunchAgentLoaded(env);
+    await runCommand("reload launchagent", "node", [cliEntry, "install", "launchagent", "--json"], {
+      cwd: env.repoRoot,
+      env: env.env,
+    });
+    await verifyLaunchAgentLoaded(env);
+    assertBootstrapArtifacts(env);
+  } catch (error) {
+    throw new Error(`LaunchAgent verification failed.\n${error instanceof Error ? error.message : String(error)}\nTemp home: ${env.homeDir}`);
+  } finally {
+    await stopLaunchAgentIfPresent(env);
+    cleanupEnvironment(env);
+  }
+}
+
+export async function runFullVerification(): Promise<void> {
+  const env = await createVerificationEnvironment("full");
+  let daemon: DaemonHandle | null = null;
+  try {
+    await runBootstrap(env);
+    assertBootstrapArtifacts(env);
+    const installCheck = await runCliJson<{ install_check: InstallCheckReport }>(env, ["install", "check", "--json"]);
+    assert.equal(installCheck.install_check.state, "setup_required");
+
+    if (process.platform === "darwin") {
+      await verifyLaunchAgentLoaded(env);
+      await stopLaunchAgentIfPresent(env);
+    }
+
+    seedFixtureState(env.paths);
+    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "full daemon wrapper");
+
+    const status = await runCliJson<{ status: { state: string } }>(env, ["status", "--json"]);
+    const worklist = await runCliJson<{ worklist: { items: unknown[] } }>(env, ["worklist", "--json"]);
+    const doctor = await runCliJson<{ doctor: { checks: unknown[] } }>(env, ["doctor", "--json"]);
+    assert.ok(status.status.state);
+    assert.ok(Array.isArray(worklist.worklist.items));
+    assert.ok(Array.isArray(doctor.doctor.checks));
+
+    await runHttpSmoke(env);
+    await runMcpSmoke(env, { command: wrapperPaths(env).codexMcp }, { planningTool: true });
+
+    const snapshotResponse = await runCliJson<{ snapshot: SnapshotManifest }>(env, ["backup", "create", "--json"]);
+    const snapshotId = snapshotResponse.snapshot.snapshot_id;
+    assert.ok(snapshotId);
+    const snapshotInspect = await runCliJson<{ snapshot: SnapshotInspection }>(env, ["backup", "inspect", snapshotId, "--json"]);
+    assert.equal(snapshotInspect.snapshot.manifest.snapshot_id, snapshotId);
+
+    await stopDaemonProcess(daemon);
+    daemon = null;
+
+    mutateFixtureState(env.paths);
+    const restoreResponse = await runCliJson<{ restore: RestoreResult }>(env, [
+      "backup",
+      "restore",
+      snapshotId,
+      "--yes",
+      "--with-config",
+      "--with-policy",
+      "--json",
+    ]);
+    assert.equal(restoreResponse.restore.restored_snapshot_id, snapshotId);
+    assertFixtureRestored(env.paths, snapshotId, restoreResponse.restore);
+
+    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "post-restore daemon wrapper");
+    await runHttpSmoke(env);
+  } catch (error) {
+    throw new Error(
+      `Full verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
+    );
+  } finally {
+    await stopDaemonProcess(daemon);
+    if (process.platform === "darwin") {
+      await stopLaunchAgentIfPresent(env);
+    }
+    cleanupEnvironment(env);
+  }
+}

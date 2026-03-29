@@ -85,6 +85,10 @@ export class PersonalOpsDb {
     this.migrate();
   }
 
+  close(): void {
+    this.db.close();
+  }
+
   registerClient(identity: ClientIdentity): void {
     const now = nowIso();
     this.db

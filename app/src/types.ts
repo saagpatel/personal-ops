@@ -14,6 +14,7 @@ export interface Paths {
   assistantApiTokenFile: string;
   databaseFile: string;
   appLogFile: string;
+  installManifestFile: string;
 }
 
 export interface Config {
@@ -1109,6 +1110,7 @@ export interface InboxStatusReport {
 
 export type ServiceState = "ready" | "setup_required" | "degraded";
 export type DoctorCheckSeverity = "pass" | "warn" | "fail";
+export type AssistantKind = "codex" | "claude";
 
 export interface DoctorCheck {
   id: string;
@@ -1123,6 +1125,43 @@ export interface SnapshotSummary {
   created_at: string;
   path: string;
   daemon_state: ServiceState;
+}
+
+export interface InstallManifest {
+  generated_at: string;
+  node_executable: string;
+  app_dir: string;
+  launch_agent_label: string;
+  launch_agent_plist_path: string;
+  assistant_wrappers: AssistantKind[];
+  wrapper_paths: {
+    cli: string;
+    daemon: string;
+    codex_mcp: string;
+    claude_mcp: string;
+  };
+}
+
+export interface InstallCheckReport {
+  generated_at: string;
+  state: ServiceState;
+  summary: {
+    pass: number;
+    warn: number;
+    fail: number;
+  };
+  checks: DoctorCheck[];
+  manifest: InstallManifest | null;
+}
+
+export interface RestoreResult {
+  restored_snapshot_id: string;
+  rescue_snapshot_id: string;
+  restored_database_path: string;
+  restored_config: boolean;
+  restored_policy: boolean;
+  launch_agent_was_running: boolean;
+  launch_agent_restarted: boolean;
 }
 
 export interface ServiceStatusReport {

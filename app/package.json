@@ -7,6 +7,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js",
+    "verify:smoke": "npm run build && node dist/test/verify-smoke.js",
+    "verify:full": "npm run build && node dist/test/verify-full.js",
+    "verify:launchagent": "npm run build && node dist/test/verify-launchagent.js",
     "daemon": "node dist/src/daemon.js",
     "cli": "node dist/src/cli.js",
     "mcp": "node dist/src/mcp-server.js"

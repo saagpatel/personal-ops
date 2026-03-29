@@ -1,0 +1,102 @@
+import { execFileSync } from "node:child_process";
+import type { Command } from "commander";
+import {
+  formatDoctorReport,
+  formatNowReport,
+  formatSendWindowStatus,
+  formatStatusReport,
+  formatWorklistReport,
+} from "../../formatters.js";
+import type { Logger } from "../../logger.js";
+import type { CliContext } from "../shared.js";
+
+export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger) {
+  program
+    .command("notify")
+    .description("Local notification helpers.")
+    .command("test")
+    .description("Show a macOS test notification to confirm local notifications work.")
+    .action(() => {
+      execFileSync("osascript", [
+        "-e",
+        'display notification "personal-ops local notification path is working." with title "Personal Ops: Test"',
+      ]);
+      logger.info("notify_test");
+      process.stdout.write("Notification sent.\n");
+    });
+
+  program
+    .command("status")
+    .description("Show the full operator readiness summary for the local personal-ops service.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ status: unknown }>("GET", "/v1/status");
+      context.printOutput(response, (value) => formatStatusReport(value.status), options.json);
+    });
+
+  program
+    .command("now")
+    .description("Show the shortest attention-oriented operator summary.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const [statusResponse, worklistResponse] = await Promise.all([
+        context.requestJson<{ status: unknown }>("GET", "/v1/status"),
+        context.requestJson<{ worklist: unknown }>("GET", "/v1/worklist"),
+      ]);
+      const payload = { status: statusResponse.status, worklist: worklistResponse.worklist };
+      context.printOutput(payload, (value) => formatNowReport(value.status, value.worklist), options.json);
+    });
+
+  program
+    .command("worklist")
+    .description("Show the full queue of what needs attention right now.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ worklist: unknown }>("GET", "/v1/worklist");
+      context.printOutput(response, (value) => formatWorklistReport(value.worklist), options.json);
+    });
+
+  program
+    .command("doctor")
+    .description("Run local diagnostics and explain what needs attention next.")
+    .option("--deep", "Run a live Gmail verification call in addition to local checks")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const query = options.deep ? "?deep=true" : "";
+      const response = await context.requestJson<{ doctor: unknown }>("GET", `/v1/doctor${query}`);
+      context.printOutput(response, (value) => formatDoctorReport(value.doctor), options.json);
+    });
+
+  const sendWindow = program.command("send-window").description("Inspect or control the timed send window.");
+  sendWindow
+    .command("status")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ send_window: unknown }>("GET", "/v1/send-window");
+      context.printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
+    });
+
+  sendWindow
+    .command("enable")
+    .option("--minutes <number>", "Minutes to keep the send window open", "15")
+    .requiredOption("--reason <text>", "Reason for enabling the send window")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ send_window: unknown }>("POST", "/v1/send-window/enable", {
+        minutes: Number(options.minutes),
+        reason: options.reason,
+      });
+      context.printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
+    });
+
+  sendWindow
+    .command("disable")
+    .requiredOption("--reason <text>", "Reason for disabling the send window")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ send_window: unknown }>("POST", "/v1/send-window/disable", {
+        reason: options.reason,
+      });
+      context.printOutput(response, (value) => formatSendWindowStatus(value.send_window), options.json);
+    });
+}
