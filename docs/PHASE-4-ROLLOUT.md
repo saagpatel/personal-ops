@@ -52,12 +52,10 @@ Live sanity highlights:
 
 ## Git Closeout
 
-This section must be updated at the end of the phase with:
-
 - branch name: `codex/phase-4-operator-ux`
-- commit hash: pending
-- pushed remote branch: pending
-- draft PR link: pending
+- commit hash: `3ec79c4d9f952be418999d36c2a995db2c32cfeb`
+- pushed remote branch: `origin/codex/phase-4-operator-ux`
+- draft PR link: `https://github.com/saagpatel/personal-ops/pull/1`
 
 ## Notes
 
