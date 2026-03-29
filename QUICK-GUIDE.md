@@ -32,6 +32,8 @@ Keep these pieces separate:
 
 ### Daily commands
 
+- `personal-ops console`
+  Opens the local read-first operator console in the browser.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`

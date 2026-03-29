@@ -37,6 +37,7 @@ Use this path if you want to:
 
 - install or move the system to another Mac
 - understand the single-primary-machine model before using backups to migrate state
+- use the local operator console for read-first daily visibility
 - run the daemon and wrappers
 - authenticate Gmail and Google Calendar
 - use the daily CLI commands
@@ -61,7 +62,7 @@ Use this path if you want to:
 ## Main docs map
 
 - [OPERATIONS.md](OPERATIONS.md)
-  The practical runbook for install, auth, wrappers, LaunchAgent, backup, restore, verification, and troubleshooting.
+  The practical runbook for install, auth, wrappers, LaunchAgent, console access, backup, restore, verification, and troubleshooting.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
   The current system shape after Phases 1 to 4, including trust boundaries and module layout.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)

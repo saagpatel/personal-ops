@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-console-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js",
     "verify:smoke": "npm run build && node dist/test/verify-smoke.js",
     "verify:full": "npm run build && node dist/test/verify-full.js",
+    "verify:console": "npm run build && node dist/test/verify-console.js",
     "verify:launchagent": "npm run build && node dist/test/verify-launchagent.js",
     "daemon": "node dist/src/daemon.js",
     "cli": "node dist/src/cli.js",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "playwright": "^1.55.0",
     "typescript": "^5.9.3"
   }
 }
