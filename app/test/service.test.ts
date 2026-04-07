@@ -6651,7 +6651,7 @@ test("phase-6 meeting workflow only surfaces prep when the meeting window is clo
     synced_at: new Date().toISOString(),
   });
 
-  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "today" });
+  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "next_24h" });
   const prepNeeded = report.sections.find((section) => section.title === "Prep Needed");
   const prepText = JSON.stringify(prepNeeded?.items ?? []);
 
