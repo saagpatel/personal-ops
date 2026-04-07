@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { PersonalOpsDb } from "./db.js";
 import { buildInstallCheckReport } from "./install.js";
 import {
   getLatestSnapshotSummary,
@@ -284,6 +286,7 @@ export async function buildHealthCheckReport(
   const summary = summarizeChecks(checks);
   const prune = pruneSnapshots(paths, { dryRun: true });
   const recoveryRehearsal = readRecoveryRehearsalStamp(paths);
+  const repairDb = fs.existsSync(paths.databaseFile) ? new PersonalOpsDb(paths.databaseFile) : null;
   const repairPlan = buildRepairPlan({
     install_check: installCheck,
     doctor: doctorReport,
@@ -292,7 +295,9 @@ export async function buildHealthCheckReport(
     snapshot_age_limit_hours: options.snapshotAgeLimitHours ?? SNAPSHOT_WARN_HOURS,
     prune_candidate_count: prune.prune_candidates,
     recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+    recent_repair_executions: repairDb?.listRepairExecutions({ days: 30, limit: 100 }) ?? [],
   });
+  repairDb?.close();
   return {
     generated_at: new Date().toISOString(),
     state: classifyHealthState(checks),

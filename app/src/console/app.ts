@@ -1885,6 +1885,8 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>Repair plan</h3>
           <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
+          <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(payload.doctor.repair_plan.last_repair ? `${payload.doctor.repair_plan.last_repair.step_id} (${payload.doctor.repair_plan.last_repair.outcome})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(payload.doctor.repair_plan.recurring_issue ? `${payload.doctor.repair_plan.recurring_issue.step_id}: ${payload.doctor.repair_plan.recurring_issue.prevention_hint}` : "none")}</dd></div>
           ${
             payload.doctor.repair_plan.steps.length === 0
               ? `<div class="empty">No repair actions are pending right now.</div>`

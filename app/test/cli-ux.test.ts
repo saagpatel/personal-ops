@@ -15,6 +15,7 @@ import {
   formatWorklistReport,
 } from "../src/formatters.js";
 import { formatGoogleLoginError as formatCliGoogleLoginError } from "../src/cli/http-client.js";
+import { PersonalOpsDb } from "../src/db.js";
 import { buildHealthCheckReport } from "../src/health.js";
 import { buildInstallCheckReport, fixInstallPermissions, installAll, installWrappers } from "../src/install.js";
 import { Logger } from "../src/logger.js";
@@ -506,6 +507,7 @@ test("phase 15 repair plan command leads with wrapper repair when wrappers are s
 test("phase 15 repair run next executes the first executable step only", () => {
   const { env, paths } = createTempEnv("repair-run-next");
   writeFixtureFiles(paths, 46212);
+  new PersonalOpsDb(paths.databaseFile).close();
   withRuntimeEnv(env, () => installWrappers(paths, "/missing/node"));
 
   const output = execFileSync(process.execPath, [cliEntryPath(), "repair", "run", "next"], {
@@ -514,9 +516,14 @@ test("phase 15 repair run next executes the first executable step only", () => {
     encoding: "utf8",
   });
   const report = withRuntimeEnv(env, () => buildInstallCheckReport(paths));
+  const db = new PersonalOpsDb(paths.databaseFile);
+  const latestExecution = db.getLatestRepairExecution();
+  db.close();
 
-  assert.match(output, /Step complete/);
+  assert.match(output, /Outcome:\s+resolved/i);
   assert.equal(report.checks.some((check) => check.id.includes("_wrapper_") && check.severity !== "pass"), false);
+  assert.equal(latestExecution?.trigger_source, "repair_run");
+  assert.equal(latestExecution?.outcome, "resolved");
 });
 
 test("phase 15 repair run reports manual-only steps without skipping ahead", () => {

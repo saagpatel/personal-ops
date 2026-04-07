@@ -340,6 +340,26 @@ test("install wrappers refreshes wrapper provenance without touching desktop sta
   }
 });
 
+test("phase 16 direct wrapper repair records a repair execution outcome", () => {
+  const fixture = createFixture();
+  try {
+    setConfiguredMailbox(fixture.paths, "machine@example.com");
+    setConfiguredOauth(fixture.paths);
+    const db = new PersonalOpsDb(fixture.paths.databaseFile);
+    db.close();
+    installWrappers(fixture.paths, "/missing/node");
+    const verificationDb = new PersonalOpsDb(fixture.paths.databaseFile);
+    const recorded = verificationDb.listRepairExecutions({ limit: 1 })[0];
+    verificationDb.close();
+
+    assert.equal(recorded?.step_id, "install_wrappers");
+    assert.equal(recorded?.trigger_source, "direct_command");
+    assert.equal(recorded?.outcome, "still_pending");
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
 test("install manifest formatter tolerates legacy desktop metadata while wrappers are refreshed", () => {
   const formatted = formatInstallManifest({
     generated_at: "2026-04-07T00:00:00.000Z",

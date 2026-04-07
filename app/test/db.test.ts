@@ -763,3 +763,47 @@ test("database migrates schema-v13 installs to schema v14 and stores policy gove
   assert.equal(db.listPlanningHygienePolicyGovernanceEvents().length, 1);
   assert.equal(db.listPlanningHygienePolicyGovernanceEvents()[0]?.governance_event_id, event.governance_event_id);
 });
+
+test("database migrates schema-v24 installs to schema v25 and stores repair executions", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-db-"));
+  const dbPath = path.join(dir, "personal-ops.db");
+  const raw = new DatabaseSync(dbPath);
+  raw.exec(`
+    CREATE TABLE schema_meta (version INTEGER NOT NULL);
+    INSERT INTO schema_meta (version) VALUES (24);
+    CREATE TABLE review_calibration_targets (
+      scope_type TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      min_acted_on_rate REAL NOT NULL,
+      max_stale_unused_rate REAL NOT NULL,
+      max_negative_feedback_rate REAL NOT NULL,
+      min_notification_action_conversion_rate REAL NOT NULL,
+      max_notifications_per_7d INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by_client TEXT NOT NULL,
+      updated_by_actor TEXT,
+      PRIMARY KEY(scope_type, scope_key)
+    );
+  `);
+  raw.close();
+
+  const db = new PersonalOpsDb(dbPath);
+  assert.equal(db.getSchemaVersion(), CURRENT_SCHEMA_VERSION);
+  const execution = db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-07T20:00:00.000Z",
+    completed_at: "2026-04-07T20:01:00.000Z",
+    requested_by_client: "personal-ops-cli",
+    requested_by_actor: "operator",
+    trigger_source: "repair_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: "install_check",
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Step resolved.",
+  });
+
+  assert.equal(db.getLatestRepairExecution()?.execution_id, execution.execution_id);
+  assert.equal(db.listRepairExecutions({ step_id: "install_wrappers", limit: 1 })[0]?.outcome, "resolved");
+});

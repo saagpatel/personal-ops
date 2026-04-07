@@ -35,6 +35,10 @@ import {
   InstallCheckReport,
   InstallManifest,
   Paths,
+  RepairExecutionOutcome,
+  RepairExecutionTriggerSource,
+  RepairPlan,
+  RepairStepId,
   ServiceState,
 } from "./types.js";
 import {
@@ -44,6 +48,13 @@ import {
   readRestoreProvenance,
 } from "./machine.js";
 import { buildRepairPlan, summarizeRepairPlan } from "./repair-plan.js";
+import {
+  getLatestSnapshotSummary,
+  pruneSnapshots,
+  readRecoveryRehearsalStamp,
+  snapshotAgeHours,
+  SNAPSHOT_WARN_HOURS,
+} from "./recovery.js";
 import {
   repairSecretFilePermissions,
   validateOAuthClientFile,
@@ -60,6 +71,13 @@ interface InstallDependencies {
   launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
   waitForDaemonReadyImpl?: (host: string, port: number, timeoutMs: number) => Promise<void>;
   daemonReadyTimeoutMs?: number;
+  db?: PersonalOpsDb;
+}
+
+interface RepairTrackingOptions {
+  trackRepairExecution?: boolean;
+  requested_by_client?: string;
+  requested_by_actor?: string | null;
 }
 
 const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Paths) => string }> = [
@@ -71,6 +89,8 @@ const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Pat
 ];
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
 const WRAPPER_CURRENT_ASSISTANTS: AssistantKind[] = ["codex", "claude"];
+const LOCAL_REPAIR_CLIENT_ID = "personal-ops-cli";
+const LOCAL_REPAIR_ACTOR = "operator";
 
 function shellQuote(value: string): string {
   return JSON.stringify(value);
@@ -310,6 +330,68 @@ export function writeInstallManifest(paths: Paths, manifest: InstallManifest): v
   fs.writeFileSync(paths.installManifestFile, JSON.stringify(manifest, null, 2), "utf8");
 }
 
+function trackingClientId(options?: RepairTrackingOptions): string {
+  return options?.requested_by_client?.trim() || LOCAL_REPAIR_CLIENT_ID;
+}
+
+function trackingActor(options?: RepairTrackingOptions): string {
+  return options?.requested_by_actor?.trim() || LOCAL_REPAIR_ACTOR;
+}
+
+function shouldTrackRepairExecution(options?: RepairTrackingOptions): boolean {
+  return options?.trackRepairExecution !== false;
+}
+
+function buildLocalRepairPlan(paths: Paths, db: PersonalOpsDb): RepairPlan {
+  const latestSnapshot = getLatestSnapshotSummary(paths);
+  const recoveryRehearsal = readRecoveryRehearsalStamp(paths);
+  const prune = pruneSnapshots(paths, { dryRun: true });
+  const desktopStatus = getDesktopLocalStatusReport(paths);
+  const installCheck = buildInstallCheckReport(paths, { db });
+  return buildRepairPlan({
+    generated_at: new Date().toISOString(),
+    install_check: installCheck,
+    desktop: desktopStatus,
+    latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+    latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot),
+    snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
+    prune_candidate_count: prune.prune_candidates,
+    recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+    machine_state_origin: describeStateOrigin(readRestoreProvenance(paths).provenance ?? null),
+    recent_repair_executions: db.listRepairExecutions({ days: 30, limit: 100 }),
+  });
+}
+
+function recordRepairExecution(
+  db: PersonalOpsDb,
+  input: {
+    step_id: RepairStepId;
+    trigger_source: RepairExecutionTriggerSource;
+    beforePlan: RepairPlan;
+    afterPlan: RepairPlan;
+    started_at: string;
+    completed_at: string;
+    requested_by_client: string;
+    requested_by_actor: string | null;
+    outcome: RepairExecutionOutcome;
+    message: string;
+  },
+): void {
+  db.createRepairExecution({
+    step_id: input.step_id,
+    started_at: input.started_at,
+    completed_at: input.completed_at,
+    requested_by_client: input.requested_by_client,
+    requested_by_actor: input.requested_by_actor,
+    trigger_source: input.trigger_source,
+    before_first_step_id: input.beforePlan.first_step_id,
+    after_first_step_id: input.afterPlan.first_step_id,
+    outcome: input.outcome,
+    resolved_target_step: !input.afterPlan.steps.some((step) => step.id === input.step_id),
+    message: input.message,
+  });
+}
+
 function installWrapperFile(
   paths: Paths,
   artifacts: InstallArtifactPaths,
@@ -354,6 +436,124 @@ function installWrapperFile(
   return [...currentAssistants];
 }
 
+function runTrackedInstallAction<T>(
+  paths: Paths,
+  stepId: RepairStepId,
+  action: () => T,
+  options?: RepairTrackingOptions,
+): T {
+  if (!shouldTrackRepairExecution(options)) {
+    return action();
+  }
+  const db = new PersonalOpsDb(paths.databaseFile);
+  const beforePlan = buildLocalRepairPlan(paths, db);
+  const startedAt = new Date().toISOString();
+  try {
+    const result = action();
+    const completedAt = new Date().toISOString();
+    const afterPlan = buildLocalRepairPlan(paths, db);
+    const resolvedTargetStep = !afterPlan.steps.some((step) => step.id === stepId);
+    const remainingStep = afterPlan.steps.find((step) => step.id === stepId) ?? null;
+    const message = resolvedTargetStep
+      ? afterPlan.first_repair_step
+        ? `Step resolved. Next repair step: \`${afterPlan.first_repair_step}\`.`
+        : "Step resolved. No repair steps are pending right now."
+      : remainingStep
+        ? `Step ran, but the targeted issue still needs attention: ${remainingStep.reason}`
+        : "Step ran, but repair follow-up is still required.";
+    recordRepairExecution(db, {
+      step_id: stepId,
+      trigger_source: "direct_command",
+      beforePlan,
+      afterPlan,
+      started_at: startedAt,
+      completed_at: completedAt,
+      requested_by_client: trackingClientId(options),
+      requested_by_actor: trackingActor(options),
+      outcome: resolvedTargetStep ? "resolved" : "still_pending",
+      message,
+    });
+    return result;
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    const afterPlan = buildLocalRepairPlan(paths, db);
+    recordRepairExecution(db, {
+      step_id: stepId,
+      trigger_source: "direct_command",
+      beforePlan,
+      afterPlan,
+      started_at: startedAt,
+      completed_at: completedAt,
+      requested_by_client: trackingClientId(options),
+      requested_by_actor: trackingActor(options),
+      outcome: "failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+async function runTrackedInstallActionAsync<T>(
+  paths: Paths,
+  stepId: RepairStepId,
+  action: () => Promise<T>,
+  options?: RepairTrackingOptions,
+): Promise<T> {
+  if (!shouldTrackRepairExecution(options)) {
+    return action();
+  }
+  const db = new PersonalOpsDb(paths.databaseFile);
+  const beforePlan = buildLocalRepairPlan(paths, db);
+  const startedAt = new Date().toISOString();
+  try {
+    const result = await action();
+    const completedAt = new Date().toISOString();
+    const afterPlan = buildLocalRepairPlan(paths, db);
+    const resolvedTargetStep = !afterPlan.steps.some((step) => step.id === stepId);
+    const remainingStep = afterPlan.steps.find((step) => step.id === stepId) ?? null;
+    const message = resolvedTargetStep
+      ? afterPlan.first_repair_step
+        ? `Step resolved. Next repair step: \`${afterPlan.first_repair_step}\`.`
+        : "Step resolved. No repair steps are pending right now."
+      : remainingStep
+        ? `Step ran, but the targeted issue still needs attention: ${remainingStep.reason}`
+        : "Step ran, but repair follow-up is still required.";
+    recordRepairExecution(db, {
+      step_id: stepId,
+      trigger_source: "direct_command",
+      beforePlan,
+      afterPlan,
+      started_at: startedAt,
+      completed_at: completedAt,
+      requested_by_client: trackingClientId(options),
+      requested_by_actor: trackingActor(options),
+      outcome: resolvedTargetStep ? "resolved" : "still_pending",
+      message,
+    });
+    return result;
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    const afterPlan = buildLocalRepairPlan(paths, db);
+    recordRepairExecution(db, {
+      step_id: stepId,
+      trigger_source: "direct_command",
+      beforePlan,
+      afterPlan,
+      started_at: startedAt,
+      completed_at: completedAt,
+      requested_by_client: trackingClientId(options),
+      requested_by_actor: trackingActor(options),
+      outcome: "failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
 export function installWrapper(
   paths: Paths,
   kind: "cli" | "daemon" | "mcp",
@@ -367,50 +567,69 @@ export function installWrapper(
   return manifest;
 }
 
-export function installWrappers(paths: Paths, nodeExecutable = process.execPath): InstallManifest {
-  const artifacts = getInstallArtifactPaths(paths);
-  installWrapperFile(paths, artifacts, "cli", undefined, nodeExecutable);
-  installWrapperFile(paths, artifacts, "daemon", undefined, nodeExecutable);
-  installWrapperFile(paths, artifacts, "mcp", "codex", nodeExecutable);
-  installWrapperFile(paths, artifacts, "mcp", "claude", nodeExecutable);
-  const manifest = buildInstallManifest(paths, nodeExecutable, WRAPPER_CURRENT_ASSISTANTS);
-  writeInstallManifest(paths, manifest);
-  return manifest;
+export function installWrappers(
+  paths: Paths,
+  nodeExecutable = process.execPath,
+  options?: RepairTrackingOptions,
+): InstallManifest {
+  return runTrackedInstallAction(
+    paths,
+    "install_wrappers",
+    () => {
+      const artifacts = getInstallArtifactPaths(paths);
+      installWrapperFile(paths, artifacts, "cli", undefined, nodeExecutable);
+      installWrapperFile(paths, artifacts, "daemon", undefined, nodeExecutable);
+      installWrapperFile(paths, artifacts, "mcp", "codex", nodeExecutable);
+      installWrapperFile(paths, artifacts, "mcp", "claude", nodeExecutable);
+      const manifest = buildInstallManifest(paths, nodeExecutable, WRAPPER_CURRENT_ASSISTANTS);
+      writeInstallManifest(paths, manifest);
+      return manifest;
+    },
+    options,
+  );
 }
 
 export async function installLaunchAgent(
   paths: Paths,
   nodeExecutable = process.execPath,
   dependencies: InstallDependencies = {},
+  options?: RepairTrackingOptions,
 ): Promise<InstallManifest> {
-  const artifacts = getInstallArtifactPaths(paths);
-  const launchAgentLabel = getLaunchAgentLabel();
-  if (!fs.existsSync(artifacts.daemonWrapperPath)) {
-    installWrapper(paths, "daemon", undefined, nodeExecutable);
-  }
-  fs.mkdirSync(paths.logDir, { recursive: true });
-  writeLaunchAgentPlist(artifacts.launchAgentPlistPath, {
-    label: launchAgentLabel,
-    programPath: artifacts.daemonWrapperPath,
-    workingDirectory: paths.appDir,
-    stdoutPath: path.join(paths.logDir, "stdout.log"),
-    stderrPath: path.join(paths.logDir, "stderr.log"),
-    environmentVariables: buildLaunchAgentEnvironment(paths),
-  });
-  reloadLaunchAgent(artifacts.launchAgentPlistPath, launchAgentLabel, dependencies.launchAgentDependencies);
-  const config = loadConfig(paths);
-  await (dependencies.waitForDaemonReadyImpl ?? waitForDaemonReady)(
-    config.serviceHost,
-    config.servicePort,
-    dependencies.daemonReadyTimeoutMs ?? DEFAULT_DAEMON_READY_TIMEOUT_MS,
-  );
-  const manifest = buildInstallManifest(
+  return runTrackedInstallActionAsync(
     paths,
-    nodeExecutable,
-    readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS,
+    "install_launchagent",
+    async () => {
+      const artifacts = getInstallArtifactPaths(paths);
+      const launchAgentLabel = getLaunchAgentLabel();
+      if (!fs.existsSync(artifacts.daemonWrapperPath)) {
+        installWrapper(paths, "daemon", undefined, nodeExecutable);
+      }
+      fs.mkdirSync(paths.logDir, { recursive: true });
+      writeLaunchAgentPlist(artifacts.launchAgentPlistPath, {
+        label: launchAgentLabel,
+        programPath: artifacts.daemonWrapperPath,
+        workingDirectory: paths.appDir,
+        stdoutPath: path.join(paths.logDir, "stdout.log"),
+        stderrPath: path.join(paths.logDir, "stderr.log"),
+        environmentVariables: buildLaunchAgentEnvironment(paths),
+      });
+      reloadLaunchAgent(artifacts.launchAgentPlistPath, launchAgentLabel, dependencies.launchAgentDependencies);
+      const config = loadConfig(paths);
+      await (dependencies.waitForDaemonReadyImpl ?? waitForDaemonReady)(
+        config.serviceHost,
+        config.servicePort,
+        dependencies.daemonReadyTimeoutMs ?? DEFAULT_DAEMON_READY_TIMEOUT_MS,
+      );
+      const manifest = buildInstallManifest(
+        paths,
+        nodeExecutable,
+        readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS,
+      );
+      writeInstallManifest(paths, manifest);
+      return manifest;
+    },
+    options,
   );
-  writeInstallManifest(paths, manifest);
-  return manifest;
 }
 
 export async function installAll(
@@ -418,8 +637,8 @@ export async function installAll(
   nodeExecutable = process.execPath,
   dependencies: InstallDependencies = {},
 ): Promise<InstallManifest> {
-  installWrappers(paths, nodeExecutable);
-  await installLaunchAgent(paths, nodeExecutable, dependencies);
+  installWrappers(paths, nodeExecutable, { trackRepairExecution: false });
+  await installLaunchAgent(paths, nodeExecutable, dependencies, { trackRepairExecution: false });
   const manifest = buildInstallManifest(paths, nodeExecutable, WRAPPER_CURRENT_ASSISTANTS);
   writeInstallManifest(paths, manifest);
   return manifest;
@@ -428,49 +647,64 @@ export async function installAll(
 export async function installDesktop(
   paths: Paths,
   nodeExecutable = process.execPath,
+  options?: RepairTrackingOptions,
 ): Promise<InstallManifest> {
-  const localDesktop = await installDesktopApp(paths);
-  let manifest = withDesktopManifest(
-    buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
-    localDesktop,
+  return runTrackedInstallActionAsync(
+    paths,
+    "install_desktop",
+    async () => {
+      const localDesktop = await installDesktopApp(paths);
+      let manifest = withDesktopManifest(
+        buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
+        localDesktop,
+      );
+      writeInstallManifest(paths, manifest);
+      const desktop = await getDesktopStatusReport(paths);
+      manifest = withDesktopManifest(
+        buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
+        desktop,
+      );
+      writeInstallManifest(paths, manifest);
+      return manifest;
+    },
+    options,
   );
-  writeInstallManifest(paths, manifest);
-  const desktop = await getDesktopStatusReport(paths);
-  manifest = withDesktopManifest(
-    buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
-    desktop,
-  );
-  writeInstallManifest(paths, manifest);
-  return manifest;
 }
 
-export function fixInstallPermissions(paths: Paths): InstallPermissionsFixResult {
-  const files: InstallPermissionsFixItem[] = SECRET_PERMISSION_TARGETS.map((target) => {
-    const filePath = target.resolvePath(paths);
-    const repaired = repairSecretFilePermissions(filePath, target.label);
-    return {
-      label: target.label,
-      path: filePath,
-      status: repaired.status,
-      message: repaired.message,
-      previous_mode: repaired.previousMode,
-      current_mode: repaired.currentMode,
-    };
-  });
+export function fixInstallPermissions(paths: Paths, options?: RepairTrackingOptions): InstallPermissionsFixResult {
+  return runTrackedInstallAction(
+    paths,
+    "fix_permissions",
+    () => {
+      const files: InstallPermissionsFixItem[] = SECRET_PERMISSION_TARGETS.map((target) => {
+        const filePath = target.resolvePath(paths);
+        const repaired = repairSecretFilePermissions(filePath, target.label);
+        return {
+          label: target.label,
+          path: filePath,
+          status: repaired.status,
+          message: repaired.message,
+          previous_mode: repaired.previousMode,
+          current_mode: repaired.currentMode,
+        };
+      });
 
-  const summary = files.reduce(
-    (accumulator, file) => {
-      accumulator[file.status] += 1;
-      return accumulator;
+      const summary = files.reduce(
+        (accumulator, file) => {
+          accumulator[file.status] += 1;
+          return accumulator;
+        },
+        { updated: 0, already_secure: 0, missing: 0, failed: 0 },
+      );
+
+      return {
+        generated_at: new Date().toISOString(),
+        summary,
+        files,
+      };
     },
-    { updated: 0, already_secure: 0, missing: 0, failed: 0 },
+    options,
   );
-
-  return {
-    generated_at: new Date().toISOString(),
-    summary,
-    files,
-  };
 }
 
 function wrapperCheckForSeverity(
@@ -562,14 +796,15 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
     dependencies.launchAgentDependencies,
   );
   const authConfig = readAuthConfigSummary(paths);
-  const githubDb = fs.existsSync(paths.databaseFile) ? new PersonalOpsDb(paths.databaseFile) : null;
-  const githubAccount = githubDb?.getGithubAccount() ?? null;
-  const githubSync = githubDb?.getGithubSyncState() ?? null;
+  const db = dependencies.db ?? (fs.existsSync(paths.databaseFile) ? new PersonalOpsDb(paths.databaseFile) : null);
+  const shouldCloseDb = !dependencies.db && db !== null;
+  const githubAccount = db?.getGithubAccount() ?? null;
+  const githubSync = db?.getGithubSyncState() ?? null;
   const githubToken =
     githubAccount && authConfig.githubKeychainService
       ? getKeychainSecret(authConfig.githubKeychainService, githubAccount.keychain_account)
       : null;
-  const driveSync = githubDb?.getDriveSyncState() ?? null;
+  const driveSync = db?.getDriveSyncState() ?? null;
   const driveToken =
     authConfig.driveEnabled && authConfig.mailbox && authConfig.keychainService
       ? getKeychainSecret(authConfig.keychainService, authConfig.mailbox)
@@ -1031,26 +1266,36 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
       : failCheck("launch_agent_loaded", "LaunchAgent state", "LaunchAgent is not loaded.", "integration"),
   );
 
-  githubDb?.close();
-
-  const report: InstallCheckReport = {
-    generated_at: new Date().toISOString(),
-    state: classifyInstallState(checks),
-    summary: summarizeChecks(checks),
-    checks,
-    manifest,
-    repair_plan_summary: {
-      first_step_id: null,
-      first_repair_step: null,
-      step_count: 0,
-    },
-  };
-  report.repair_plan_summary = summarizeRepairPlan(
-    buildRepairPlan({
-      generated_at: report.generated_at,
-      install_check: report,
-      desktop: desktopStatus,
-    }),
-  );
-  return report;
+  try {
+    const report: InstallCheckReport = {
+      generated_at: new Date().toISOString(),
+      state: classifyInstallState(checks),
+      summary: summarizeChecks(checks),
+      checks,
+      manifest,
+      repair_plan_summary: {
+        first_step_id: null,
+        first_repair_step: null,
+        step_count: 0,
+        last_step_id: null,
+        last_outcome: null,
+        top_recurring_step_id: null,
+        last_repair: null,
+        recurring_issue: null,
+      },
+    };
+    report.repair_plan_summary = summarizeRepairPlan(
+      buildRepairPlan({
+        generated_at: report.generated_at,
+        install_check: report,
+        desktop: desktopStatus,
+        recent_repair_executions: db?.listRepairExecutions({ days: 30, limit: 100 }) ?? [],
+      }),
+    );
+    return report;
+  } finally {
+    if (shouldCloseDb) {
+      db?.close();
+    }
+  }
 }

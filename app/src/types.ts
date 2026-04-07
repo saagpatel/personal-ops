@@ -2235,6 +2235,39 @@ export type RepairStepId =
 
 export type RepairStepStatus = "pending" | "done";
 export type RepairStepScope = "install" | "desktop" | "runtime" | "recovery" | "auth";
+export type RepairExecutionOutcome = "resolved" | "still_pending" | "failed";
+export type RepairExecutionTriggerSource = "repair_run" | "direct_command";
+
+export interface RepairOutcomeSummary {
+  step_id: RepairStepId;
+  completed_at: string;
+  outcome: RepairExecutionOutcome;
+  trigger_source: RepairExecutionTriggerSource;
+  resolved_target_step: boolean;
+  message: string;
+}
+
+export interface RepairRecurringIssue {
+  step_id: RepairStepId;
+  occurrence_count: number;
+  window_days: number;
+  prevention_hint: string;
+}
+
+export interface RepairExecutionRecord {
+  execution_id: string;
+  step_id: RepairStepId;
+  started_at: string;
+  completed_at: string;
+  requested_by_client: string;
+  requested_by_actor?: string | undefined;
+  trigger_source: RepairExecutionTriggerSource;
+  before_first_step_id?: RepairStepId | undefined;
+  after_first_step_id?: RepairStepId | undefined;
+  outcome: RepairExecutionOutcome;
+  resolved_target_step: boolean;
+  message: string;
+}
 
 export interface RepairStep {
   id: RepairStepId;
@@ -2245,12 +2278,18 @@ export interface RepairStep {
   status: RepairStepStatus;
   scope: RepairStepScope;
   blocking: boolean;
+  latest_outcome?: RepairExecutionOutcome | undefined;
+  latest_completed_at?: string | undefined;
 }
 
 export interface RepairPlan {
   generated_at: string;
   first_step_id: RepairStepId | null;
   first_repair_step: string | null;
+  last_execution: RepairOutcomeSummary | null;
+  top_recurring_issue: RepairRecurringIssue | null;
+  last_repair: RepairOutcomeSummary | null;
+  recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
 }
 
@@ -2258,6 +2297,11 @@ export interface RepairPlanSummary {
   first_step_id: RepairStepId | null;
   first_repair_step: string | null;
   step_count: number;
+  last_step_id: RepairStepId | null;
+  last_outcome: RepairExecutionOutcome | null;
+  top_recurring_step_id: RepairStepId | null;
+  last_repair: RepairOutcomeSummary | null;
+  recurring_issue: RepairRecurringIssue | null;
 }
 
 export interface RepairExecutionResult {
@@ -2266,6 +2310,10 @@ export interface RepairExecutionResult {
   executed: boolean;
   manual_only: boolean;
   suggested_command: string;
+  outcome?: RepairExecutionOutcome | undefined;
+  resolved_target_step?: boolean | undefined;
+  next_repair_step?: string | undefined;
+  remaining_reason?: string | undefined;
   message: string;
 }
 

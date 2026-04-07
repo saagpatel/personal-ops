@@ -48,6 +48,11 @@ function readyInstallCheck(): InstallCheckReport {
       first_step_id: null,
       first_repair_step: null,
       step_count: 0,
+      last_step_id: null,
+      last_outcome: null,
+      top_recurring_step_id: null,
+      last_repair: null,
+      recurring_issue: null,
     },
   };
 }

@@ -80,6 +80,10 @@ import {
   ReviewPackageState,
   ReviewPackageSurface,
   ReviewReadModelRefreshState,
+  RepairExecutionOutcome,
+  RepairExecutionRecord,
+  RepairExecutionTriggerSource,
+  RepairStepId,
   ReviewNotificationSnapshot,
   ReviewTuningProposal,
   ReviewTuningProposalKind,
@@ -95,7 +99,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 24;
+export const CURRENT_SCHEMA_VERSION = 25;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -4011,6 +4015,90 @@ export class PersonalOpsDb {
       }));
   }
 
+  createRepairExecution(input: {
+    step_id: RepairStepId;
+    started_at: string;
+    completed_at: string;
+    requested_by_client: string;
+    requested_by_actor?: string | null;
+    trigger_source: RepairExecutionTriggerSource;
+    before_first_step_id?: RepairStepId | null;
+    after_first_step_id?: RepairStepId | null;
+    outcome: RepairExecutionOutcome;
+    resolved_target_step: boolean;
+    message: string;
+  }): RepairExecutionRecord {
+    const stored: RepairExecutionRecord = {
+      execution_id: randomUUID(),
+      step_id: input.step_id,
+      started_at: input.started_at,
+      completed_at: input.completed_at,
+      requested_by_client: input.requested_by_client,
+      requested_by_actor: input.requested_by_actor ?? undefined,
+      trigger_source: input.trigger_source,
+      before_first_step_id: input.before_first_step_id ?? undefined,
+      after_first_step_id: input.after_first_step_id ?? undefined,
+      outcome: input.outcome,
+      resolved_target_step: input.resolved_target_step,
+      message: input.message,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO repair_executions (
+          execution_id, step_id, started_at, completed_at, requested_by_client, requested_by_actor,
+          trigger_source, before_first_step_id, after_first_step_id, outcome, resolved_target_step, message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        stored.execution_id,
+        stored.step_id,
+        stored.started_at,
+        stored.completed_at,
+        stored.requested_by_client,
+        stored.requested_by_actor ?? null,
+        stored.trigger_source,
+        stored.before_first_step_id ?? null,
+        stored.after_first_step_id ?? null,
+        stored.outcome,
+        stored.resolved_target_step ? 1 : 0,
+        stored.message,
+      );
+    return stored;
+  }
+
+  getLatestRepairExecution(): RepairExecutionRecord | null {
+    const row = this.db
+      .prepare(`SELECT * FROM repair_executions ORDER BY completed_at DESC LIMIT 1`)
+      .get() as Record<string, unknown> | undefined;
+    return row ? this.mapRepairExecution(row) : null;
+  }
+
+  getLatestRepairExecutionForStep(stepId: RepairStepId): RepairExecutionRecord | null {
+    const row = this.db
+      .prepare(`SELECT * FROM repair_executions WHERE step_id = ? ORDER BY completed_at DESC LIMIT 1`)
+      .get(stepId) as Record<string, unknown> | undefined;
+    return row ? this.mapRepairExecution(row) : null;
+  }
+
+  listRepairExecutions(options: { step_id?: RepairStepId; days?: number; limit?: number } = {}): RepairExecutionRecord[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.step_id) {
+      clauses.push(`step_id = ?`);
+      params.push(options.step_id);
+    }
+    if (options.days && options.days > 0) {
+      clauses.push(`completed_at >= ?`);
+      params.push(new Date(Date.now() - options.days * 24 * 60 * 60 * 1000).toISOString());
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = options.limit ? ` LIMIT ${Math.max(1, options.limit)}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM repair_executions ${whereClause} ORDER BY completed_at DESC${limitClause}`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapRepairExecution(row));
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -4781,6 +4869,27 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_review_calibration_targets_scope
         ON review_calibration_targets(scope_type, scope_key);
 
+      CREATE TABLE IF NOT EXISTS repair_executions (
+        execution_id TEXT PRIMARY KEY,
+        step_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        requested_by_client TEXT NOT NULL,
+        requested_by_actor TEXT,
+        trigger_source TEXT NOT NULL,
+        before_first_step_id TEXT,
+        after_first_step_id TEXT,
+        outcome TEXT NOT NULL,
+        resolved_target_step INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_repair_executions_completed_at
+        ON repair_executions(completed_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_repair_executions_step_completed_at
+        ON repair_executions(step_id, completed_at DESC);
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -4908,7 +5017,9 @@ export class PersonalOpsDb {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
       const inferred = this.tableExists("review_calibration_targets")
-        ? 24
+        ? this.tableExists("repair_executions")
+          ? 25
+          : 24
         : this.tableExists("review_metric_snapshots")
         ? 23
         : this.tableExists("review_package_cycles") || this.tableExists("review_notification_events")
@@ -5051,6 +5162,10 @@ export class PersonalOpsDb {
       } else if (version === 23) {
         this.migrateToV24();
         version = 24;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 24) {
+        this.migrateToV25();
+        version = 25;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -6026,6 +6141,31 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV25() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS repair_executions (
+        execution_id TEXT PRIMARY KEY,
+        step_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        requested_by_client TEXT NOT NULL,
+        requested_by_actor TEXT,
+        trigger_source TEXT NOT NULL,
+        before_first_step_id TEXT,
+        after_first_step_id TEXT,
+        outcome TEXT NOT NULL,
+        resolved_target_step INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_repair_executions_completed_at
+        ON repair_executions(completed_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_repair_executions_step_completed_at
+        ON repair_executions(step_id, completed_at DESC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6410,6 +6550,23 @@ export class PersonalOpsDb {
       updated_at: String(row.updated_at),
       updated_by_client: String(row.updated_by_client),
       updated_by_actor: row.updated_by_actor ? String(row.updated_by_actor) : undefined,
+    };
+  }
+
+  private mapRepairExecution(row: Record<string, unknown>): RepairExecutionRecord {
+    return {
+      execution_id: String(row.execution_id),
+      step_id: String(row.step_id) as RepairStepId,
+      started_at: String(row.started_at),
+      completed_at: String(row.completed_at),
+      requested_by_client: String(row.requested_by_client),
+      requested_by_actor: row.requested_by_actor ? String(row.requested_by_actor) : undefined,
+      trigger_source: String(row.trigger_source) as RepairExecutionTriggerSource,
+      before_first_step_id: row.before_first_step_id ? (String(row.before_first_step_id) as RepairStepId) : undefined,
+      after_first_step_id: row.after_first_step_id ? (String(row.after_first_step_id) as RepairStepId) : undefined,
+      outcome: String(row.outcome) as RepairExecutionOutcome,
+      resolved_target_step: Number(row.resolved_target_step ?? 0) === 1,
+      message: String(row.message),
     };
   }
 

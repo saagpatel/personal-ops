@@ -4,27 +4,39 @@ import type {
   DoctorReport,
   InstallCheckReport,
   MachineStateOrigin,
+  RepairExecutionRecord,
+  RepairOutcomeSummary,
   RepairPlan,
   RepairPlanSummary,
+  RepairRecurringIssue,
   RepairStep,
   RepairStepId,
 } from "./types.js";
+
+const RECURRING_WINDOW_DAYS = 30;
+const RECURRING_THRESHOLD = 2;
+const RECURRING_PRIORITY: RepairStepId[] = [
+  "install_wrappers",
+  "install_desktop",
+  "install_launchagent",
+  "fix_permissions",
+];
 
 interface BuildRepairPlanOptions {
   generated_at?: string;
   install_check?: Pick<InstallCheckReport, "checks" | "state"> | null;
   doctor?: Pick<DoctorReport, "checks" | "state" | "deep"> | null;
-  desktop?: Pick<DesktopStatusReport, "supported" | "reinstall_recommended" | "reinstall_reason" | "launcher_repair_recommended" | "launcher_repair_reason"> | null;
+  desktop?: Pick<
+    DesktopStatusReport,
+    "supported" | "reinstall_recommended" | "reinstall_reason" | "launcher_repair_recommended" | "launcher_repair_reason"
+  > | null;
   latest_snapshot_id?: string | null;
   latest_snapshot_age_hours?: number | null;
   snapshot_age_limit_hours?: number | null;
   prune_candidate_count?: number;
   recovery_rehearsal_missing?: boolean;
   machine_state_origin?: MachineStateOrigin | null;
-}
-
-function hasNonPassCheck(checks: DoctorCheck[], predicate: (check: DoctorCheck) => boolean): boolean {
-  return checks.some((check) => check.severity !== "pass" && predicate(check));
+  recent_repair_executions?: RepairExecutionRecord[];
 }
 
 function nonPassChecks(checks: DoctorCheck[], predicate: (check: DoctorCheck) => boolean): DoctorCheck[] {
@@ -45,11 +57,13 @@ function uniqueChecks(checks: DoctorCheck[]): DoctorCheck[] {
 }
 
 function checkSummary(checks: DoctorCheck[], fallback: string): string {
-  return uniqueChecks(checks)
-    .slice(0, 2)
-    .map((check) => check.message)
-    .join(" ")
-    .trim() || fallback;
+  return (
+    uniqueChecks(checks)
+      .slice(0, 2)
+      .map((check) => check.message)
+      .join(" ")
+      .trim() || fallback
+  );
 }
 
 function buildReconnectAuthCommand(checks: DoctorCheck[]): string {
@@ -77,11 +91,43 @@ function pushStep(steps: RepairStep[], step: RepairStep): void {
   steps.push(step);
 }
 
+function toRepairOutcomeSummary(execution: RepairExecutionRecord): RepairOutcomeSummary {
+  return {
+    step_id: execution.step_id,
+    completed_at: execution.completed_at,
+    outcome: execution.outcome,
+    trigger_source: execution.trigger_source,
+    resolved_target_step: execution.resolved_target_step,
+    message: execution.message,
+  };
+}
+
+function preventionHint(stepId: RepairStepId): string | null {
+  if (stepId === "install_wrappers") {
+    return "Refresh wrappers after checkout or Node path changes so launcher scripts stay pinned to the current machine.";
+  }
+  if (stepId === "install_desktop") {
+    return "Rebuild and reinstall the desktop app after desktop source or dependency changes so the installed bundle stays current.";
+  }
+  if (stepId === "install_launchagent") {
+    return "Reload the LaunchAgent after local runtime changes so the daemon wiring stays aligned with the current checkout.";
+  }
+  if (stepId === "fix_permissions") {
+    return "Check tools or edits that broaden local secret-file permissions so the same repair does not keep coming back.";
+  }
+  return null;
+}
+
 export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
   return {
     first_step_id: plan.first_step_id,
     first_repair_step: plan.first_repair_step,
     step_count: plan.steps.length,
+    last_step_id: plan.last_execution?.step_id ?? null,
+    last_outcome: plan.last_execution?.outcome ?? null,
+    top_recurring_step_id: plan.top_recurring_issue?.step_id ?? null,
+    last_repair: plan.last_repair,
+    recurring_issue: plan.recurring_issue,
   };
 }
 
@@ -89,6 +135,15 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
   const installChecks = options.install_check?.checks ?? [];
   const doctorChecks = options.doctor?.checks ?? [];
   const allChecks = [...installChecks, ...doctorChecks];
+  const recentExecutions = [...(options.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const latestByStep = new Map<RepairStepId, RepairExecutionRecord>();
+  for (const execution of recentExecutions) {
+    if (!latestByStep.has(execution.step_id)) {
+      latestByStep.set(execution.step_id, execution);
+    }
+  }
 
   const wrapperChecks = nonPassChecks(allChecks, (check) => check.id.includes("_wrapper_") || check.id.includes("_mcp_launcher"));
   const permissionChecks = nonPassChecks(allChecks, (check) => check.id.endsWith("_permissions_secure"));
@@ -129,6 +184,7 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
         check.id === "state_origin_safe",
     ),
   );
+
   const hasWrapperIssue = wrapperChecks.length > 0 || Boolean(options.desktop?.launcher_repair_recommended);
   const hasPermissionIssue = permissionChecks.length > 0;
   const hasLaunchAgentIssue = launchAgentChecks.length > 0;
@@ -163,6 +219,8 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       status: "pending",
       scope: "install",
       blocking: true,
+      latest_outcome: latestByStep.get("install_wrappers")?.outcome,
+      latest_completed_at: latestByStep.get("install_wrappers")?.completed_at,
     });
   }
 
@@ -176,6 +234,8 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       status: "pending",
       scope: "install",
       blocking: true,
+      latest_outcome: latestByStep.get("fix_permissions")?.outcome,
+      latest_completed_at: latestByStep.get("fix_permissions")?.completed_at,
     });
   }
 
@@ -189,6 +249,8 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       status: "pending",
       scope: "runtime",
       blocking: true,
+      latest_outcome: latestByStep.get("install_launchagent")?.outcome,
+      latest_completed_at: latestByStep.get("install_launchagent")?.completed_at,
     });
   }
 
@@ -202,6 +264,8 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       status: "pending",
       scope: "desktop",
       blocking: true,
+      latest_outcome: latestByStep.get("install_desktop")?.outcome,
+      latest_completed_at: latestByStep.get("install_desktop")?.completed_at,
     });
   }
 
@@ -324,10 +388,39 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     });
   }
 
+  const lastRepair = recentExecutions[0] ? toRepairOutcomeSummary(recentExecutions[0]) : null;
+  let recurringIssue: RepairRecurringIssue | null = null;
+  for (const stepId of RECURRING_PRIORITY) {
+    if (!steps.some((step) => step.id === stepId)) {
+      continue;
+    }
+    const occurrenceCount = recentExecutions.filter(
+      (execution) => execution.step_id === stepId && execution.outcome === "resolved" && execution.resolved_target_step,
+    ).length;
+    if (occurrenceCount < RECURRING_THRESHOLD) {
+      continue;
+    }
+    const hint = preventionHint(stepId);
+    if (!hint) {
+      continue;
+    }
+    recurringIssue = {
+      step_id: stepId,
+      occurrence_count: occurrenceCount,
+      window_days: RECURRING_WINDOW_DAYS,
+      prevention_hint: hint,
+    };
+    break;
+  }
+
   return {
     generated_at: options.generated_at ?? new Date().toISOString(),
     first_step_id: steps[0]?.id ?? null,
     first_repair_step: steps[0]?.suggested_command ?? null,
+    last_execution: lastRepair,
+    top_recurring_issue: recurringIssue,
+    last_repair: lastRepair,
+    recurring_issue: recurringIssue,
     steps,
   };
 }
