@@ -8576,6 +8576,223 @@ test("assistant-led phase 9 tuning approvals preserve evidence and only change t
   );
 });
 
+test("assistant-led phase 10 review report summarizes package cycles, proposals, and notification conversions", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "report-inbox-group",
+        summary: "Report inbox group",
+        why_now: "Report inbox why now",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-review-report");
+  const packageReport = await service.getReviewPackageReport();
+  const inboxPackage = packageReport.packages.find((pkg) => pkg.surface === "inbox");
+  assert.ok(inboxPackage);
+
+  const cycle = service.db.getOpenReviewPackageCycle(inboxPackage!.package_id);
+  assert.ok(cycle);
+
+  await service.recordReviewNotificationEvents(cliIdentity, [
+    {
+      kind: "review_package_inbox",
+      decision: "fired",
+      source: "desktop",
+      surface: "inbox",
+      package_id: inboxPackage!.package_id,
+      package_cycle_id: cycle!.package_cycle_id,
+      current_count: 1,
+      previous_count: 0,
+      cooldown_minutes: 30,
+    },
+    {
+      kind: "review_tuning_proposal",
+      decision: "suppressed",
+      source: "desktop",
+      proposal_id: "review-tuning:report-reopened",
+      suppression_reason: "cooldown",
+      current_count: 1,
+      previous_count: 0,
+      cooldown_minutes: 30,
+    },
+  ]);
+
+  await service.getReviewPackage(inboxPackage!.package_id);
+  await service.submitReviewPackageFeedback(cliIdentity, inboxPackage!.package_id, {
+    reason: "useful",
+    note: "Reviewed this package.",
+  });
+
+  const now = new Date().toISOString();
+  const future = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:report-dismissed",
+    proposal_family_key: "notification_cooldown_override:inbox:inbox:report-inbox-group",
+    evidence_fingerprint: "report-dismissed",
+    proposal_kind: "notification_cooldown_override",
+    surface: "inbox",
+    scope_key: "inbox:report-inbox-group",
+    summary: "Dismissed cooldown proposal",
+    evidence_window_days: 14,
+    evidence_count: 3,
+    positive_count: 0,
+    negative_count: 3,
+    unused_stale_count: 0,
+    status: "dismissed",
+    evidence_json: JSON.stringify({ source_key: "inbox:report-inbox-group" }),
+    created_at: now,
+    updated_at: now,
+    expires_at: future,
+    dismissed_at: now,
+    dismissed_by_client: cliIdentity.client_id,
+    dismissed_by_actor: cliIdentity.requested_by,
+    dismissed_note: "Not yet.",
+  });
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:report-reopened",
+    proposal_family_key: "notification_cooldown_override:inbox:inbox:report-inbox-group",
+    evidence_fingerprint: "report-reopened",
+    proposal_kind: "notification_cooldown_override",
+    surface: "inbox",
+    scope_key: "inbox:report-inbox-group",
+    summary: "Reopened cooldown proposal",
+    evidence_window_days: 14,
+    evidence_count: 4,
+    positive_count: 0,
+    negative_count: 4,
+    unused_stale_count: 0,
+    status: "proposed",
+    evidence_json: JSON.stringify({ source_key: "inbox:report-inbox-group" }),
+    created_at: now,
+    updated_at: now,
+    expires_at: future,
+  });
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:report-approved",
+    proposal_family_key: "surface_priority_offset:inbox:inbox",
+    evidence_fingerprint: "report-approved",
+    proposal_kind: "surface_priority_offset",
+    surface: "inbox",
+    scope_key: "inbox",
+    summary: "Approved priority offset proposal",
+    evidence_window_days: 14,
+    evidence_count: 5,
+    positive_count: 0,
+    negative_count: 5,
+    unused_stale_count: 0,
+    status: "approved",
+    evidence_json: JSON.stringify({ surface: "inbox" }),
+    created_at: now,
+    updated_at: now,
+    expires_at: future,
+    approved_at: now,
+    approved_by_client: cliIdentity.client_id,
+    approved_by_actor: cliIdentity.requested_by,
+    approved_note: "Approved for reporting.",
+  });
+  service.db.upsertReviewTuningState({
+    proposal_id: "review-tuning:report-approved",
+    proposal_kind: "surface_priority_offset",
+    surface: "inbox",
+    scope_key: "inbox",
+    value_json: JSON.stringify({ offset: -200 }),
+    status: "active",
+    starts_at: now,
+    expires_at: future,
+    note: "Active for reporting.",
+  });
+
+  const report = await service.getReviewReport({ window_days: 14, surface: "inbox" });
+
+  assert.equal(report.summary.created_count, 1);
+  assert.equal(report.summary.opened_count, 1);
+  assert.equal(report.summary.acted_on_count, 1);
+  assert.equal(report.summary.completed_count, 1);
+  assert.equal(report.summary.open_rate, 1);
+  assert.equal(report.summary.acted_on_rate, 1);
+  assert.equal(report.summary.notification_open_conversion_rate, 1);
+  assert.equal(report.summary.notification_action_conversion_rate, 1);
+  assert.equal(report.notification_performance.fired_count, 1);
+  assert.equal(report.notification_performance.suppressed_count, 1);
+  assert.equal(report.notification_performance.cooldown_hit_count, 1);
+  assert.equal(report.proposal_outcomes.proposed_count, 3);
+  assert.equal(report.proposal_outcomes.approved_count, 1);
+  assert.equal(report.proposal_outcomes.dismissed_count, 1);
+  assert.equal(report.proposal_outcomes.reopened_count, 1);
+  assert.deepEqual(report.proposal_outcomes.active_state_counts, [
+    {
+      proposal_kind: "surface_priority_offset",
+      surface: "inbox",
+      count: 1,
+    },
+  ]);
+});
+
+test("assistant-led phase 10 review report attributes legacy feedback to the matching package cycle", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "legacy-feedback-group-1",
+        summary: "Legacy feedback group 1",
+        why_now: "Legacy feedback reason 1",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+      {
+        group_id: "legacy-feedback-group-2",
+        summary: "Legacy feedback group 2",
+        why_now: "Legacy feedback reason 2",
+        score_band: "high",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-review-report-legacy");
+  const packageReport = await service.getReviewPackageReport();
+  const inboxPackage = packageReport.packages.find((pkg) => pkg.surface === "inbox");
+  assert.ok(inboxPackage);
+
+  const targetedItem = inboxPackage!.items[1]!;
+  service.db.createReviewFeedbackEvent({
+    package_id: inboxPackage!.package_id,
+    surface: "inbox",
+    package_item_id: targetedItem.package_item_id,
+    reason: "not_useful",
+    note: "Legacy feedback event without cycle id.",
+    actor: cliIdentity.requested_by ?? null,
+    client_id: cliIdentity.client_id,
+    source_fingerprint: inboxPackage!.source_fingerprint,
+  });
+  service.db.markReviewPackageStaleUnused(inboxPackage!.package_id);
+  service.db.markReviewPackageCycleStaleUnused(inboxPackage!.package_id);
+
+  const report = await service.getReviewReport({ window_days: 14, surface: "inbox" });
+  const targetedSource = report.top_noisy_sources.find((source) => source.scope_key === "inbox:legacy-feedback-group-2");
+  const siblingSource = report.top_noisy_sources.find((source) => source.scope_key === "inbox:legacy-feedback-group-1");
+
+  assert.equal(report.summary.created_count, 1);
+  assert.equal(report.summary.stale_unused_count, 1);
+  assert.equal(report.summary.opened_count, 0);
+  assert.equal(report.summary.stale_unused_rate, 1);
+  assert.equal(targetedSource?.negative_feedback_count, 1);
+  assert.equal(targetedSource?.stale_unused_count, 1);
+  assert.equal(siblingSource?.negative_feedback_count, 0);
+  assert.equal(siblingSource?.stale_unused_count, 1);
+});
+
 test("assistant-led phase 8 autopilot warms inbox work and exposes freshness in status", async () => {
   const accountEmail = "machine@example.com";
   const inbound = buildMessage("msg-phase8-autopilot", accountEmail, {

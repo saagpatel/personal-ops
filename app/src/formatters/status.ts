@@ -20,6 +20,10 @@ function topSummary(value: string | null | undefined, fallback: string): string 
   return value && value.trim().length > 0 ? value : fallback;
 }
 
+function asPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function pushSection(lines: string[], title: string, rows: string[]) {
   lines.push(title);
   lines.push(...rows);
@@ -215,6 +219,13 @@ export function formatStatusReport(report: ServiceStatusReport): string {
       line("Ready packages", String(report.review.ready_package_count)),
       line("Open tuning proposals", String(report.review.open_tuning_proposal_count)),
       line("Unused stale (7d)", String(report.review.unused_package_count_7d)),
+      line("Open rate (14d)", asPercent(report.review.package_open_rate_14d)),
+      line("Acted-on rate (14d)", asPercent(report.review.package_acted_on_rate_14d)),
+      line("Stale-unused rate (14d)", asPercent(report.review.stale_unused_rate_14d)),
+      line(
+        "Notification action conversion (14d)",
+        asPercent(report.review.notification_action_conversion_rate_14d),
+      ),
       line("Refresh state", report.review.refresh_state),
       line("Refreshed", report.review.refreshed_at ?? "never"),
       line("Top package", topSummary(report.review.top_review_summary, "nothing queued")),

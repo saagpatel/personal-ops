@@ -3,7 +3,7 @@ import { getDesktopStatusReport } from "../desktop.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
-import { buildStoredReviewPackageReport } from "./review-intelligence.js";
+import { buildStoredReviewPackageReport, buildStoredReviewReport } from "./review-intelligence.js";
 
 export async function buildStatusReport(
   service: any,
@@ -41,6 +41,9 @@ export async function buildStatusReport(
   const reviewPackageReport = skipDerived
     ? await buildStoredReviewPackageReport(service, classifiedState)
     : await service.getReviewPackageReport();
+  const reviewOutcomeReport = skipDerived
+    ? await buildStoredReviewReport(service, { window_days: 14 })
+    : await service.getReviewReport({ window_days: 14 });
   const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
@@ -274,6 +277,10 @@ export async function buildStatusReport(
       top_review_summary: reviewPackageReport.top_item_summary,
       refreshed_at: reviewPackageReport.refreshed_at,
       refresh_state: reviewPackageReport.refresh_state,
+      package_open_rate_14d: reviewOutcomeReport.summary.open_rate,
+      package_acted_on_rate_14d: reviewOutcomeReport.summary.acted_on_rate,
+      stale_unused_rate_14d: reviewOutcomeReport.summary.stale_unused_rate,
+      notification_action_conversion_rate_14d: reviewOutcomeReport.summary.notification_action_conversion_rate,
     },
     desktop: desktopStatus,
   };

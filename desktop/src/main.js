@@ -78,6 +78,24 @@ async function ensureNotificationPermission() {
 async function maybeSendNotifications(snapshot) {
   const update = computeDesktopNotificationUpdate(state.notificationState, snapshot);
   const granted = await ensureNotificationPermission();
+  const records = granted
+    ? update.review_notification_records
+    : update.review_notification_records.map((record) =>
+        record.decision === "fired"
+          ? {
+              ...record,
+              decision: "suppressed",
+              suppression_reason: "permission_denied",
+            }
+          : record,
+      );
+  if (records.length > 0) {
+    try {
+      await invoke("record_review_notification_events", { events: records });
+    } catch (error) {
+      console.warn("Could not record desktop review notification events.", error);
+    }
+  }
   if (!granted) {
     state.notificationState = update.state;
     return;
@@ -225,6 +243,8 @@ async function pollSnapshot() {
         planning: 30,
         outbound: 30,
       },
+      review_package_targets: {},
+      top_tuning_proposal_id: null,
       notification_cooldown_minutes: 30,
       daemon_available: false,
       repair_hint: message,

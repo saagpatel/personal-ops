@@ -37,6 +37,8 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 6 | Planning Autopilot and Execution Bundles | Turn planning recommendations into prepared grouped execution work with explicit console apply | Complete |
 | 7 | Approval Autopilot and Outbound Finish-Work | Move reviewed outbound mail work through grouped request-approval, approve, and send in the console | Complete |
 | 8 | Continuous Autopilot, Warm Start, and Value Review | Warm the existing assistant-led workspace in the background and prove the value of that prep layer | Complete |
+| 9 | Review Intelligence 2.0 | Compress prepared work into bounded review packages and add review-only tuning without altering core ranking | Complete |
+| 10 | Review Outcomes, Eval Loop, and Notification Governance | Measure whether review packages and review notifications are actually paying off, and expose that evidence to the operator | Complete |
 
 ## Phase 1
 
@@ -176,10 +178,42 @@ Delivered shape:
 - additive autopilot provenance on prepared drafts and meeting packets
 - completed-work review that now summarizes the full assistant-led program through Phase 8
 
+## Phase 9
+
+Phase 9 is now complete.
+
+Delivered shape:
+
+- one bounded derived review package per surface across inbox, meetings, planning, and outbound work
+- stable review package identity based on source identity and underlying state instead of presentation copy
+- persisted review read-model freshness with single-flight refresh behavior
+- operator-only package and item-level feedback
+- audit-safe review tuning approvals and dismissals that preserve evidence snapshots
+- console and desktop review overlay support without hiding the raw worklist
+- explicit proof in tests that review intelligence remains an overlay and never becomes a ranking source
+
+## Phase 10
+
+Phase 10 is now complete.
+
+Delivered shape:
+
+- review package cycle history so reporting is based on real package lifecycles instead of stable package ids alone
+- review notification telemetry that records both fired and suppressed review notification decisions
+- `personal-ops review report` plus `GET /v1/review/report`
+- console review report rendering with summary, per-surface breakdowns, noisy-source reporting, and tuning outcome context
+- additive status metrics for 14-day review outcomes and notification conversion
+- test coverage for package-cycle reporting, legacy feedback attribution, and desktop review notification telemetry
+- unchanged trust boundaries:
+  - no automatic tuning approval
+  - no new core workflow ranking source
+  - no widening of browser mutation authority
+  - no change to send, approval, auth, or restore controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, and 8 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, and 10 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

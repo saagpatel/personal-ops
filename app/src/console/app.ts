@@ -26,6 +26,7 @@ import type {
   PlanningRecommendationSummaryReport,
   ReviewPackage,
   ReviewPackageReport,
+  ReviewReport,
   ReviewTuningProposal,
   ReviewTuningReport,
   ReviewItem,
@@ -38,7 +39,7 @@ import type {
   WorklistReport,
 } from "../types.js";
 
-type SectionId = "overview" | "worklist" | "approvals" | "drafts" | "planning" | "audit" | "backups";
+type SectionId = "overview" | "review" | "worklist" | "approvals" | "drafts" | "planning" | "audit" | "backups";
 type BannerTone = "good" | "warn" | "critical";
 
 interface ConsolePayload {
@@ -59,6 +60,7 @@ interface ConsolePayload {
   planningAutopilot: PlanningAutopilotReport;
   reviewPackages: ReviewPackageReport;
   reviewTuning: ReviewTuningReport;
+  reviewReport: ReviewReport;
   planningGroups: PlanningRecommendationGroup[];
   planningNext: PlanningRecommendationDetail | null;
   audit: AuditEvent[];
@@ -143,6 +145,10 @@ interface ReviewPackageReportResponse {
 
 interface ReviewTuningResponse {
   review_tuning: ReviewTuningReport;
+}
+
+interface ReviewReportResponse {
+  review_report: ReviewReport;
 }
 
 interface PlanningAutopilotBundleResponse {
@@ -230,6 +236,7 @@ class SessionLockedError extends Error {}
 
 const SECTIONS: Record<SectionId, string> = {
   overview: "Overview",
+  review: "Review Report",
   worklist: "Worklist",
   approvals: "Approvals",
   drafts: "Drafts",
@@ -420,6 +427,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     planningAutopilotResponse,
     reviewPackagesResponse,
     reviewTuningResponse,
+    reviewReportResponse,
     planningGroupsResponse,
     planningNextResponse,
     auditResponse,
@@ -442,6 +450,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
     fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
     fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
+    fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
     fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
     fetchAudit(state.auditLimit, state.auditCategory),
@@ -466,6 +475,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     planningAutopilot: planningAutopilotResponse.planning_autopilot,
     reviewPackages: reviewPackagesResponse.review_packages,
     reviewTuning: reviewTuningResponse.review_tuning,
+    reviewReport: reviewReportResponse.review_report,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
     planningNext: planningNextResponse.planning_recommendation,
     audit: auditResponse.events,
@@ -624,6 +634,123 @@ function metricCard(label: string, value: string, detail: string): string {
       <p class="metric__value">${escapeHtml(value)}</p>
       <p class="subtle subtle--body">${escapeHtml(detail)}</p>
     </div>
+  `;
+}
+
+function asPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function renderReviewReport(report: ReviewReport): string {
+  return `
+    <section class="detail-stack">
+      <section class="hero">
+        <p class="eyebrow">Review outcomes</p>
+        <h3>Review intelligence is now measurable instead of anecdotal.</h3>
+        <p>${escapeHtml(`Window: ${report.window_days} days · opened ${asPercent(report.summary.open_rate)} · acted on ${asPercent(report.summary.acted_on_rate)} · stale-unused ${asPercent(report.summary.stale_unused_rate)}`)}</p>
+      </section>
+      <section class="stats-grid">
+        ${metricCard("Created", String(report.summary.created_count), `${report.summary.disappeared_count} disappeared before explicit review`)}
+        ${metricCard("Opened", asPercent(report.summary.open_rate), `${report.summary.opened_count} package cycles were opened`)}
+        ${metricCard("Acted on", asPercent(report.summary.acted_on_rate), `${report.summary.acted_on_count} package cycles got feedback or completion`)}
+        ${metricCard("Stale-unused", asPercent(report.summary.stale_unused_rate), `${report.summary.stale_unused_count} package cycles aged out untouched`)}
+        ${metricCard("Notification open", asPercent(report.summary.notification_open_conversion_rate), "How often a fired notification led to an opened package")}
+        ${metricCard("Notification action", asPercent(report.summary.notification_action_conversion_rate), "How often a fired notification led to an acted-on package")}
+      </section>
+      <section class="columns columns--wide-right">
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Surface performance</h3>
+            ${
+              report.surfaces.length === 0
+                ? `<div class="empty">No review activity was recorded in this reporting window.</div>`
+                : report.surfaces
+                    .map(
+                      (surface) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(surface.surface)}</h4>
+                            <span class="pill ${surface.stale_unused_rate > 0.35 ? "pill--warn" : "pill--good"}">${escapeHtml(`${surface.created_count} cycles`)}</span>
+                          </div>
+                          <p class="subtle subtle--body">${escapeHtml(`Opened ${asPercent(surface.open_rate)} · acted on ${asPercent(surface.acted_on_rate)} · stale-unused ${asPercent(surface.stale_unused_rate)}`)}</p>
+                          <div class="detail-list detail-list--spaced">
+                            <div class="detail-row"><dt>Notifications</dt><dd>${escapeHtml(`${surface.fired_notification_count} fired / ${surface.suppressed_notification_count} suppressed`)}</dd></div>
+                            <div class="detail-row"><dt>Cooldown hits</dt><dd>${escapeHtml(String(surface.cooldown_hit_count))}</dd></div>
+                            <div class="detail-row"><dt>Negative feedback</dt><dd>${escapeHtml(`${surface.negative_feedback_count} (${asPercent(surface.negative_feedback_rate)})`)}</dd></div>
+                            <div class="detail-row"><dt>Open proposals</dt><dd>${escapeHtml(String(surface.open_tuning_proposal_count))}</dd></div>
+                            <div class="detail-row"><dt>Active tuning</dt><dd>${escapeHtml(String(surface.active_tuning_state_count))}</dd></div>
+                          </div>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+          <section class="detail-card">
+            <h3>Top noisy sources</h3>
+            ${
+              report.top_noisy_sources.length === 0
+                ? `<div class="empty">No noisy sources were detected in this window.</div>`
+                : report.top_noisy_sources
+                    .map(
+                      (source) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(source.scope_key)}</h4>
+                            <span class="pill pill--warn">${escapeHtml(source.surface)}</span>
+                          </div>
+                          <p>${escapeHtml(source.latest_summary ?? "No latest summary is available for this source.")}</p>
+                          <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+        </div>
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Proposal outcomes</h3>
+            <div class="detail-list detail-list--spaced">
+              <div class="detail-row"><dt>Proposed</dt><dd>${escapeHtml(String(report.proposal_outcomes.proposed_count))}</dd></div>
+              <div class="detail-row"><dt>Approved</dt><dd>${escapeHtml(String(report.proposal_outcomes.approved_count))}</dd></div>
+              <div class="detail-row"><dt>Dismissed</dt><dd>${escapeHtml(String(report.proposal_outcomes.dismissed_count))}</dd></div>
+              <div class="detail-row"><dt>Reopened</dt><dd>${escapeHtml(String(report.proposal_outcomes.reopened_count))}</dd></div>
+            </div>
+            ${
+              report.proposal_outcomes.active_state_counts.length === 0
+                ? `<p class="subtle subtle--body">No active review tuning state is currently applied.</p>`
+                : `
+                  <section class="panel">
+                    <h4>Active tuning by surface</h4>
+                    <ul>
+                      ${report.proposal_outcomes.active_state_counts
+                        .map(
+                          (entry) =>
+                            `<li>${escapeHtml(`${entry.surface} · ${entry.proposal_kind} · ${entry.count}`)}</li>`,
+                        )
+                        .join("")}
+                    </ul>
+                  </section>
+                `
+            }
+          </section>
+          <section class="detail-card">
+            <h3>Notification performance</h3>
+            <div class="detail-list detail-list--spaced">
+              <div class="detail-row"><dt>Fired</dt><dd>${escapeHtml(String(report.notification_performance.fired_count))}</dd></div>
+              <div class="detail-row"><dt>Suppressed</dt><dd>${escapeHtml(String(report.notification_performance.suppressed_count))}</dd></div>
+              <div class="detail-row"><dt>Cooldown hits</dt><dd>${escapeHtml(String(report.notification_performance.cooldown_hit_count))}</dd></div>
+              <div class="detail-row"><dt>Open conversion</dt><dd>${escapeHtml(asPercent(report.notification_performance.notification_open_conversion_rate))}</dd></div>
+              <div class="detail-row"><dt>Action conversion</dt><dd>${escapeHtml(asPercent(report.notification_performance.notification_action_conversion_rate))}</dd></div>
+            </div>
+            <div class="list-item__actions list-item__actions--stack">
+              ${commandStack(["personal-ops review report", "personal-ops review report --days 30"])}
+            </div>
+          </section>
+        </div>
+      </section>
+    </section>
   `;
 }
 
@@ -2623,6 +2750,8 @@ function renderCurrentSection(payload: ConsolePayload): string {
   switch (state.section) {
     case "overview":
       return renderOverview(payload);
+    case "review":
+      return renderReviewReport(payload.reviewReport);
     case "worklist":
       return renderWorklist(payload);
     case "approvals":

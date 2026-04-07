@@ -1438,6 +1438,15 @@ export type ReviewTuningProposalKind =
 export type ReviewTuningDecision = "approve" | "dismiss";
 export type ReviewTuningProposalStatus = "proposed" | "approved" | "dismissed" | "expired";
 export type ReviewReadModelRefreshState = "empty" | "fresh" | "stale" | "refreshing" | "failed";
+export type ReviewPackageCycleOutcome = "open" | "completed" | "stale_unused" | "disappeared";
+export type ReviewNotificationKind =
+  | "review_package_inbox"
+  | "review_package_meetings"
+  | "review_package_planning"
+  | "review_package_outbound"
+  | "review_tuning_proposal";
+export type ReviewNotificationDecision = "fired" | "suppressed";
+export type ReviewNotificationSuppressionReason = "cooldown" | "permission_denied";
 
 export interface ReviewPackageItem {
   package_item_id: string;
@@ -1482,6 +1491,7 @@ export interface ReviewPackageReport {
 export interface ReviewFeedbackEvent {
   feedback_event_id: string;
   package_id: string;
+  package_cycle_id?: string | undefined;
   surface: ReviewPackageSurface;
   package_item_id?: string | undefined;
   reason: ReviewFeedbackReason;
@@ -1527,6 +1537,142 @@ export interface ReviewTuningReport {
   summary: string;
   open_proposal_count: number;
   proposals: ReviewTuningProposal[];
+}
+
+export interface ReviewPackageCycle {
+  package_cycle_id: string;
+  package_id: string;
+  surface: ReviewPackageSurface;
+  source_fingerprint: string;
+  summary: string;
+  why_now: string;
+  score_band: WorkflowScoreBand;
+  member_ids: string[];
+  items: ReviewPackageItem[];
+  source_keys: string[];
+  started_at: string;
+  last_seen_at: string;
+  ended_at?: string | undefined;
+  outcome: ReviewPackageCycleOutcome;
+  opened_at?: string | undefined;
+  acted_on_at?: string | undefined;
+  completed_at?: string | undefined;
+  stale_unused_at?: string | undefined;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewNotificationEvent {
+  notification_event_id: string;
+  kind: ReviewNotificationKind;
+  decision: ReviewNotificationDecision;
+  source: "desktop";
+  surface?: ReviewPackageSurface | undefined;
+  package_id?: string | undefined;
+  package_cycle_id?: string | undefined;
+  proposal_id?: string | undefined;
+  suppression_reason?: ReviewNotificationSuppressionReason | undefined;
+  current_count: number;
+  previous_count: number;
+  cooldown_minutes: number;
+  client_id: string;
+  actor?: string | undefined;
+  created_at: string;
+}
+
+export interface ReviewNotificationTarget {
+  package_id: string;
+  package_cycle_id?: string | undefined;
+}
+
+export interface ReviewNotificationSnapshot {
+  review_package_count: number;
+  top_review_summary: string | null;
+  open_tuning_proposal_count: number;
+  review_package_inbox_count: number;
+  review_package_meetings_count: number;
+  review_package_planning_count: number;
+  review_package_outbound_count: number;
+  review_notification_cooldown_minutes: Record<ReviewPackageSurface, number>;
+  review_package_targets: Partial<Record<ReviewPackageSurface, ReviewNotificationTarget>>;
+  top_tuning_proposal_id?: string | undefined;
+}
+
+export interface ReviewReportSummary {
+  created_count: number;
+  opened_count: number;
+  acted_on_count: number;
+  completed_count: number;
+  stale_unused_count: number;
+  disappeared_count: number;
+  open_rate: number;
+  acted_on_rate: number;
+  stale_unused_rate: number;
+  notification_open_conversion_rate: number;
+  notification_action_conversion_rate: number;
+}
+
+export interface ReviewReportSurface {
+  surface: ReviewPackageSurface;
+  created_count: number;
+  opened_count: number;
+  acted_on_count: number;
+  completed_count: number;
+  stale_unused_count: number;
+  open_rate: number;
+  acted_on_rate: number;
+  stale_unused_rate: number;
+  negative_feedback_count: number;
+  positive_feedback_count: number;
+  negative_feedback_rate: number;
+  fired_notification_count: number;
+  suppressed_notification_count: number;
+  cooldown_hit_count: number;
+  notification_open_conversion_rate: number;
+  notification_action_conversion_rate: number;
+  open_tuning_proposal_count: number;
+  active_tuning_state_count: number;
+}
+
+export interface ReviewProposalOutcomeSummary {
+  proposed_count: number;
+  approved_count: number;
+  dismissed_count: number;
+  reopened_count: number;
+  active_state_counts: Array<{
+    proposal_kind: ReviewTuningProposalKind;
+    surface: ReviewPackageSurface;
+    count: number;
+  }>;
+}
+
+export interface ReviewNotificationPerformanceSummary {
+  fired_count: number;
+  suppressed_count: number;
+  cooldown_hit_count: number;
+  notification_open_conversion_rate: number;
+  notification_action_conversion_rate: number;
+}
+
+export interface ReviewNoisySourceReport {
+  surface: ReviewPackageSurface;
+  scope_key: string;
+  feedback_count: number;
+  negative_feedback_count: number;
+  positive_feedback_count: number;
+  negative_feedback_rate: number;
+  stale_unused_count: number;
+  latest_summary: string | null;
+}
+
+export interface ReviewReport {
+  generated_at: string;
+  window_days: 7 | 14 | 30;
+  summary: ReviewReportSummary;
+  surfaces: ReviewReportSurface[];
+  proposal_outcomes: ReviewProposalOutcomeSummary;
+  notification_performance: ReviewNotificationPerformanceSummary;
+  top_noisy_sources: ReviewNoisySourceReport[];
 }
 
 export interface MeetingPrepThreadSummary {
@@ -2117,6 +2263,10 @@ export interface ServiceStatusReport {
     top_review_summary: string | null;
     refreshed_at: string | null;
     refresh_state: ReviewReadModelRefreshState;
+    package_open_rate_14d: number;
+    package_acted_on_rate_14d: number;
+    stale_unused_rate_14d: number;
+    notification_action_conversion_rate_14d: number;
   };
   desktop: DesktopStatusReport;
 }

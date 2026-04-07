@@ -21,6 +21,7 @@ export {
 export {
   formatReviewPackage,
   formatReviewPackageReport,
+  formatReviewReport,
   formatReviewTuningReport,
 } from "./formatters/review.js";
 export {

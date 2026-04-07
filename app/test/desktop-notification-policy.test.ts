@@ -31,6 +31,14 @@ test("desktop notifications use exact assistant-led signals and respect cooldown
     first.notifications.map((notification) => notification.kind),
     ["review_package_inbox", "review_package_meetings", "review_tuning_proposal"],
   );
+  assert.deepEqual(
+    first.review_notification_records.map((record) => [record.kind, record.decision]),
+    [
+      ["review_package_inbox", "fired"],
+      ["review_package_meetings", "fired"],
+      ["review_tuning_proposal", "fired"],
+    ],
+  );
 
   const cooled = computeDesktopNotificationUpdate(
     first.state,
@@ -53,6 +61,14 @@ test("desktop notifications use exact assistant-led signals and respect cooldown
   );
 
   assert.equal(cooled.notifications.length, 0);
+  assert.deepEqual(
+    cooled.review_notification_records.map((record) => [record.kind, record.decision, record.suppression_reason ?? null]),
+    [
+      ["review_package_inbox", "suppressed", "cooldown"],
+      ["review_package_meetings", "suppressed", "cooldown"],
+      ["review_tuning_proposal", "suppressed", "cooldown"],
+    ],
+  );
 
   const afterCooldown = computeDesktopNotificationUpdate(
     cooled.state,
@@ -78,5 +94,12 @@ test("desktop notifications use exact assistant-led signals and respect cooldown
   assert.deepEqual(
     afterCooldown.notifications.map((notification) => notification.kind),
     ["readiness_degraded", "review_package_inbox", "review_package_meetings"],
+  );
+  assert.deepEqual(
+    afterCooldown.review_notification_records.map((record) => [record.kind, record.decision]),
+    [
+      ["review_package_inbox", "fired"],
+      ["review_package_meetings", "fired"],
+    ],
   );
 });
