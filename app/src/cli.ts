@@ -52,7 +52,10 @@ import {
   formatReviewDetail,
   formatReviewItems,
   formatReviewOpenResult,
+  formatReviewPackage,
+  formatReviewPackageReport,
   formatReviewResolveResult,
+  formatReviewTuningReport,
   formatRestoreResult,
   formatSendWindowStatus,
   formatSnapshotInspection,
@@ -154,6 +157,90 @@ review
       { note: options.note },
     );
     printOutput(response, (value) => formatReviewResolveResult(value), options.json);
+  });
+
+review
+  .command("packages")
+  .description("List bounded review packages without changing the raw worklist.")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const response = await requestJson<{ review_packages: unknown }>("GET", "/v1/review/packages");
+    printOutput(response, (value) => formatReviewPackageReport(value.review_packages as any), options.json);
+  });
+
+review
+  .command("package")
+  .description("Inspect and annotate one derived review package.")
+  .argument("<packageId>", "Review package id")
+  .argument("[packageAction]", "Use 'feedback' to record package or item feedback")
+  .option("--reason <reason>", "Feedback reason")
+  .option("--note <text>", "Feedback note")
+  .option("--item <packageItemId>", "Optional review package item id for item-level feedback")
+  .option("--json", "Print raw JSON")
+  .allowUnknownOption(true)
+  .action(async (packageId, packageAction, options) => {
+    if (!packageAction) {
+      const response = await requestJson<{ review_package: unknown }>("GET", `/v1/review/packages/${packageId}`);
+      printOutput(response, (value) => formatReviewPackage(value.review_package as any), options.json);
+      return;
+    }
+    if (packageAction !== "feedback") {
+      throw new Error(
+        "Use `personal-ops review package <packageId>` or `personal-ops review package <packageId> feedback --reason <reason> --note <text> [--item <packageItemId>]`.",
+      );
+    }
+    if (!options.reason || !options.note) {
+      throw new Error("Package feedback requires both `--reason` and `--note`.");
+    }
+    const response = await requestJson<{ review_package: unknown }>("POST", `/v1/review/packages/${packageId}/feedback`, {
+      reason: options.reason,
+      note: options.note,
+      ...(options.item ? { package_item_id: options.item } : {}),
+    });
+    printOutput(response, (value) => formatReviewPackage(value.review_package as any), options.json);
+  });
+
+review
+  .command("tuning")
+  .description("Inspect and decide review tuning proposals.")
+  .argument("[proposalId]", "Review tuning proposal id")
+  .argument("[decision]", "Use approve or dismiss")
+  .option("--note <text>", "Decision note")
+  .option("--json", "Print raw JSON")
+  .allowUnknownOption(true)
+  .action(async (proposalId, decision, options) => {
+    if (!proposalId) {
+      const response = await requestJson<{ review_tuning: unknown }>("GET", "/v1/review/tuning");
+      printOutput(response, (value) => formatReviewTuningReport(value.review_tuning as any), options.json);
+      return;
+    }
+    if (decision !== "approve" && decision !== "dismiss") {
+      throw new Error(
+        "Use `personal-ops review tuning` or `personal-ops review tuning <proposalId> approve --note <text>` or `... dismiss --note <text>`.",
+      );
+    }
+    if (!options.note) {
+      throw new Error("Review tuning decisions require `--note`.");
+    }
+    const response = await requestJson<{ review_tuning_proposal: unknown }>(
+      "POST",
+      `/v1/review/tuning/${proposalId}/${decision}`,
+      { note: options.note },
+    );
+    printOutput(
+      response,
+      (value) =>
+        formatReviewTuningReport({
+          generated_at: new Date().toISOString(),
+          refreshed_at: new Date().toISOString(),
+          refresh_state: "fresh",
+          last_refresh_trigger: decision,
+          summary: "Proposal updated.",
+          open_proposal_count: decision === "approve" ? 1 : 0,
+          proposals: [value.review_tuning_proposal as any],
+        } as any),
+      options.json,
+    );
   });
 
 const approval = program.command("approval").description("Work approval requests for outbound draft sends.");

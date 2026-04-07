@@ -58,8 +58,17 @@ import {
   PlanningRecommendationSource,
   PlanningRecommendationSlotState,
   PlanningRecommendationStatus,
+  ReviewFeedbackEvent,
+  ReviewFeedbackReason,
   ReviewItem,
   ReviewItemState,
+  ReviewPackage,
+  ReviewPackageState,
+  ReviewPackageSurface,
+  ReviewReadModelRefreshState,
+  ReviewTuningProposal,
+  ReviewTuningProposalKind,
+  ReviewTuningProposalStatus,
   SendWindow,
   SendWindowState,
   TaskItem,
@@ -71,7 +80,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 20;
+export const CURRENT_SCHEMA_VERSION = 21;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -341,6 +350,22 @@ export class PersonalOpsDb {
       };
     }
     for (const tableName of ["autopilot_runs", "autopilot_profile_state"]) {
+      if (!this.tableExists(tableName)) {
+        return {
+          current_version: current,
+          expected_version: SCHEMA_VERSION,
+          compatible: false,
+          message: `Schema is missing ${tableName}.`,
+        };
+      }
+    }
+    for (const tableName of [
+      "review_packages",
+      "review_feedback_events",
+      "review_tuning_proposals",
+      "review_tuning_state",
+      "review_read_model_state",
+    ]) {
       if (!this.tableExists(tableName)) {
         return {
           current_version: current,
@@ -2905,6 +2930,562 @@ export class PersonalOpsDb {
     return this.getAutopilotProfileState(profile)!;
   }
 
+  getReviewReadModelState(): {
+    model_key: string;
+    refresh_state: ReviewReadModelRefreshState;
+    last_refresh_started_at?: string | undefined;
+    last_refresh_finished_at?: string | undefined;
+    last_refresh_trigger?: string | undefined;
+    last_refresh_error?: string | undefined;
+    updated_at: string;
+  } | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_read_model_state WHERE model_key = 'global'`)
+      .get() as Record<string, unknown> | undefined;
+    if (!row) {
+      return null;
+    }
+    return {
+      model_key: String(row.model_key),
+      refresh_state: String(row.refresh_state) as ReviewReadModelRefreshState,
+      last_refresh_started_at: row.last_refresh_started_at ? String(row.last_refresh_started_at) : undefined,
+      last_refresh_finished_at: row.last_refresh_finished_at ? String(row.last_refresh_finished_at) : undefined,
+      last_refresh_trigger: row.last_refresh_trigger ? String(row.last_refresh_trigger) : undefined,
+      last_refresh_error: row.last_refresh_error ? String(row.last_refresh_error) : undefined,
+      updated_at: String(row.updated_at),
+    };
+  }
+
+  upsertReviewReadModelState(input: {
+    refresh_state: ReviewReadModelRefreshState;
+    last_refresh_started_at?: string | null;
+    last_refresh_finished_at?: string | null;
+    last_refresh_trigger?: string | null;
+    last_refresh_error?: string | null;
+  }): {
+    model_key: string;
+    refresh_state: ReviewReadModelRefreshState;
+    last_refresh_started_at?: string | undefined;
+    last_refresh_finished_at?: string | undefined;
+    last_refresh_trigger?: string | undefined;
+    last_refresh_error?: string | undefined;
+    updated_at: string;
+  } {
+    const existing = this.getReviewReadModelState();
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO review_read_model_state (
+          model_key, refresh_state, last_refresh_started_at, last_refresh_finished_at, last_refresh_trigger, last_refresh_error, updated_at
+        ) VALUES ('global', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(model_key) DO UPDATE SET
+          refresh_state = excluded.refresh_state,
+          last_refresh_started_at = excluded.last_refresh_started_at,
+          last_refresh_finished_at = excluded.last_refresh_finished_at,
+          last_refresh_trigger = excluded.last_refresh_trigger,
+          last_refresh_error = excluded.last_refresh_error,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.refresh_state,
+        input.last_refresh_started_at ?? existing?.last_refresh_started_at ?? null,
+        input.last_refresh_finished_at ?? existing?.last_refresh_finished_at ?? null,
+        input.last_refresh_trigger ?? existing?.last_refresh_trigger ?? null,
+        input.last_refresh_error ?? existing?.last_refresh_error ?? null,
+        now,
+      );
+    return this.getReviewReadModelState()!;
+  }
+
+  getReviewPackage(packageId: string): ReviewPackage | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_packages WHERE package_id = ?`)
+      .get(packageId) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewPackage(row) : null;
+  }
+
+  getReviewPackageRecord(packageId: string): (ReviewPackage & {
+    source_keys: string[];
+    is_current: boolean;
+    opened_at?: string | undefined;
+    acted_on_at?: string | undefined;
+    completed_at?: string | undefined;
+    stale_unused_at?: string | undefined;
+    current_cycle_reviewed: boolean;
+    updated_at: string;
+  }) | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_packages WHERE package_id = ?`)
+      .get(packageId) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewPackageRecord(row) : null;
+  }
+
+  listReviewPackages(
+    options: {
+      surface?: ReviewPackageSurface;
+      state?: ReviewPackageState;
+      include_completed?: boolean;
+      current_only?: boolean;
+    } = {},
+  ): ReviewPackage[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.surface) {
+      clauses.push(`surface = ?`);
+      params.push(options.surface);
+    }
+    if (options.current_only ?? true) {
+      clauses.push(`is_current = 1`);
+    }
+    if (options.state) {
+      clauses.push(`state = ?`);
+      params.push(options.state);
+    } else if (!options.include_completed) {
+      clauses.push(`state != 'completed'`);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_packages ${whereClause} ORDER BY prepared_at DESC, package_id ASC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewPackage(row));
+  }
+
+  listReviewPackageRecords(
+    options: {
+      surface?: ReviewPackageSurface;
+      include_completed?: boolean;
+      current_only?: boolean;
+    } = {},
+  ): Array<ReviewPackage & {
+    source_keys: string[];
+    is_current: boolean;
+    opened_at?: string | undefined;
+    acted_on_at?: string | undefined;
+    completed_at?: string | undefined;
+    stale_unused_at?: string | undefined;
+    current_cycle_reviewed: boolean;
+    updated_at: string;
+  }> {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.surface) {
+      clauses.push(`surface = ?`);
+      params.push(options.surface);
+    }
+    if (options.current_only ?? true) {
+      clauses.push(`is_current = 1`);
+    }
+    if (!options.include_completed) {
+      clauses.push(`state != 'completed'`);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_packages ${whereClause} ORDER BY prepared_at DESC, package_id ASC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewPackageRecord(row));
+  }
+
+  markAllReviewPackagesNotCurrent(): void {
+    this.db.prepare(`UPDATE review_packages SET is_current = 0, updated_at = ? WHERE is_current = 1`).run(nowIso());
+  }
+
+  upsertReviewPackage(
+    input: ReviewPackage & {
+      source_keys?: string[];
+      is_current?: boolean;
+      opened_at?: string | null;
+      acted_on_at?: string | null;
+      completed_at?: string | null;
+      stale_unused_at?: string | null;
+      current_cycle_reviewed?: boolean;
+    },
+  ): ReviewPackage {
+    const existing = this.getReviewPackageRecord(input.package_id);
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO review_packages (
+          package_id, surface, state, summary, why_now, score_band, signals_json, prepared_at, stale_at,
+          source_fingerprint, member_ids_json, next_commands_json, items_json, source_keys_json, is_current,
+          opened_at, acted_on_at, completed_at, stale_unused_at, current_cycle_reviewed, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(package_id) DO UPDATE SET
+          surface = excluded.surface,
+          state = excluded.state,
+          summary = excluded.summary,
+          why_now = excluded.why_now,
+          score_band = excluded.score_band,
+          signals_json = excluded.signals_json,
+          prepared_at = excluded.prepared_at,
+          stale_at = excluded.stale_at,
+          source_fingerprint = excluded.source_fingerprint,
+          member_ids_json = excluded.member_ids_json,
+          next_commands_json = excluded.next_commands_json,
+          items_json = excluded.items_json,
+          source_keys_json = excluded.source_keys_json,
+          is_current = excluded.is_current,
+          opened_at = COALESCE(review_packages.opened_at, excluded.opened_at),
+          acted_on_at = COALESCE(review_packages.acted_on_at, excluded.acted_on_at),
+          completed_at = excluded.completed_at,
+          stale_unused_at = excluded.stale_unused_at,
+          current_cycle_reviewed = excluded.current_cycle_reviewed,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.package_id,
+        input.surface,
+        input.state,
+        input.summary,
+        input.why_now,
+        input.score_band,
+        toJson(input.signals),
+        input.prepared_at,
+        input.stale_at,
+        input.source_fingerprint,
+        toJson(input.member_ids),
+        toJson(input.next_commands),
+        toJson(input.items),
+        toJson(input.source_keys ?? existing?.source_keys ?? []),
+        (input.is_current ?? true) ? 1 : 0,
+        input.opened_at ?? existing?.opened_at ?? null,
+        input.acted_on_at ?? existing?.acted_on_at ?? null,
+        input.completed_at ?? existing?.completed_at ?? null,
+        input.stale_unused_at ?? existing?.stale_unused_at ?? null,
+        (input.current_cycle_reviewed ?? existing?.current_cycle_reviewed ?? false) ? 1 : 0,
+        existing?.prepared_at ?? now,
+        now,
+      );
+    return this.getReviewPackage(input.package_id)!;
+  }
+
+  markReviewPackageOpened(packageId: string): ReviewPackage | null {
+    this.db
+      .prepare(`UPDATE review_packages SET opened_at = COALESCE(opened_at, ?), updated_at = ? WHERE package_id = ?`)
+      .run(nowIso(), nowIso(), packageId);
+    return this.getReviewPackage(packageId);
+  }
+
+  markReviewPackageActedOn(packageId: string): ReviewPackage | null {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `UPDATE review_packages
+         SET acted_on_at = COALESCE(acted_on_at, ?), current_cycle_reviewed = 1, updated_at = ?
+         WHERE package_id = ?`,
+      )
+      .run(now, now, packageId);
+    return this.getReviewPackage(packageId);
+  }
+
+  markReviewPackageCompleted(packageId: string): ReviewPackage | null {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `UPDATE review_packages
+         SET state = 'completed', completed_at = COALESCE(completed_at, ?), current_cycle_reviewed = 1, updated_at = ?
+         WHERE package_id = ?`,
+      )
+      .run(now, now, packageId);
+    return this.getReviewPackage(packageId);
+  }
+
+  markReviewPackageStaleUnused(packageId: string): ReviewPackage | null {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `UPDATE review_packages
+         SET stale_unused_at = COALESCE(stale_unused_at, ?), updated_at = ?
+         WHERE package_id = ?`,
+      )
+      .run(now, now, packageId);
+    return this.getReviewPackage(packageId);
+  }
+
+  createReviewFeedbackEvent(input: {
+    package_id: string;
+    surface: ReviewPackageSurface;
+    package_item_id?: string | null;
+    reason: ReviewFeedbackReason;
+    note: string;
+    actor?: string | null;
+    client_id: string;
+    source_fingerprint: string;
+  }): ReviewFeedbackEvent {
+    const feedbackEventId = randomUUID();
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO review_feedback_events (
+          feedback_event_id, package_id, surface, package_item_id, reason, note, actor, client_id, source_fingerprint, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        feedbackEventId,
+        input.package_id,
+        input.surface,
+        input.package_item_id ?? null,
+        input.reason,
+        input.note,
+        input.actor ?? null,
+        input.client_id,
+        input.source_fingerprint,
+        createdAt,
+      );
+    return this.getReviewFeedbackEvent(feedbackEventId)!;
+  }
+
+  getReviewFeedbackEvent(feedbackEventId: string): ReviewFeedbackEvent | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_feedback_events WHERE feedback_event_id = ?`)
+      .get(feedbackEventId) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewFeedbackEvent(row) : null;
+  }
+
+  listReviewFeedbackEvents(options: {
+    surface?: ReviewPackageSurface;
+    package_id?: string;
+    source_fingerprint?: string;
+    days?: number;
+  } = {}): ReviewFeedbackEvent[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.surface) {
+      clauses.push(`surface = ?`);
+      params.push(options.surface);
+    }
+    if (options.package_id) {
+      clauses.push(`package_id = ?`);
+      params.push(options.package_id);
+    }
+    if (options.source_fingerprint) {
+      clauses.push(`source_fingerprint = ?`);
+      params.push(options.source_fingerprint);
+    }
+    if (options.days && options.days > 0) {
+      clauses.push(`created_at >= ?`);
+      params.push(new Date(Date.now() - options.days * 24 * 60 * 60 * 1000).toISOString());
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_feedback_events ${whereClause} ORDER BY created_at DESC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewFeedbackEvent(row));
+  }
+
+  getLatestReviewFeedbackReason(packageId: string, sourceFingerprint: string, packageItemId?: string): ReviewFeedbackReason | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT reason FROM review_feedback_events
+         WHERE package_id = ? AND source_fingerprint = ? AND package_item_id IS ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(packageId, sourceFingerprint, packageItemId ?? null) as { reason?: string } | undefined;
+    return row?.reason ? (String(row.reason) as ReviewFeedbackReason) : undefined;
+  }
+
+  getCurrentPackageFeedbackReasons(packageId: string, sourceFingerprint: string): Map<string, ReviewFeedbackReason> {
+    const rows = this.db
+      .prepare(
+        `SELECT package_item_id, reason
+         FROM review_feedback_events
+         WHERE package_id = ? AND source_fingerprint = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(packageId, sourceFingerprint) as Array<{ package_item_id: string | null; reason: string }>;
+    const mapped = new Map<string, ReviewFeedbackReason>();
+    for (const row of rows) {
+      const key = row.package_item_id ?? "__package__";
+      if (!mapped.has(key)) {
+        mapped.set(key, row.reason as ReviewFeedbackReason);
+      }
+    }
+    return mapped;
+  }
+
+  upsertReviewTuningProposal(input: ReviewTuningProposal & { evidence_json: string }): ReviewTuningProposal {
+    this.db
+      .prepare(
+        `INSERT INTO review_tuning_proposals (
+          proposal_id, proposal_family_key, evidence_fingerprint, proposal_kind, surface, scope_key, summary, evidence_window_days,
+          evidence_count, positive_count, negative_count, unused_stale_count, status, evidence_json, created_at, updated_at,
+          expires_at, approved_at, approved_by_client, approved_by_actor, approved_note,
+          dismissed_at, dismissed_by_client, dismissed_by_actor, dismissed_note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(proposal_id) DO UPDATE SET
+          proposal_family_key = excluded.proposal_family_key,
+          evidence_fingerprint = excluded.evidence_fingerprint,
+          proposal_kind = excluded.proposal_kind,
+          surface = excluded.surface,
+          scope_key = excluded.scope_key,
+          summary = excluded.summary,
+          evidence_window_days = excluded.evidence_window_days,
+          evidence_count = excluded.evidence_count,
+          positive_count = excluded.positive_count,
+          negative_count = excluded.negative_count,
+          unused_stale_count = excluded.unused_stale_count,
+          status = excluded.status,
+          evidence_json = excluded.evidence_json,
+          updated_at = excluded.updated_at,
+          expires_at = excluded.expires_at,
+          approved_at = excluded.approved_at,
+          approved_by_client = excluded.approved_by_client,
+          approved_by_actor = excluded.approved_by_actor,
+          approved_note = excluded.approved_note,
+          dismissed_at = excluded.dismissed_at,
+          dismissed_by_client = excluded.dismissed_by_client,
+          dismissed_by_actor = excluded.dismissed_by_actor,
+          dismissed_note = excluded.dismissed_note`,
+      )
+      .run(
+        input.proposal_id,
+        input.proposal_family_key,
+        input.evidence_fingerprint,
+        input.proposal_kind,
+        input.surface,
+        input.scope_key,
+        input.summary,
+        input.evidence_window_days,
+        input.evidence_count,
+        input.positive_count,
+        input.negative_count,
+        input.unused_stale_count,
+        input.status,
+        input.evidence_json,
+        input.created_at,
+        input.updated_at,
+        input.expires_at,
+        input.approved_at ?? null,
+        input.approved_by_client ?? null,
+        input.approved_by_actor ?? null,
+        input.approved_note ?? null,
+        input.dismissed_at ?? null,
+        input.dismissed_by_client ?? null,
+        input.dismissed_by_actor ?? null,
+        input.dismissed_note ?? null,
+      );
+    return this.getReviewTuningProposal(input.proposal_id)!;
+  }
+
+  getReviewTuningProposal(proposalId: string): ReviewTuningProposal | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_tuning_proposals WHERE proposal_id = ?`)
+      .get(proposalId) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewTuningProposal(row) : null;
+  }
+
+  getReviewTuningProposalRecord(proposalId: string): (ReviewTuningProposal & { evidence_json: string }) | null {
+    const row = this.db
+      .prepare(`SELECT * FROM review_tuning_proposals WHERE proposal_id = ?`)
+      .get(proposalId) as Record<string, unknown> | undefined;
+    return row ? { ...this.mapReviewTuningProposal(row), evidence_json: String(row.evidence_json ?? "{}") } : null;
+  }
+
+  listReviewTuningProposals(options: { status?: ReviewTuningProposalStatus; include_expired?: boolean } = {}): ReviewTuningProposal[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.status) {
+      clauses.push(`status = ?`);
+      params.push(options.status);
+    } else if (!options.include_expired) {
+      clauses.push(`status != 'expired'`);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_tuning_proposals ${whereClause} ORDER BY updated_at DESC, proposal_id ASC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewTuningProposal(row));
+  }
+
+  getLatestReviewTuningProposalByFamily(proposalFamilyKey: string): ReviewTuningProposal | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM review_tuning_proposals
+         WHERE proposal_family_key = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(proposalFamilyKey) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewTuningProposal(row) : null;
+  }
+
+  upsertReviewTuningState(input: {
+    proposal_id: string;
+    proposal_kind: ReviewTuningProposalKind;
+    surface: ReviewPackageSurface;
+    scope_key: string;
+    value_json: string;
+    status: "active" | "dismissed" | "expired";
+    starts_at: string;
+    expires_at: string;
+    note?: string | null;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO review_tuning_state (
+          proposal_id, proposal_kind, surface, scope_key, value_json, status, starts_at, expires_at, note, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(proposal_id) DO UPDATE SET
+          proposal_kind = excluded.proposal_kind,
+          surface = excluded.surface,
+          scope_key = excluded.scope_key,
+          value_json = excluded.value_json,
+          status = excluded.status,
+          starts_at = excluded.starts_at,
+          expires_at = excluded.expires_at,
+          note = excluded.note,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.proposal_id,
+        input.proposal_kind,
+        input.surface,
+        input.scope_key,
+        input.value_json,
+        input.status,
+        input.starts_at,
+        input.expires_at,
+        input.note ?? null,
+        nowIso(),
+      );
+  }
+
+  listReviewTuningState(options: { status?: "active" | "dismissed" | "expired" } = {}): Array<{
+    proposal_id: string;
+    proposal_kind: ReviewTuningProposalKind;
+    surface: ReviewPackageSurface;
+    scope_key: string;
+    value_json: string;
+    status: "active" | "dismissed" | "expired";
+    starts_at: string;
+    expires_at: string;
+    note?: string | undefined;
+    updated_at: string;
+  }> {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.status) {
+      clauses.push(`status = ?`);
+      params.push(options.status);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .prepare(`SELECT * FROM review_tuning_state ${whereClause} ORDER BY updated_at DESC`)
+      .all(...params)
+      .map((row: any) => ({
+        proposal_id: String(row.proposal_id),
+        proposal_kind: String(row.proposal_kind) as ReviewTuningProposalKind,
+        surface: String(row.surface) as ReviewPackageSurface,
+        scope_key: String(row.scope_key),
+        value_json: String(row.value_json),
+        status: String(row.status) as "active" | "dismissed" | "expired",
+        starts_at: String(row.starts_at),
+        expires_at: String(row.expires_at),
+        note: row.note ? String(row.note) : undefined,
+        updated_at: String(row.updated_at),
+      }));
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -3405,6 +3986,119 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_autopilot_profile_state_stale_at
         ON autopilot_profile_state(stale_at ASC);
 
+      CREATE TABLE IF NOT EXISTS review_packages (
+        package_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        state TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        why_now TEXT NOT NULL,
+        score_band TEXT NOT NULL,
+        signals_json TEXT NOT NULL,
+        prepared_at TEXT NOT NULL,
+        stale_at TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        member_ids_json TEXT NOT NULL,
+        next_commands_json TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        source_keys_json TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        opened_at TEXT,
+        acted_on_at TEXT,
+        completed_at TEXT,
+        stale_unused_at TEXT,
+        current_cycle_reviewed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_surface_prepared_at
+        ON review_packages(surface, prepared_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_stale_at
+        ON review_packages(stale_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_is_current_surface
+        ON review_packages(is_current, surface, prepared_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_feedback_events (
+        feedback_event_id TEXT PRIMARY KEY,
+        package_id TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        package_item_id TEXT,
+        reason TEXT NOT NULL,
+        note TEXT NOT NULL,
+        actor TEXT,
+        client_id TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_feedback_events_package_created_at
+        ON review_feedback_events(package_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_feedback_events_surface_created_at
+        ON review_feedback_events(surface, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_tuning_proposals (
+        proposal_id TEXT PRIMARY KEY,
+        proposal_family_key TEXT NOT NULL,
+        evidence_fingerprint TEXT NOT NULL,
+        proposal_kind TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_window_days INTEGER NOT NULL,
+        evidence_count INTEGER NOT NULL,
+        positive_count INTEGER NOT NULL,
+        negative_count INTEGER NOT NULL,
+        unused_stale_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        approved_at TEXT,
+        approved_by_client TEXT,
+        approved_by_actor TEXT,
+        approved_note TEXT,
+        dismissed_at TEXT,
+        dismissed_by_client TEXT,
+        dismissed_by_actor TEXT,
+        dismissed_note TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_proposals_family_created_at
+        ON review_tuning_proposals(proposal_family_key, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_proposals_status_updated_at
+        ON review_tuning_proposals(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_tuning_state (
+        proposal_id TEXT PRIMARY KEY,
+        proposal_kind TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        value_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        note TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_state_status_expires_at
+        ON review_tuning_state(status, expires_at ASC);
+
+      CREATE TABLE IF NOT EXISTS review_read_model_state (
+        model_key TEXT PRIMARY KEY,
+        refresh_state TEXT NOT NULL,
+        last_refresh_started_at TEXT,
+        last_refresh_finished_at TEXT,
+        last_refresh_trigger TEXT,
+        last_refresh_error TEXT,
+        updated_at TEXT NOT NULL
+      );
+
     `);
     if (this.columnExists("tasks", "scheduled_calendar_event_id")) {
       this.db.exec(`
@@ -3471,7 +4165,11 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("autopilot_profile_state") && this.tableExists("github_accounts") && this.tableExists("drive_files")
+      const inferred = this.tableExists("review_read_model_state")
+        ? this.tableExists("github_accounts") && this.tableExists("drive_files")
+          ? 21
+          : 14
+        : this.tableExists("autopilot_profile_state") && this.tableExists("github_accounts") && this.tableExists("drive_files")
         ? 20
         : this.tableExists("drive_files")
         ? this.tableExists("drive_sheets")
@@ -3589,6 +4287,10 @@ export class PersonalOpsDb {
       } else if (version === 19) {
         this.migrateToV20();
         version = 20;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 20) {
+        this.migrateToV21();
+        version = 21;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -4340,6 +5042,124 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV21() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS review_packages (
+        package_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        state TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        why_now TEXT NOT NULL,
+        score_band TEXT NOT NULL,
+        signals_json TEXT NOT NULL,
+        prepared_at TEXT NOT NULL,
+        stale_at TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        member_ids_json TEXT NOT NULL,
+        next_commands_json TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        source_keys_json TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        opened_at TEXT,
+        acted_on_at TEXT,
+        completed_at TEXT,
+        stale_unused_at TEXT,
+        current_cycle_reviewed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_surface_prepared_at
+        ON review_packages(surface, prepared_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_stale_at
+        ON review_packages(stale_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_packages_is_current_surface
+        ON review_packages(is_current, surface, prepared_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_feedback_events (
+        feedback_event_id TEXT PRIMARY KEY,
+        package_id TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        package_item_id TEXT,
+        reason TEXT NOT NULL,
+        note TEXT NOT NULL,
+        actor TEXT,
+        client_id TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_feedback_events_package_created_at
+        ON review_feedback_events(package_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_feedback_events_surface_created_at
+        ON review_feedback_events(surface, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_tuning_proposals (
+        proposal_id TEXT PRIMARY KEY,
+        proposal_family_key TEXT NOT NULL,
+        evidence_fingerprint TEXT NOT NULL,
+        proposal_kind TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_window_days INTEGER NOT NULL,
+        evidence_count INTEGER NOT NULL,
+        positive_count INTEGER NOT NULL,
+        negative_count INTEGER NOT NULL,
+        unused_stale_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        approved_at TEXT,
+        approved_by_client TEXT,
+        approved_by_actor TEXT,
+        approved_note TEXT,
+        dismissed_at TEXT,
+        dismissed_by_client TEXT,
+        dismissed_by_actor TEXT,
+        dismissed_note TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_proposals_family_created_at
+        ON review_tuning_proposals(proposal_family_key, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_proposals_status_updated_at
+        ON review_tuning_proposals(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS review_tuning_state (
+        proposal_id TEXT PRIMARY KEY,
+        proposal_kind TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        value_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        note TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_tuning_state_status_expires_at
+        ON review_tuning_state(status, expires_at ASC);
+
+      CREATE TABLE IF NOT EXISTS review_read_model_state (
+        model_key TEXT PRIMARY KEY,
+        refresh_state TEXT NOT NULL,
+        last_refresh_started_at TEXT,
+        last_refresh_finished_at TEXT,
+        last_refresh_trigger TEXT,
+        last_refresh_error TEXT,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    this.addColumnIfMissing("review_packages", "is_current", `INTEGER NOT NULL DEFAULT 1`);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -4594,6 +5414,91 @@ export class PersonalOpsDb {
       consecutive_failures: Number(row.consecutive_failures ?? 0),
       changed_since_last_run: Boolean(row.changed_since_last_run),
       last_run_id: row.last_run_id ? String(row.last_run_id) : undefined,
+    };
+  }
+
+  private mapReviewPackage(row: Record<string, unknown>): ReviewPackage {
+    return {
+      package_id: String(row.package_id),
+      surface: String(row.surface) as ReviewPackageSurface,
+      state: String(row.state) as ReviewPackageState,
+      summary: String(row.summary),
+      why_now: String(row.why_now),
+      score_band: String(row.score_band) as ReviewPackage["score_band"],
+      signals: JSON.parse(String(row.signals_json ?? "[]")),
+      prepared_at: String(row.prepared_at),
+      stale_at: String(row.stale_at),
+      source_fingerprint: String(row.source_fingerprint),
+      member_ids: JSON.parse(String(row.member_ids_json ?? "[]")),
+      next_commands: JSON.parse(String(row.next_commands_json ?? "[]")),
+      items: JSON.parse(String(row.items_json ?? "[]")),
+    };
+  }
+
+  private mapReviewPackageRecord(row: Record<string, unknown>): ReviewPackage & {
+    source_keys: string[];
+    is_current: boolean;
+    opened_at?: string | undefined;
+    acted_on_at?: string | undefined;
+    completed_at?: string | undefined;
+    stale_unused_at?: string | undefined;
+    current_cycle_reviewed: boolean;
+    updated_at: string;
+  } {
+    return {
+      ...this.mapReviewPackage(row),
+      source_keys: JSON.parse(String(row.source_keys_json ?? "[]")),
+      is_current: Boolean(row.is_current),
+      opened_at: row.opened_at ? String(row.opened_at) : undefined,
+      acted_on_at: row.acted_on_at ? String(row.acted_on_at) : undefined,
+      completed_at: row.completed_at ? String(row.completed_at) : undefined,
+      stale_unused_at: row.stale_unused_at ? String(row.stale_unused_at) : undefined,
+      current_cycle_reviewed: Boolean(row.current_cycle_reviewed),
+      updated_at: String(row.updated_at),
+    };
+  }
+
+  private mapReviewFeedbackEvent(row: Record<string, unknown>): ReviewFeedbackEvent {
+    return {
+      feedback_event_id: String(row.feedback_event_id),
+      package_id: String(row.package_id),
+      surface: String(row.surface) as ReviewPackageSurface,
+      package_item_id: row.package_item_id ? String(row.package_item_id) : undefined,
+      reason: String(row.reason) as ReviewFeedbackReason,
+      note: String(row.note),
+      actor: row.actor ? String(row.actor) : undefined,
+      client_id: String(row.client_id),
+      source_fingerprint: String(row.source_fingerprint),
+      created_at: String(row.created_at),
+    };
+  }
+
+  private mapReviewTuningProposal(row: Record<string, unknown>): ReviewTuningProposal {
+    return {
+      proposal_id: String(row.proposal_id),
+      proposal_family_key: String(row.proposal_family_key),
+      evidence_fingerprint: String(row.evidence_fingerprint),
+      proposal_kind: String(row.proposal_kind) as ReviewTuningProposalKind,
+      surface: String(row.surface) as ReviewPackageSurface,
+      scope_key: String(row.scope_key),
+      summary: String(row.summary),
+      evidence_window_days: Number(row.evidence_window_days ?? 14),
+      evidence_count: Number(row.evidence_count ?? 0),
+      positive_count: Number(row.positive_count ?? 0),
+      negative_count: Number(row.negative_count ?? 0),
+      unused_stale_count: Number(row.unused_stale_count ?? 0),
+      status: String(row.status) as ReviewTuningProposalStatus,
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+      expires_at: String(row.expires_at),
+      approved_at: row.approved_at ? String(row.approved_at) : undefined,
+      approved_by_client: row.approved_by_client ? String(row.approved_by_client) : undefined,
+      approved_by_actor: row.approved_by_actor ? String(row.approved_by_actor) : undefined,
+      approved_note: row.approved_note ? String(row.approved_note) : undefined,
+      dismissed_at: row.dismissed_at ? String(row.dismissed_at) : undefined,
+      dismissed_by_client: row.dismissed_by_client ? String(row.dismissed_by_client) : undefined,
+      dismissed_by_actor: row.dismissed_by_actor ? String(row.dismissed_by_actor) : undefined,
+      dismissed_note: row.dismissed_note ? String(row.dismissed_note) : undefined,
     };
   }
 

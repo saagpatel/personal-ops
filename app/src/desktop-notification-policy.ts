@@ -1,18 +1,22 @@
 export interface DesktopNotificationSnapshot {
   readiness: string;
   repair_hint?: string | null;
-  review_ready_inbox_count?: number | null;
-  apply_ready_planning_count?: number | null;
-  outbound_approval_ready_count?: number | null;
-  outbound_send_ready_count?: number | null;
+  review_package_inbox_count?: number | null;
+  review_package_meetings_count?: number | null;
+  review_package_planning_count?: number | null;
+  review_package_outbound_count?: number | null;
+  open_tuning_proposal_count?: number | null;
+  review_notification_cooldown_minutes?: Partial<Record<"inbox" | "meetings" | "planning" | "outbound", number>> | null;
   notification_cooldown_minutes?: number | null;
 }
 
 export type DesktopNotificationKind =
   | "readiness_degraded"
-  | "review_ready_inbox"
-  | "apply_ready_planning"
-  | "outbound_ready";
+  | "review_package_inbox"
+  | "review_package_meetings"
+  | "review_package_planning"
+  | "review_package_outbound"
+  | "review_tuning_proposal";
 
 export interface DesktopNotificationEvent {
   kind: DesktopNotificationKind;
@@ -22,25 +26,29 @@ export interface DesktopNotificationEvent {
 
 export interface DesktopNotificationState {
   readiness: string;
-  review_ready_inbox_count: number;
-  apply_ready_planning_count: number;
-  outbound_approval_ready_count: number;
-  outbound_send_ready_count: number;
+  review_package_inbox_count: number;
+  review_package_meetings_count: number;
+  review_package_planning_count: number;
+  review_package_outbound_count: number;
+  open_tuning_proposal_count: number;
   last_notified_at: Record<DesktopNotificationKind, string | null>;
 }
 
 export function initialDesktopNotificationState(): DesktopNotificationState {
   return {
     readiness: "ready",
-    review_ready_inbox_count: 0,
-    apply_ready_planning_count: 0,
-    outbound_approval_ready_count: 0,
-    outbound_send_ready_count: 0,
+    review_package_inbox_count: 0,
+    review_package_meetings_count: 0,
+    review_package_planning_count: 0,
+    review_package_outbound_count: 0,
+    open_tuning_proposal_count: 0,
     last_notified_at: {
       readiness_degraded: null,
-      review_ready_inbox: null,
-      apply_ready_planning: null,
-      outbound_ready: null,
+      review_package_inbox: null,
+      review_package_meetings: null,
+      review_package_planning: null,
+      review_package_outbound: null,
+      review_tuning_proposal: null,
     },
   };
 }
@@ -52,6 +60,14 @@ function asCount(value: number | null | undefined): number {
 function cooldownMs(snapshot: DesktopNotificationSnapshot): number {
   const minutes = Number(snapshot.notification_cooldown_minutes ?? 30);
   return Math.max(1, Number.isFinite(minutes) ? minutes : 30) * 60_000;
+}
+
+function surfaceCooldownMs(snapshot: DesktopNotificationSnapshot, surface: "inbox" | "meetings" | "planning" | "outbound"): number {
+  const override = snapshot.review_notification_cooldown_minutes?.[surface];
+  if (override !== undefined && override !== null && Number.isFinite(Number(override))) {
+    return Math.max(1, Number(override)) * 60_000;
+  }
+  return cooldownMs(snapshot);
 }
 
 function outsideCooldown(previousIso: string | null, nowMs: number, requiredMs: number): boolean {
@@ -72,10 +88,11 @@ export function computeDesktopNotificationUpdate(
 ): { state: DesktopNotificationState; notifications: DesktopNotificationEvent[] } {
   const next: DesktopNotificationState = {
     readiness: snapshot.readiness,
-    review_ready_inbox_count: asCount(snapshot.review_ready_inbox_count),
-    apply_ready_planning_count: asCount(snapshot.apply_ready_planning_count),
-    outbound_approval_ready_count: asCount(snapshot.outbound_approval_ready_count),
-    outbound_send_ready_count: asCount(snapshot.outbound_send_ready_count),
+    review_package_inbox_count: asCount(snapshot.review_package_inbox_count),
+    review_package_meetings_count: asCount(snapshot.review_package_meetings_count),
+    review_package_planning_count: asCount(snapshot.review_package_planning_count),
+    review_package_outbound_count: asCount(snapshot.review_package_outbound_count),
+    open_tuning_proposal_count: asCount(snapshot.open_tuning_proposal_count),
     last_notified_at: { ...previous.last_notified_at },
   };
   const notifications: DesktopNotificationEvent[] = [];
@@ -96,47 +113,41 @@ export function computeDesktopNotificationUpdate(
     next.last_notified_at.readiness_degraded = nowIso;
   }
 
-  if (
-    next.review_ready_inbox_count > previous.review_ready_inbox_count &&
-    outsideCooldown(previous.last_notified_at.review_ready_inbox, nowMs, requiredMs)
-  ) {
-    notifications.push({
-      kind: "review_ready_inbox",
-      title: "Inbox review ready",
-      body: `${next.review_ready_inbox_count} inbox group(s) are ready for review.`,
-    });
-    next.last_notified_at.review_ready_inbox = nowIso;
+  const reviewSurfaceDefinitions = [
+    { surface: "inbox" as const, kind: "review_package_inbox" as const, title: "Inbox review package ready", nextCount: next.review_package_inbox_count, previousCount: previous.review_package_inbox_count },
+    { surface: "meetings" as const, kind: "review_package_meetings" as const, title: "Meeting review package ready", nextCount: next.review_package_meetings_count, previousCount: previous.review_package_meetings_count },
+    { surface: "planning" as const, kind: "review_package_planning" as const, title: "Planning review package ready", nextCount: next.review_package_planning_count, previousCount: previous.review_package_planning_count },
+    { surface: "outbound" as const, kind: "review_package_outbound" as const, title: "Outbound review package ready", nextCount: next.review_package_outbound_count, previousCount: previous.review_package_outbound_count },
+  ];
+
+  for (const definition of reviewSurfaceDefinitions) {
+    if (
+      definition.nextCount > definition.previousCount &&
+      outsideCooldown(
+        previous.last_notified_at[definition.kind],
+        nowMs,
+        surfaceCooldownMs(snapshot, definition.surface),
+      )
+    ) {
+      notifications.push({
+        kind: definition.kind,
+        title: definition.title,
+        body: `${definition.nextCount} ${definition.surface} review package(s) are ready.`,
+      });
+      next.last_notified_at[definition.kind] = nowIso;
+    }
   }
 
   if (
-    next.apply_ready_planning_count > previous.apply_ready_planning_count &&
-    outsideCooldown(previous.last_notified_at.apply_ready_planning, nowMs, requiredMs)
+    next.open_tuning_proposal_count > previous.open_tuning_proposal_count &&
+    outsideCooldown(previous.last_notified_at.review_tuning_proposal, nowMs, requiredMs)
   ) {
     notifications.push({
-      kind: "apply_ready_planning",
-      title: "Planning bundle ready",
-      body: `${next.apply_ready_planning_count} planning bundle(s) are ready to apply.`,
+      kind: "review_tuning_proposal",
+      title: "Review tuning proposal ready",
+      body: `${next.open_tuning_proposal_count} review tuning proposal(s) are ready.`,
     });
-    next.last_notified_at.apply_ready_planning = nowIso;
-  }
-
-  const outboundApprovalIncreased = next.outbound_approval_ready_count > previous.outbound_approval_ready_count;
-  const outboundSendIncreased = next.outbound_send_ready_count > previous.outbound_send_ready_count;
-  if (
-    (outboundApprovalIncreased || outboundSendIncreased) &&
-    outsideCooldown(previous.last_notified_at.outbound_ready, nowMs, requiredMs)
-  ) {
-    const body = outboundSendIncreased
-      ? outboundApprovalIncreased
-        ? `${next.outbound_send_ready_count} outbound group(s) can send now, and ${next.outbound_approval_ready_count} more are approval-ready.`
-        : `${next.outbound_send_ready_count} outbound group(s) can send now.`
-      : `${next.outbound_approval_ready_count} outbound group(s) are approval-ready.`;
-    notifications.push({
-      kind: "outbound_ready",
-      title: "Outbound finish-work ready",
-      body,
-    });
-    next.last_notified_at.outbound_ready = nowIso;
+    next.last_notified_at.review_tuning_proposal = nowIso;
   }
 
   return { state: next, notifications };

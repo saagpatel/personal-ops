@@ -417,6 +417,8 @@ export async function runAutopilotCoordinator(
     results.push({ profile, ...result });
   }
 
+  await service.refreshReviewReadModel("autopilot");
+
   const failed = results.filter((result) => result.state === "failed").length;
   const blocked = results.filter((result) => result.state === "blocked").length;
   const outcome = failed > 0 ? "failed" : blocked === results.length && results.length > 0 ? "blocked" : "success";

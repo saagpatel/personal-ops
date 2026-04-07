@@ -42,9 +42,25 @@ struct DesktopSnapshot {
     apply_ready_planning_count: usize,
     outbound_approval_ready_count: usize,
     outbound_send_ready_count: usize,
+    review_package_count: usize,
+    top_review_summary: Option<String>,
+    open_tuning_proposal_count: usize,
+    review_package_inbox_count: usize,
+    review_package_meetings_count: usize,
+    review_package_planning_count: usize,
+    review_package_outbound_count: usize,
+    review_notification_cooldown_minutes: ReviewNotificationCooldowns,
     notification_cooldown_minutes: u64,
     daemon_available: bool,
     repair_hint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ReviewNotificationCooldowns {
+    inbox: u64,
+    meetings: u64,
+    planning: u64,
+    outbound: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,10 +68,12 @@ struct StatusEnvelope {
     status: StatusPayload,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct StatusPayload {
     state: String,
     approval_queue: ApprovalQueue,
+    review: ReviewStatus,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +97,14 @@ struct AutopilotProfilePayload {
 #[derive(Debug, Deserialize)]
 struct ApprovalQueue {
     pending_count: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct ReviewStatus {
+    ready_package_count: usize,
+    open_tuning_proposal_count: usize,
+    top_review_summary: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -139,6 +165,23 @@ struct OutboundAutopilotPayload {
 #[derive(Debug, Deserialize)]
 struct OutboundAutopilotGroup {
     state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewNotificationsEnvelope {
+    review_notifications: ReviewNotificationsPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewNotificationsPayload {
+    review_package_count: usize,
+    top_review_summary: Option<String>,
+    open_tuning_proposal_count: usize,
+    review_package_inbox_count: usize,
+    review_package_meetings_count: usize,
+    review_package_planning_count: usize,
+    review_package_outbound_count: usize,
+    review_notification_cooldown_minutes: ReviewNotificationCooldowns,
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,6 +332,7 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
     let inbox = get_json::<InboxAutopilotEnvelope>("/v1/inbox/autopilot").await?;
     let planning = get_json::<PlanningAutopilotEnvelope>("/v1/planning/autopilot").await?;
     let outbound = get_json::<OutboundAutopilotEnvelope>("/v1/outbound/autopilot").await?;
+    let review_notifications = get_json::<ReviewNotificationsEnvelope>("/v1/review/notifications").await?;
     let cooldown = notification_cooldown_minutes()?;
 
     let awaiting_review_count = assistant
@@ -321,7 +365,6 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
         .iter()
         .filter(|group| group.state == "send_ready")
         .count();
-
     let readiness = status.status.state.clone();
     let autopilot_stale_profile_count = autopilot
         .autopilot
@@ -352,6 +395,14 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
         apply_ready_planning_count,
         outbound_approval_ready_count,
         outbound_send_ready_count,
+        review_package_count: review_notifications.review_notifications.review_package_count,
+        top_review_summary: review_notifications.review_notifications.top_review_summary,
+        open_tuning_proposal_count: review_notifications.review_notifications.open_tuning_proposal_count,
+        review_package_inbox_count: review_notifications.review_notifications.review_package_inbox_count,
+        review_package_meetings_count: review_notifications.review_notifications.review_package_meetings_count,
+        review_package_planning_count: review_notifications.review_notifications.review_package_planning_count,
+        review_package_outbound_count: review_notifications.review_notifications.review_package_outbound_count,
+        review_notification_cooldown_minutes: review_notifications.review_notifications.review_notification_cooldown_minutes,
         notification_cooldown_minutes: cooldown,
         daemon_available: true,
         repair_hint,

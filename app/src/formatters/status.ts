@@ -210,6 +210,17 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Top item", topSummary(report.worklist_summary.top_item_summary, "nothing urgent")),
   ]);
 
+  if (report.review) {
+    pushSection(lines, "Review Overlay", [
+      line("Ready packages", String(report.review.ready_package_count)),
+      line("Open tuning proposals", String(report.review.open_tuning_proposal_count)),
+      line("Unused stale (7d)", String(report.review.unused_package_count_7d)),
+      line("Refresh state", report.review.refresh_state),
+      line("Refreshed", report.review.refreshed_at ?? "never"),
+      line("Top package", topSummary(report.review.top_review_summary, "nothing queued")),
+    ]);
+  }
+
   pushSection(lines, "Send Policy", [
     line("Permanent allow_send", yesNo(report.send_policy.permanent_enabled)),
     line("Timed window active", yesNo(report.send_policy.window_active)),
