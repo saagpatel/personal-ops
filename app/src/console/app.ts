@@ -1,4 +1,5 @@
 import type {
+  AutopilotStatusReport,
   ApprovalDetail,
   ApprovalRequest,
   AssistantActionItem,
@@ -38,6 +39,7 @@ type BannerTone = "good" | "warn" | "critical";
 
 interface ConsolePayload {
   status: ServiceStatusReport;
+  autopilot: AutopilotStatusReport;
   worklist: WorklistReport;
   assistantQueue: AssistantActionQueueReport;
   inboxAutopilot: InboxAutopilotReport;
@@ -63,6 +65,10 @@ interface AuditResponse {
 
 interface StatusResponse {
   status: ServiceStatusReport;
+}
+
+interface AutopilotResponse {
+  autopilot: AutopilotStatusReport;
 }
 
 interface WorklistResponse {
@@ -384,6 +390,7 @@ async function fetchAudit(limit: number, category: AuditEventCategory | ""): Pro
 async function loadPayload(): Promise<ConsolePayload> {
   const [
     statusResponse,
+    autopilotResponse,
     worklistResponse,
     assistantQueueResponse,
     inboxAutopilotResponse,
@@ -403,6 +410,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     snapshotListResponse,
   ] = await Promise.all([
     fetchJson<StatusResponse>("/v1/status"),
+    fetchJson<AutopilotResponse>("/v1/autopilot/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
     fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
     fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
@@ -424,6 +432,7 @@ async function loadPayload(): Promise<ConsolePayload> {
 
   return {
     status: statusResponse.status,
+    autopilot: autopilotResponse.autopilot,
     worklist: worklistResponse.worklist,
     assistantQueue: assistantQueueResponse.assistant_queue,
     inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
@@ -525,6 +534,48 @@ function metricCard(label: string, value: string, detail: string): string {
       <p class="metric__value">${escapeHtml(value)}</p>
       <p class="subtle subtle--body">${escapeHtml(detail)}</p>
     </div>
+  `;
+}
+
+function renderAutopilotStatusCard(report: AutopilotStatusReport): string {
+  const staleCount = report.profiles.filter((profile) => profile.state === "stale" || profile.state === "idle").length;
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>Workspace freshness</h4>
+        <span class="pill ${report.readiness === "ready" ? "pill--good" : "pill--warn"}">${escapeHtml(report.mode)}</span>
+      </div>
+      <p>${escapeHtml(report.top_item_summary ?? "Autopilot is keeping the workspace warm in the background.")}</p>
+      <p class="subtle subtle--body">${escapeHtml(report.running ? "Autopilot is actively refreshing one or more surfaces." : `Last success: ${formatTime(report.last_success_at)}`)}</p>
+      <div class="detail-list detail-list--spaced">
+        <div class="detail-row"><dt>Stale profiles</dt><dd>${escapeHtml(String(staleCount))}</dd></div>
+        <div class="detail-row"><dt>Repair step</dt><dd>${escapeHtml(report.first_repair_step ?? "none")}</dd></div>
+      </div>
+      <div class="list-item__actions">
+        <button class="copy-button" data-copy="personal-ops autopilot status" type="button">Copy CLI command</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderProfileFreshness(report: AutopilotStatusReport, profileName: AutopilotStatusReport["profiles"][number]["profile"], label: string): string {
+  const profile = report.profiles.find((entry) => entry.profile === profileName);
+  if (!profile) {
+    return "";
+  }
+  const tone = profile.state === "fresh" ? "pill--good" : profile.state === "running" ? "pill--warn" : "pill--critical";
+  return `
+    <section class="panel">
+      <div class="list-item__top">
+        <h3>${escapeHtml(label)}</h3>
+        <span class="pill ${tone}">${escapeHtml(profile.state)}</span>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(profile.summary ?? "No freshness summary is recorded yet.")}</p>
+      <div class="detail-list detail-list--spaced">
+        <div class="detail-row"><dt>Prepared</dt><dd>${escapeHtml(formatTime(profile.prepared_at))}</dd></div>
+        <div class="detail-row"><dt>Stale at</dt><dd>${escapeHtml(formatTime(profile.stale_at))}</dd></div>
+      </div>
+    </section>
   `;
 }
 
@@ -1257,6 +1308,7 @@ function renderOverview(payload: ConsolePayload): string {
   const prepMeetings = payload.prepMeetingsWorkflow;
   const nowNext = payload.nowNextWorkflow;
   const assistantQueue = payload.assistantQueue;
+  const autopilot = payload.autopilot;
   const primaryNowNext = nowNext.actions[0] ?? null;
   const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
   const topPlanningBundle = payload.planningAutopilot.bundles[0] ?? null;
@@ -1299,6 +1351,7 @@ function renderOverview(payload: ConsolePayload): string {
       ${metricCard("Planning", `${formatCount(status.planning_recommendations.active_count)} open`, status.planning_recommendations.top_group_summary ?? "No active planning summary")}
       ${metricCard("Approvals", `${formatCount(status.approval_queue.pending_count)} pending`, `${formatCount(status.approval_queue.total_count)} total requests`)}
       ${metricCard("Reviews", `${formatCount(status.review_queue.pending_count)} pending`, `${formatCount(status.review_queue.total_count)} total review items`)}
+      ${metricCard("Autopilot", `${formatCount(status.autopilot.stale_profile_count)} stale`, status.autopilot.top_item_summary ?? "Workspace surfaces are warming in the background")}
       ${metricCard("GitHub", `${formatCount(status.github.review_requested_count)} reviews`, `${formatCount(status.github.authored_pr_attention_count)} authored PRs need attention`)}
       ${metricCard("Drive", `${formatCount(status.drive.indexed_doc_count)} docs · ${formatCount(status.drive.indexed_sheet_count)} sheets`, status.drive.top_item_summary ?? "No Drive context indexed yet")}
     </section>
@@ -1312,6 +1365,11 @@ function renderOverview(payload: ConsolePayload): string {
               ? renderAssistantActionCard(topAssistantAction)
               : `<div class="empty">The assistant queue is currently caught up.</div>`
           }
+        </section>
+        <section class="detail-card">
+          <h3>Autopilot warm start</h3>
+          <p class="subtle subtle--body">Continuous autopilot keeps day-start, inbox, meetings, planning, and outbound surfaces warm so the console opens into prepared work instead of waiting for manual refresh.</p>
+          ${renderAutopilotStatusCard(autopilot)}
         </section>
         <section class="detail-card">
           <h3>Planning autopilot</h3>
@@ -1882,6 +1940,7 @@ function renderPlanningBundleDetail(bundle: PlanningAutopilotBundle | null): str
 function renderWorklist(payload: ConsolePayload): string {
   return `
     ${renderAssistantSection(payload, "Assistant action queue", "worklist", "No assistant-prepared worklist actions are waiting right now.")}
+    ${renderProfileFreshness(payload.autopilot, "day_start", "Day-start freshness")}
     <section class="columns">
       <div class="list-card">
         <h3>Attention queue</h3>
@@ -1980,6 +2039,7 @@ function renderApprovals(payload: ConsolePayload): string {
 
   return `
     ${renderAssistantSection(payload, "Assistant-prepared approval work", "approvals", "No assistant-prepared approval review is waiting right now.")}
+    ${renderProfileFreshness(payload.autopilot, "outbound", "Outbound freshness")}
     <section class="columns">
       <div class="list-card">
         <h3>Approval queue</h3>
@@ -2007,6 +2067,7 @@ function renderDrafts(payload: ConsolePayload): string {
   }
   return `
     ${assistantSection}
+    ${renderProfileFreshness(payload.autopilot, "outbound", "Outbound freshness")}
     ${
       outboundGroups.length > 0
         ? `
@@ -2246,6 +2307,7 @@ function renderPlanning(payload: ConsolePayload): string {
     payload.planningSummary.most_completed_group?.summary ?? "No recent closure summary";
   return `
     ${renderAssistantSection(payload, "Assistant-prepared planning work", "planning", "No assistant-prepared planning review is waiting right now.")}
+    ${renderProfileFreshness(payload.autopilot, "planning", "Planning freshness")}
     <section class="stats-grid">
       ${metricCard("Open recommendations", `${formatCount(payload.planningSummary.open_count)}`, topBacklogSummary)}
       ${metricCard("Review needed", `${formatCount(payload.planningSummary.review_needed_count)}`, topReviewNeededSummary)}

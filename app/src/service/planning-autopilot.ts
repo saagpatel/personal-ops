@@ -610,7 +610,17 @@ export async function getPlanningAutopilotBundleDetail(service: any, bundleId: s
   return bundle;
 }
 
-export async function maybeAutoPreparePlanningBundles(service: any, options: BuildOptions): Promise<void> {
+export async function maybeAutoPreparePlanningBundles(
+  service: any,
+  options: BuildOptions & {
+    autopilotMetadata?: {
+      autopilot_run_id?: string;
+      autopilot_profile?: string;
+      autopilot_trigger?: string;
+      autopilot_prepared_at?: string;
+    };
+  },
+): Promise<void> {
   const report = await buildPlanningAutopilotReport(service, options);
   if (report.readiness !== "ready") {
     return;
@@ -621,7 +631,12 @@ export async function maybeAutoPreparePlanningBundles(service: any, options: Bui
       continue;
     }
     try {
-      await preparePlanningAutopilotBundle(service, identity, bundle.bundle_id);
+      await preparePlanningAutopilotBundle(
+        service,
+        identity,
+        bundle.bundle_id,
+        options.autopilotMetadata ? { autopilotMetadata: options.autopilotMetadata } : {},
+      );
     } catch {
       // Keep attention sweep resilient; bundle failures are already captured in audit state.
     }
@@ -632,6 +647,14 @@ export async function preparePlanningAutopilotBundle(
   service: any,
   identity: ClientIdentity,
   bundleId: string,
+  options: {
+    autopilotMetadata?: {
+      autopilot_run_id?: string;
+      autopilot_profile?: string;
+      autopilot_trigger?: string;
+      autopilot_prepared_at?: string;
+    };
+  } = {},
 ): Promise<{ summary: string; details: string[]; success: boolean; bundle: PlanningAutopilotBundle }> {
   service.assertOperatorOnly(identity, "prepare this planning bundle");
   service.db.registerClient(identity);
@@ -655,7 +678,9 @@ export async function preparePlanningAutopilotBundle(
         bundle.related_artifacts.find((artifact) => artifact.artifact_type === "inbox_autopilot_group") ??
         (activeDetails.length > 0 ? await findAutopilotArtifact(service, activeDetails) : null);
       if (group) {
-        await service.prepareInboxAutopilotGroup(identity, group.artifact_id);
+        await service.prepareInboxAutopilotGroup(identity, group.artifact_id, {
+          autopilotMetadata: options.autopilotMetadata,
+        });
         details.push(`Prepared inbox autopilot group ${group.artifact_id}.`);
       } else {
         hadFailure = true;
@@ -666,7 +691,9 @@ export async function preparePlanningAutopilotBundle(
         bundle.related_artifacts.find((artifact) => artifact.artifact_type === "meeting_prep_packet") ??
         (activeDetails.length > 0 ? await findMeetingArtifact(service, activeDetails) : null);
       if (packet) {
-        await service.prepareMeetingPrepPacket(identity, packet.artifact_id);
+        await service.prepareMeetingPrepPacket(identity, packet.artifact_id, {
+          autopilotMetadata: options.autopilotMetadata,
+        });
         details.push(`Prepared meeting packet ${packet.artifact_id}.`);
       } else {
         hadFailure = true;

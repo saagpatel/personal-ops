@@ -71,8 +71,9 @@ import {
 } from "./secrets.js";
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
 import { buildAssistantActionQueueReport, runAssistantAction } from "./service/assistant.js";
+import { buildAutopilotStatusReport, runAutopilotCoordinator } from "./service/autopilot.js";
 import { buildInboxAutopilotReport, prepareInboxAutopilotGroup } from "./service/inbox-autopilot.js";
-import { getMeetingPrepPacketDetail, maybeAutoPrepareMeetingPackets, prepareMeetingPrepPacket } from "./service/meeting-prep.js";
+import { getMeetingPrepPacketDetail, prepareMeetingPrepPacket } from "./service/meeting-prep.js";
 import {
   approveOutboundGroup,
   buildOutboundAutopilotReport,
@@ -84,7 +85,6 @@ import {
   applyPlanningAutopilotBundle,
   buildPlanningAutopilotReport,
   getPlanningAutopilotBundleDetail,
-  maybeAutoPreparePlanningBundles,
   preparePlanningAutopilotBundle,
 } from "./service/planning-autopilot.js";
 import {
@@ -108,6 +108,9 @@ import {
   ApprovalDetail,
   ApprovalRequest,
   ApprovalRequestFilter,
+  AutopilotProfile,
+  AutopilotStatusReport,
+  AutopilotTrigger,
   AssistantActionQueueReport,
   AssistantActionRunResult,
   ApprovalRiskFlags,
@@ -575,6 +578,13 @@ const defaultDependencies: PersonalOpsDependencies = {
   inspectLaunchAgent: inspectInstalledLaunchAgent,
 };
 
+type AutopilotRunRequest = {
+  trigger: AutopilotTrigger;
+  requestedProfile: AutopilotProfile | null;
+  httpReachable: boolean;
+  manual: boolean;
+};
+
 export class PersonalOpsService {
   readonly db: PersonalOpsDb;
   private readonly dependencies: PersonalOpsDependencies;
@@ -583,6 +593,8 @@ export class PersonalOpsService {
   private githubSyncInFlight: Promise<GithubStatusReport> | null = null;
   private driveSyncInFlight: Promise<DriveStatusReport> | null = null;
   private readonly assistantActionStartedAt = new Map<string, string>();
+  private autopilotRunInFlight: Promise<AutopilotStatusReport> | null = null;
+  private queuedAutopilotRequest: AutopilotRunRequest | null = null;
 
   constructor(
     private readonly paths: Paths,
@@ -659,6 +671,84 @@ export class PersonalOpsService {
     return buildStatusReport(this, options);
   }
 
+  async getAutopilotStatusReport(
+    options: { httpReachable: boolean; triggerWarm?: AutopilotTrigger | null } = { httpReachable: true },
+  ): Promise<AutopilotStatusReport> {
+    return buildAutopilotStatusReport(this, options);
+  }
+
+  isAutopilotRunning(): boolean {
+    return this.autopilotRunInFlight !== null;
+  }
+
+  async runAutopilot(
+    identity: ClientIdentity | null,
+    options: { trigger: AutopilotTrigger; requestedProfile?: AutopilotProfile | null; httpReachable: boolean; manual?: boolean },
+  ): Promise<AutopilotStatusReport> {
+    const request: AutopilotRunRequest = {
+      trigger: options.trigger,
+      requestedProfile: options.requestedProfile ?? null,
+      httpReachable: options.httpReachable,
+      manual: Boolean(options.manual),
+    };
+
+    if (request.manual) {
+      if (!identity) {
+        throw new Error("Manual autopilot runs require an operator identity.");
+      }
+      this.assertOperatorOnly(identity, "run autopilot");
+      this.db.registerClient(identity);
+    }
+
+    if (this.autopilotRunInFlight) {
+      this.queuedAutopilotRequest = this.mergeAutopilotRequests(this.queuedAutopilotRequest, request);
+      return this.autopilotRunInFlight;
+    }
+
+    this.autopilotRunInFlight = (async () => {
+      let current: AutopilotRunRequest | null = request;
+      let latest = await this.getAutopilotStatusReport({ httpReachable: request.httpReachable });
+      while (current) {
+        latest = await runAutopilotCoordinator(this, current);
+        current = this.queuedAutopilotRequest;
+        this.queuedAutopilotRequest = null;
+      }
+      return latest;
+    })();
+
+    try {
+      return await this.autopilotRunInFlight;
+    } finally {
+      this.autopilotRunInFlight = null;
+    }
+  }
+
+  scheduleAutopilotRun(
+    trigger: AutopilotTrigger,
+    options: { requestedProfile?: AutopilotProfile; httpReachable?: boolean; manual?: boolean } = {},
+  ): void {
+    if (!this.config.autopilotEnabled || this.config.autopilotMode === "off") {
+      return;
+    }
+    const request: AutopilotRunRequest = {
+      trigger,
+      requestedProfile: options.requestedProfile ?? null,
+      httpReachable: options.httpReachable ?? true,
+      manual: Boolean(options.manual),
+    };
+    if (this.autopilotRunInFlight) {
+      this.queuedAutopilotRequest = this.mergeAutopilotRequests(this.queuedAutopilotRequest, request);
+      return;
+    }
+    void this.runAutopilot(null, request).catch((error) => {
+      this.logger.error("autopilot_run_failed", {
+        trigger,
+        profile: options.requestedProfile ?? "all",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   async getNowNextWorkflowReport(options: { httpReachable: boolean }) {
     return buildNowNextWorkflowReport(this, options);
   }
@@ -699,12 +789,34 @@ export class PersonalOpsService {
     return getMeetingPrepPacketDetail(this, eventId);
   }
 
-  async prepareMeetingPrepPacket(identity: ClientIdentity, eventId: string) {
-    return prepareMeetingPrepPacket(this, identity, eventId);
+  async prepareMeetingPrepPacket(
+    identity: ClientIdentity,
+    eventId: string,
+    options: {
+      autopilotMetadata?: {
+        autopilot_run_id?: string;
+        autopilot_profile?: AutopilotProfile;
+        autopilot_trigger?: AutopilotTrigger;
+        autopilot_prepared_at?: string;
+      };
+    } = {},
+  ) {
+    return prepareMeetingPrepPacket(this, identity, eventId, options);
   }
 
-  async preparePlanningAutopilotBundle(identity: ClientIdentity, bundleId: string) {
-    return preparePlanningAutopilotBundle(this, identity, bundleId);
+  async preparePlanningAutopilotBundle(
+    identity: ClientIdentity,
+    bundleId: string,
+    options: {
+      autopilotMetadata?: {
+        autopilot_run_id?: string;
+        autopilot_profile?: AutopilotProfile;
+        autopilot_trigger?: AutopilotTrigger;
+        autopilot_prepared_at?: string;
+      };
+    } = {},
+  ) {
+    return preparePlanningAutopilotBundle(this, identity, bundleId, options);
   }
 
   async requestApprovalForOutboundGroup(identity: ClientIdentity, groupId: string, note: string): Promise<OutboundAutopilotActionResult> {
@@ -757,8 +869,19 @@ export class PersonalOpsService {
     return runAssistantAction(this, identity, actionId);
   }
 
-  async prepareInboxAutopilotGroup(identity: ClientIdentity, groupId: string) {
-    return prepareInboxAutopilotGroup(this, identity, groupId);
+  async prepareInboxAutopilotGroup(
+    identity: ClientIdentity,
+    groupId: string,
+    options: {
+      autopilotMetadata?: {
+        autopilot_run_id?: string;
+        autopilot_profile?: AutopilotProfile;
+        autopilot_trigger?: AutopilotTrigger;
+        autopilot_prepared_at?: string;
+      };
+    } = {},
+  ) {
+    return prepareInboxAutopilotGroup(this, identity, groupId, options);
   }
 
   async runDoctor(options: DoctorOptions): Promise<DoctorReport> {
@@ -3247,8 +3370,6 @@ export class PersonalOpsService {
   async runAttentionSweep(options: { httpReachable: boolean }) {
     this.normalizeRuntimeState();
     this.refreshPlanningRecommendationsInternal(this.systemPlanningIdentity("attention-sweep"));
-    await maybeAutoPreparePlanningBundles(this, options);
-    await maybeAutoPrepareMeetingPackets(this, options);
     const worklist = await this.getWorklistReport(options);
     const notifyable = worklist.items.filter((item) => {
       if (
@@ -3320,6 +3441,10 @@ export class PersonalOpsService {
         assistant_source_thread_id?: string;
         assistant_group_id?: string;
         assistant_why_now?: string;
+        autopilot_run_id?: string;
+        autopilot_profile?: AutopilotProfile;
+        autopilot_trigger?: AutopilotTrigger;
+        autopilot_prepared_at?: string;
       };
     } = {},
   ): Promise<DraftArtifact> {
@@ -3363,6 +3488,10 @@ export class PersonalOpsService {
         assistant_source_thread_id?: string | null;
         assistant_group_id?: string | null;
         assistant_why_now?: string | null;
+        autopilot_run_id?: string | null;
+        autopilot_profile?: AutopilotProfile | null;
+        autopilot_trigger?: AutopilotTrigger | null;
+        autopilot_prepared_at?: string | null;
       };
     } = {},
   ): Promise<DraftArtifact> {
@@ -6023,6 +6152,29 @@ export class PersonalOpsService {
     };
   }
 
+  private mergeAutopilotRequests(
+    existing: AutopilotRunRequest | null,
+    next: AutopilotRunRequest,
+  ) {
+    if (!existing) {
+      return next;
+    }
+    if (!existing.requestedProfile || !next.requestedProfile || existing.requestedProfile !== next.requestedProfile) {
+      return {
+        trigger: next.manual ? next.trigger : existing.manual ? existing.trigger : "sync",
+        requestedProfile: null,
+        httpReachable: existing.httpReachable || next.httpReachable,
+        manual: existing.manual || next.manual,
+      };
+    }
+    return {
+      trigger: next.manual ? next.trigger : existing.trigger,
+      requestedProfile: existing.requestedProfile,
+      httpReachable: existing.httpReachable || next.httpReachable,
+      manual: existing.manual || next.manual,
+    };
+  }
+
   private buildActiveRecommendationKeySet(recommendations: PlanningRecommendation[]): Set<string> {
     return new Set(
       recommendations
@@ -8657,13 +8809,21 @@ export class PersonalOpsService {
     if (!["needs_reply", "stale_followup"].includes(summary.derived_kind) || this.hasActiveTaskForThread(summary.thread.thread_id)) {
       return null;
     }
-    const slot = this.findFreeWindow({
-      durationMinutes: PLANNING_FOLLOWUP_MINUTES,
-      notBefore: new Date().toISOString(),
-      notAfter: this.computeBusinessDeadline(summary.derived_kind === "needs_reply" ? 1 : 2),
-      preferLatest: false,
-      excludedRanges: options?.excluded_slots,
-    });
+    const deadlineDays = summary.derived_kind === "needs_reply" ? 1 : 2;
+    const findSlot = (daysAhead: number) =>
+      this.findFreeWindow({
+        durationMinutes: PLANNING_FOLLOWUP_MINUTES,
+        notBefore: new Date().toISOString(),
+        notAfter: this.computeBusinessDeadline(daysAhead),
+        preferLatest: false,
+        excludedRanges: options?.excluded_slots,
+      });
+    let slot = findSlot(deadlineDays);
+    if (!slot) {
+      // Keep reply/follow-up planning bounded, but allow one additional business day
+      // so grouped recommendations can avoid unnecessary manual-scheduling collisions.
+      slot = findSlot(deadlineDays + 1);
+    }
     if (!slot && !options?.allow_unslotted) {
       return null;
     }

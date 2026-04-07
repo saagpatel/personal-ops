@@ -36,6 +36,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 5 | Broader Google Context | Expand Google context where it materially improves planning, meeting prep, and workflow bundles | Complete |
 | 6 | Planning Autopilot and Execution Bundles | Turn planning recommendations into prepared grouped execution work with explicit console apply | Complete |
 | 7 | Approval Autopilot and Outbound Finish-Work | Move reviewed outbound mail work through grouped request-approval, approve, and send in the console | Complete |
+| 8 | Continuous Autopilot, Warm Start, and Value Review | Warm the existing assistant-led workspace in the background and prove the value of that prep layer | Complete |
 
 ## Phase 1
 
@@ -161,10 +162,24 @@ Delivered shape:
 - explicit send-window blocked state with CLI handoff instead of browser-side send-window control
 - no silent approval, no silent send, and no widening of auth, restore, or destructive mutation scope
 
+## Phase 8
+
+Phase 8 is now complete.
+
+Delivered shape:
+
+- `personal-ops autopilot status` plus operator-triggered autopilot runs
+- `GET /v1/autopilot/status` for the console and desktop shell, with operator-only run routes for manual refresh
+- one continuous coordinator that warms day-start, inbox, meetings, planning, and outbound surfaces
+- stale-while-refresh freshness tracking with per-profile run state and additive persistence
+- console and desktop warm-start summaries over the same autopilot state
+- additive autopilot provenance on prepared drafts and meeting packets
+- completed-work review that now summarizes the full assistant-led program through Phase 8
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, and 7 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, and 8 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

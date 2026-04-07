@@ -5,6 +5,12 @@ import { randomUUID } from "node:crypto";
 import {
   ApprovalRequest,
   ApprovalRequestFilter,
+  AutopilotProfile,
+  AutopilotProfileState,
+  AutopilotProfileStateRecord,
+  AutopilotRunOutcome,
+  AutopilotRunRecord,
+  AutopilotTrigger,
   PlanningHygienePolicyGovernanceEvent,
   PlanningHygienePolicyGovernanceEventType,
   PlanningRecommendationCloseReasonCode,
@@ -65,7 +71,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -334,6 +340,16 @@ export class PersonalOpsDb {
         message: "Schema is missing meeting_prep_packets.",
       };
     }
+    for (const tableName of ["autopilot_runs", "autopilot_profile_state"]) {
+      if (!this.tableExists(tableName)) {
+        return {
+          current_version: current,
+          expected_version: SCHEMA_VERSION,
+          compatible: false,
+          message: `Schema is missing ${tableName}.`,
+        };
+      }
+    }
     return {
       current_version: current,
       expected_version: SCHEMA_VERSION,
@@ -352,6 +368,10 @@ export class PersonalOpsDb {
       assistant_source_thread_id?: string;
       assistant_group_id?: string;
       assistant_why_now?: string;
+      autopilot_run_id?: string;
+      autopilot_profile?: AutopilotProfile;
+      autopilot_trigger?: AutopilotTrigger;
+      autopilot_prepared_at?: string;
     } = {},
   ): DraftArtifact {
     const now = nowIso();
@@ -362,9 +382,10 @@ export class PersonalOpsDb {
           artifact_id, provider, provider_draft_id, mailbox, to_json, cc_json, bcc_json, subject,
           body_text, body_html, status, review_state, created_by_client, created_at, updated_at,
           provider_message_id, provider_thread_id, assistant_generated, assistant_source_thread_id, assistant_group_id, assistant_why_now,
+          autopilot_run_id, autopilot_profile, autopilot_trigger, autopilot_prepared_at,
           approved_at, approved_by_client, sent_at, sent_by_client,
           send_attempt_count, last_send_attempt_at, last_send_error_code, last_send_error_message
-        ) VALUES (?, 'gmail', ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'pending', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL)`,
+        ) VALUES (?, 'gmail', ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'pending', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL)`,
       )
       .run(
         artifactId,
@@ -383,6 +404,10 @@ export class PersonalOpsDb {
         assistantMetadata.assistant_source_thread_id ?? null,
         assistantMetadata.assistant_group_id ?? null,
         assistantMetadata.assistant_why_now ?? null,
+        assistantMetadata.autopilot_run_id ?? null,
+        assistantMetadata.autopilot_profile ?? null,
+        assistantMetadata.autopilot_trigger ?? null,
+        assistantMetadata.autopilot_prepared_at ?? null,
       );
     return this.getDraftArtifact(artifactId)!;
   }
@@ -395,6 +420,10 @@ export class PersonalOpsDb {
       assistant_source_thread_id?: string | null;
       assistant_group_id?: string | null;
       assistant_why_now?: string | null;
+      autopilot_run_id?: string | null;
+      autopilot_profile?: AutopilotProfile | null;
+      autopilot_trigger?: AutopilotTrigger | null;
+      autopilot_prepared_at?: string | null;
     } = {},
   ): DraftArtifact | null {
     const now = nowIso();
@@ -403,6 +432,7 @@ export class PersonalOpsDb {
         `UPDATE draft_artifacts
          SET to_json = ?, cc_json = ?, bcc_json = ?, subject = ?, body_text = ?, body_html = ?,
              assistant_generated = ?, assistant_source_thread_id = ?, assistant_group_id = ?, assistant_why_now = ?,
+             autopilot_run_id = ?, autopilot_profile = ?, autopilot_trigger = ?, autopilot_prepared_at = ?,
              updated_at = ?
          WHERE artifact_id = ?`,
       )
@@ -417,6 +447,10 @@ export class PersonalOpsDb {
         assistantMetadata.assistant_source_thread_id ?? null,
         assistantMetadata.assistant_group_id ?? null,
         assistantMetadata.assistant_why_now ?? null,
+        assistantMetadata.autopilot_run_id ?? null,
+        assistantMetadata.autopilot_profile ?? null,
+        assistantMetadata.autopilot_trigger ?? null,
+        assistantMetadata.autopilot_prepared_at ?? null,
         now,
         artifactId,
       );
@@ -1997,8 +2031,9 @@ export class PersonalOpsDb {
         `INSERT INTO meeting_prep_packets (
           event_id, summary, why_now, score_band, signals_json, meeting_json, agenda_json, prep_checklist_json,
           open_questions_json, related_docs_json, related_files_json, related_threads_json, related_tasks_json,
-          related_recommendations_json, next_commands_json, generated_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          related_recommendations_json, next_commands_json, generated_at, updated_at,
+          autopilot_run_id, autopilot_profile, autopilot_trigger, autopilot_prepared_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(event_id) DO UPDATE SET
           summary = excluded.summary,
           why_now = excluded.why_now,
@@ -2015,7 +2050,11 @@ export class PersonalOpsDb {
           related_recommendations_json = excluded.related_recommendations_json,
           next_commands_json = excluded.next_commands_json,
           generated_at = excluded.generated_at,
-          updated_at = excluded.updated_at`,
+          updated_at = excluded.updated_at,
+          autopilot_run_id = excluded.autopilot_run_id,
+          autopilot_profile = excluded.autopilot_profile,
+          autopilot_trigger = excluded.autopilot_trigger,
+          autopilot_prepared_at = excluded.autopilot_prepared_at`,
       )
       .run(
         packet.event_id,
@@ -2035,6 +2074,10 @@ export class PersonalOpsDb {
         toJson(packet.next_commands),
         packet.generated_at,
         packet.updated_at || now,
+        packet.autopilot_run_id ?? null,
+        packet.autopilot_profile ?? null,
+        packet.autopilot_trigger ?? null,
+        packet.autopilot_prepared_at ?? null,
       );
     return this.getMeetingPrepPacket(packet.event_id)!;
   }
@@ -2716,6 +2759,152 @@ export class PersonalOpsDb {
       .run(dedupeKey, kind, targetId, nowIso());
   }
 
+  createAutopilotRun(trigger: AutopilotTrigger, requestedProfile?: AutopilotProfile): AutopilotRunRecord {
+    const record: AutopilotRunRecord = {
+      run_id: randomUUID(),
+      trigger,
+      requested_profile: requestedProfile,
+      started_at: nowIso(),
+      outcome: "running",
+    };
+    this.db
+      .prepare(
+        `INSERT INTO autopilot_runs (
+          run_id, trigger, requested_profile, started_at, completed_at, outcome, summary, error_message
+        ) VALUES (?, ?, ?, ?, NULL, 'running', NULL, NULL)`,
+      )
+      .run(record.run_id, record.trigger, record.requested_profile ?? null, record.started_at);
+    return record;
+  }
+
+  completeAutopilotRun(
+    runId: string,
+    updates: { outcome: Exclude<AutopilotRunOutcome, "running">; summary?: string; error_message?: string | null },
+  ): AutopilotRunRecord | null {
+    const completedAt = nowIso();
+    this.db
+      .prepare(
+        `UPDATE autopilot_runs
+         SET completed_at = ?, outcome = ?, summary = ?, error_message = ?
+         WHERE run_id = ?`,
+      )
+      .run(completedAt, updates.outcome, updates.summary ?? null, updates.error_message ?? null, runId);
+    return this.getAutopilotRun(runId);
+  }
+
+  getAutopilotRun(runId: string): AutopilotRunRecord | null {
+    const row = this.db.prepare(`SELECT * FROM autopilot_runs WHERE run_id = ?`).get(runId) as Record<string, unknown> | undefined;
+    return row ? this.mapAutopilotRun(row) : null;
+  }
+
+  getLatestAutopilotRun(): AutopilotRunRecord | null {
+    const row = this.db
+      .prepare(`SELECT * FROM autopilot_runs ORDER BY started_at DESC LIMIT 1`)
+      .get() as Record<string, unknown> | undefined;
+    return row ? this.mapAutopilotRun(row) : null;
+  }
+
+  listAutopilotRuns(limit = 20): AutopilotRunRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM autopilot_runs ORDER BY started_at DESC LIMIT ?`)
+      .all(limit) as Record<string, unknown>[];
+    return rows.map((row) => this.mapAutopilotRun(row));
+  }
+
+  getAutopilotProfileState(profile: AutopilotProfile): AutopilotProfileStateRecord | null {
+    const row = this.db
+      .prepare(`SELECT * FROM autopilot_profile_state WHERE profile = ?`)
+      .get(profile) as Record<string, unknown> | undefined;
+    return row ? this.mapAutopilotProfileState(row) : null;
+  }
+
+  listAutopilotProfileStates(): AutopilotProfileStateRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM autopilot_profile_state ORDER BY profile ASC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapAutopilotProfileState(row));
+  }
+
+  upsertAutopilotProfileState(
+    profile: AutopilotProfile,
+    updates: {
+      state: AutopilotProfileState;
+      fingerprint?: string | null;
+      prepared_at?: string | null;
+      stale_at?: string | null;
+      next_eligible_run_at?: string | null;
+      last_summary?: string | null;
+      last_trigger?: AutopilotTrigger | null;
+      last_run_at?: string | null;
+      last_success_at?: string | null;
+      last_failure_at?: string | null;
+      last_run_outcome?: Exclude<AutopilotRunOutcome, "running"> | null;
+      consecutive_failures?: number;
+      changed_since_last_run?: boolean;
+      last_run_id?: string | null;
+    },
+  ): AutopilotProfileStateRecord {
+    const existing = this.getAutopilotProfileState(profile);
+    const record: AutopilotProfileStateRecord = {
+      profile,
+      state: updates.state,
+      fingerprint: updates.fingerprint ?? existing?.fingerprint,
+      prepared_at: updates.prepared_at ?? existing?.prepared_at,
+      stale_at: updates.stale_at ?? existing?.stale_at,
+      next_eligible_run_at: updates.next_eligible_run_at ?? existing?.next_eligible_run_at,
+      last_summary: updates.last_summary ?? existing?.last_summary,
+      last_trigger: updates.last_trigger ?? existing?.last_trigger,
+      last_run_at: updates.last_run_at ?? existing?.last_run_at,
+      last_success_at: updates.last_success_at ?? existing?.last_success_at,
+      last_failure_at: updates.last_failure_at ?? existing?.last_failure_at,
+      last_run_outcome: updates.last_run_outcome ?? existing?.last_run_outcome,
+      consecutive_failures: updates.consecutive_failures ?? existing?.consecutive_failures ?? 0,
+      changed_since_last_run: updates.changed_since_last_run ?? existing?.changed_since_last_run ?? false,
+      last_run_id: updates.last_run_id ?? existing?.last_run_id,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO autopilot_profile_state (
+          profile, state, fingerprint, prepared_at, stale_at, next_eligible_run_at, last_summary,
+          last_trigger, last_run_at, last_success_at, last_failure_at, last_run_outcome,
+          consecutive_failures, changed_since_last_run, last_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(profile) DO UPDATE SET
+          state = excluded.state,
+          fingerprint = excluded.fingerprint,
+          prepared_at = excluded.prepared_at,
+          stale_at = excluded.stale_at,
+          next_eligible_run_at = excluded.next_eligible_run_at,
+          last_summary = excluded.last_summary,
+          last_trigger = excluded.last_trigger,
+          last_run_at = excluded.last_run_at,
+          last_success_at = excluded.last_success_at,
+          last_failure_at = excluded.last_failure_at,
+          last_run_outcome = excluded.last_run_outcome,
+          consecutive_failures = excluded.consecutive_failures,
+          changed_since_last_run = excluded.changed_since_last_run,
+          last_run_id = excluded.last_run_id`,
+      )
+      .run(
+        record.profile,
+        record.state,
+        record.fingerprint ?? null,
+        record.prepared_at ?? null,
+        record.stale_at ?? null,
+        record.next_eligible_run_at ?? null,
+        record.last_summary ?? null,
+        record.last_trigger ?? null,
+        record.last_run_at ?? null,
+        record.last_success_at ?? null,
+        record.last_failure_at ?? null,
+        record.last_run_outcome ?? null,
+        record.consecutive_failures,
+        record.changed_since_last_run ? 1 : 0,
+        record.last_run_id ?? null,
+      );
+    return this.getAutopilotProfileState(profile)!;
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2741,6 +2930,10 @@ export class PersonalOpsDb {
         assistant_source_thread_id TEXT,
         assistant_group_id TEXT,
         assistant_why_now TEXT,
+        autopilot_run_id TEXT,
+        autopilot_profile TEXT,
+        autopilot_trigger TEXT,
+        autopilot_prepared_at TEXT,
         mailbox TEXT NOT NULL,
         to_json TEXT NOT NULL,
         cc_json TEXT NOT NULL,
@@ -3167,11 +3360,50 @@ export class PersonalOpsDb {
         related_recommendations_json TEXT NOT NULL,
         next_commands_json TEXT NOT NULL,
         generated_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        autopilot_run_id TEXT,
+        autopilot_profile TEXT,
+        autopilot_trigger TEXT,
+        autopilot_prepared_at TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_meeting_prep_packets_generated_at
         ON meeting_prep_packets(generated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS autopilot_runs (
+        run_id TEXT PRIMARY KEY,
+        trigger TEXT NOT NULL,
+        requested_profile TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        outcome TEXT,
+        summary TEXT,
+        error_message TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_autopilot_runs_started_at
+        ON autopilot_runs(started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS autopilot_profile_state (
+        profile TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        fingerprint TEXT,
+        prepared_at TEXT,
+        stale_at TEXT,
+        next_eligible_run_at TEXT,
+        last_summary TEXT,
+        last_trigger TEXT,
+        last_run_at TEXT,
+        last_success_at TEXT,
+        last_failure_at TEXT,
+        last_run_outcome TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        changed_since_last_run INTEGER NOT NULL DEFAULT 0,
+        last_run_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_autopilot_profile_state_stale_at
+        ON autopilot_profile_state(stale_at ASC);
 
     `);
     if (this.columnExists("tasks", "scheduled_calendar_event_id")) {
@@ -3239,7 +3471,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("drive_files")
+      const inferred = this.tableExists("autopilot_profile_state") && this.tableExists("github_accounts") && this.tableExists("drive_files")
+        ? 20
+        : this.tableExists("drive_files")
         ? this.tableExists("drive_sheets")
           ? 19
           : this.tableExists("meeting_prep_packets")
@@ -3351,6 +3585,10 @@ export class PersonalOpsDb {
       } else if (version === 18) {
         this.migrateToV19();
         version = 19;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 19) {
+        this.migrateToV20();
+        version = 20;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -4055,6 +4293,53 @@ export class PersonalOpsDb {
     this.addColumnIfMissing("meeting_prep_packets", "related_files_json", `TEXT NOT NULL DEFAULT '[]'`);
   }
 
+  private migrateToV20() {
+    this.addColumnIfMissing("draft_artifacts", "autopilot_run_id", `TEXT`);
+    this.addColumnIfMissing("draft_artifacts", "autopilot_profile", `TEXT`);
+    this.addColumnIfMissing("draft_artifacts", "autopilot_trigger", `TEXT`);
+    this.addColumnIfMissing("draft_artifacts", "autopilot_prepared_at", `TEXT`);
+    this.addColumnIfMissing("meeting_prep_packets", "autopilot_run_id", `TEXT`);
+    this.addColumnIfMissing("meeting_prep_packets", "autopilot_profile", `TEXT`);
+    this.addColumnIfMissing("meeting_prep_packets", "autopilot_trigger", `TEXT`);
+    this.addColumnIfMissing("meeting_prep_packets", "autopilot_prepared_at", `TEXT`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS autopilot_runs (
+        run_id TEXT PRIMARY KEY,
+        trigger TEXT NOT NULL,
+        requested_profile TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        outcome TEXT,
+        summary TEXT,
+        error_message TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_autopilot_runs_started_at
+        ON autopilot_runs(started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS autopilot_profile_state (
+        profile TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        fingerprint TEXT,
+        prepared_at TEXT,
+        stale_at TEXT,
+        next_eligible_run_at TEXT,
+        last_summary TEXT,
+        last_trigger TEXT,
+        last_run_at TEXT,
+        last_success_at TEXT,
+        last_failure_at TEXT,
+        last_run_outcome TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        changed_since_last_run INTEGER NOT NULL DEFAULT 0,
+        last_run_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_autopilot_profile_state_stale_at
+        ON autopilot_profile_state(stale_at ASC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -4234,6 +4519,10 @@ export class PersonalOpsDb {
       next_commands: JSON.parse(String(row.next_commands_json ?? "[]")),
       generated_at: String(row.generated_at),
       updated_at: String(row.updated_at),
+      autopilot_run_id: row.autopilot_run_id ? String(row.autopilot_run_id) : undefined,
+      autopilot_profile: row.autopilot_profile ? (String(row.autopilot_profile) as AutopilotProfile) : undefined,
+      autopilot_trigger: row.autopilot_trigger ? (String(row.autopilot_trigger) as AutopilotTrigger) : undefined,
+      autopilot_prepared_at: row.autopilot_prepared_at ? String(row.autopilot_prepared_at) : undefined,
     };
   }
 
@@ -4248,6 +4537,10 @@ export class PersonalOpsDb {
       assistant_source_thread_id: row.assistant_source_thread_id ? String(row.assistant_source_thread_id) : undefined,
       assistant_group_id: row.assistant_group_id ? String(row.assistant_group_id) : undefined,
       assistant_why_now: row.assistant_why_now ? String(row.assistant_why_now) : undefined,
+      autopilot_run_id: row.autopilot_run_id ? String(row.autopilot_run_id) : undefined,
+      autopilot_profile: row.autopilot_profile ? (String(row.autopilot_profile) as AutopilotProfile) : undefined,
+      autopilot_trigger: row.autopilot_trigger ? (String(row.autopilot_trigger) as AutopilotTrigger) : undefined,
+      autopilot_prepared_at: row.autopilot_prepared_at ? String(row.autopilot_prepared_at) : undefined,
       mailbox: String(row.mailbox),
       to: fromJsonArray(String(row.to_json)),
       cc: fromJsonArray(String(row.cc_json)),
@@ -4268,6 +4561,39 @@ export class PersonalOpsDb {
       last_send_attempt_at: row.last_send_attempt_at ? String(row.last_send_attempt_at) : undefined,
       last_send_error_code: row.last_send_error_code ? String(row.last_send_error_code) : undefined,
       last_send_error_message: row.last_send_error_message ? String(row.last_send_error_message) : undefined,
+    };
+  }
+
+  private mapAutopilotRun(row: Record<string, unknown>): AutopilotRunRecord {
+    return {
+      run_id: String(row.run_id),
+      trigger: String(row.trigger) as AutopilotTrigger,
+      requested_profile: row.requested_profile ? (String(row.requested_profile) as AutopilotProfile) : undefined,
+      started_at: String(row.started_at),
+      completed_at: row.completed_at ? String(row.completed_at) : undefined,
+      outcome: row.outcome ? (String(row.outcome) as AutopilotRunOutcome) : undefined,
+      summary: row.summary ? String(row.summary) : undefined,
+      error_message: row.error_message ? String(row.error_message) : undefined,
+    };
+  }
+
+  private mapAutopilotProfileState(row: Record<string, unknown>): AutopilotProfileStateRecord {
+    return {
+      profile: String(row.profile) as AutopilotProfile,
+      state: String(row.state) as AutopilotProfileState,
+      fingerprint: row.fingerprint ? String(row.fingerprint) : undefined,
+      prepared_at: row.prepared_at ? String(row.prepared_at) : undefined,
+      stale_at: row.stale_at ? String(row.stale_at) : undefined,
+      next_eligible_run_at: row.next_eligible_run_at ? String(row.next_eligible_run_at) : undefined,
+      last_summary: row.last_summary ? String(row.last_summary) : undefined,
+      last_trigger: row.last_trigger ? (String(row.last_trigger) as AutopilotTrigger) : undefined,
+      last_run_at: row.last_run_at ? String(row.last_run_at) : undefined,
+      last_success_at: row.last_success_at ? String(row.last_success_at) : undefined,
+      last_failure_at: row.last_failure_at ? String(row.last_failure_at) : undefined,
+      last_run_outcome: row.last_run_outcome ? (String(row.last_run_outcome) as Exclude<AutopilotRunOutcome, "running">) : undefined,
+      consecutive_failures: Number(row.consecutive_failures ?? 0),
+      changed_since_last_run: Boolean(row.changed_since_last_run),
+      last_run_id: row.last_run_id ? String(row.last_run_id) : undefined,
     };
   }
 

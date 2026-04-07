@@ -78,6 +78,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
   if (method === "GET") {
     return (
       pathname === "/v1/status" ||
+      pathname === "/v1/autopilot/status" ||
       pathname === "/v1/worklist" ||
       pathname === "/v1/assistant/actions" ||
       pathname === "/v1/inbox/autopilot" ||

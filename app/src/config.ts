@@ -13,6 +13,16 @@ port = 46210
 [http]
 allowed_origins = []
 
+[autopilot]
+enabled = true
+mode = "continuous"
+run_interval_minutes = 5
+warm_on_console_open = true
+warm_on_desktop_open = true
+profiles = ["day_start", "inbox", "meetings", "planning", "outbound"]
+failure_backoff_minutes = 15
+notification_cooldown_minutes = 30
+
 [gmail]
 account_email = ""
 review_url = "https://mail.google.com/mail/u/0/#drafts"
@@ -148,6 +158,21 @@ export function loadConfig(paths: Paths): Config {
     serviceHost: doc.service?.host ?? "127.0.0.1",
     servicePort: Number(doc.service?.port ?? 46210),
     allowedOrigins: Array.isArray(doc.http?.allowed_origins) ? doc.http.allowed_origins : [],
+    autopilotEnabled: Boolean(doc.autopilot?.enabled ?? true),
+    autopilotMode:
+      doc.autopilot?.mode === "off" || doc.autopilot?.mode === "observe" || doc.autopilot?.mode === "continuous"
+        ? doc.autopilot.mode
+        : "continuous",
+    autopilotRunIntervalMinutes: Number(doc.autopilot?.run_interval_minutes ?? 5),
+    autopilotWarmOnConsoleOpen: Boolean(doc.autopilot?.warm_on_console_open ?? true),
+    autopilotWarmOnDesktopOpen: Boolean(doc.autopilot?.warm_on_desktop_open ?? true),
+    autopilotProfiles: Array.isArray(doc.autopilot?.profiles)
+      ? doc.autopilot.profiles
+          .map((value: unknown) => String(value).trim())
+          .filter((value: string) => ["day_start", "inbox", "meetings", "planning", "outbound"].includes(value)) as Config["autopilotProfiles"]
+      : ["day_start", "inbox", "meetings", "planning", "outbound"],
+    autopilotFailureBackoffMinutes: Number(doc.autopilot?.failure_backoff_minutes ?? 15),
+    autopilotNotificationCooldownMinutes: Number(doc.autopilot?.notification_cooldown_minutes ?? 30),
     gmailAccountEmail: String(doc.gmail?.account_email ?? ""),
     gmailReviewUrl: String(doc.gmail?.review_url ?? "https://mail.google.com/mail/u/0/#drafts"),
     githubEnabled: Boolean(doc.github?.enabled ?? false),

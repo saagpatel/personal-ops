@@ -28,6 +28,10 @@ struct DesktopSnapshot {
     now_next_summary: String,
     awaiting_review_count: usize,
     approval_pending_count: usize,
+    autopilot_ready: bool,
+    autopilot_summary: String,
+    autopilot_stale_profile_count: usize,
+    autopilot_last_success_at: Option<String>,
     daemon_available: bool,
     repair_hint: String,
 }
@@ -41,6 +45,24 @@ struct StatusEnvelope {
 struct StatusPayload {
     state: String,
     approval_queue: ApprovalQueue,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutopilotEnvelope {
+    autopilot: AutopilotPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutopilotPayload {
+    readiness: String,
+    top_item_summary: Option<String>,
+    last_success_at: Option<String>,
+    profiles: Vec<AutopilotProfilePayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutopilotProfilePayload {
+    state: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,6 +215,7 @@ async fn create_console_session() -> Result<ConsoleSession, String> {
 #[tauri::command]
 async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
     let status = get_json::<StatusEnvelope>("/v1/status").await?;
+    let autopilot = get_json::<AutopilotEnvelope>("/v1/autopilot/status").await?;
     let now_next = get_json::<WorkflowEnvelope>("/v1/workflows/now-next").await?;
     let assistant = get_json::<AssistantQueueEnvelope>("/v1/assistant/actions").await?;
 
@@ -204,6 +227,12 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
         .count();
 
     let readiness = status.status.state.clone();
+    let autopilot_stale_profile_count = autopilot
+        .autopilot
+        .profiles
+        .iter()
+        .filter(|profile| profile.state == "stale" || profile.state == "idle")
+        .count();
     let repair_hint = if readiness == "ready" {
         "".to_string()
     } else {
@@ -216,6 +245,13 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
         now_next_summary: now_next.workflow.summary,
         awaiting_review_count,
         approval_pending_count: status.status.approval_queue.pending_count,
+        autopilot_ready: autopilot.autopilot.readiness == "ready",
+        autopilot_summary: autopilot
+            .autopilot
+            .top_item_summary
+            .unwrap_or_else(|| "Autopilot is warming the workspace.".to_string()),
+        autopilot_stale_profile_count,
+        autopilot_last_success_at: autopilot.autopilot.last_success_at,
         daemon_available: true,
         repair_hint,
     })

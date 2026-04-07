@@ -4,6 +4,7 @@ import { getDesktopStatusReport, openDesktopApp } from "../../desktop.js";
 import {
   formatAssistantActionRunResult,
   formatAssistantQueueReport,
+  formatAutopilotStatusReport,
   formatDesktopStatus,
   formatDriveDoc,
   formatDriveFiles,
@@ -97,6 +98,28 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .action((options) => {
       const response = { version: buildVersionReport(paths) };
       context.printOutput(response, (value) => formatVersionReport(value.version), options.json);
+    });
+
+  const autopilot = program.command("autopilot").description("Inspect or warm the continuous autopilot coordinator.");
+  autopilot
+    .command("status")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const response = await context.requestJson<{ autopilot: unknown }>("GET", "/v1/autopilot/status");
+      context.printOutput(response, (value) => formatAutopilotStatusReport(value.autopilot), options.json);
+    });
+
+  autopilot
+    .command("run")
+    .description("Run the full autopilot coordinator or one profile now.")
+    .option("--profile <profile>", "Run only one profile: day_start, inbox, meetings, planning, or outbound")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const path = options.profile
+        ? `/v1/autopilot/run/${encodeURIComponent(String(options.profile))}`
+        : "/v1/autopilot/run";
+      const response = await context.requestJson<{ autopilot: unknown }>("POST", path);
+      context.printOutput(response, (value) => formatAutopilotStatusReport(value.autopilot), options.json);
     });
 
   program
