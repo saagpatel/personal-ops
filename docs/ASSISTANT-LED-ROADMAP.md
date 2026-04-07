@@ -39,6 +39,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 8 | Continuous Autopilot, Warm Start, and Value Review | Warm the existing assistant-led workspace in the background and prove the value of that prep layer | Complete |
 | 9 | Review Intelligence 2.0 | Compress prepared work into bounded review packages and add review-only tuning without altering core ranking | Complete |
 | 10 | Review Outcomes, Eval Loop, and Notification Governance | Measure whether review packages and review notifications are actually paying off, and expose that evidence to the operator | Complete |
+| 11 | Review Trends, Tuning Impact, and Weekly Operator Review | Turn rolling review outcomes into trend, comparison, and weekly operator guidance without widening trust boundaries | Complete |
 
 ## Phase 1
 
@@ -210,10 +211,28 @@ Delivered shape:
   - no widening of browser mutation authority
   - no change to send, approval, auth, or restore controls
 
+## Phase 11
+
+Phase 11 is now complete.
+
+Delivered shape:
+
+- persisted daily review metric snapshots for global and per-surface trend history
+- `personal-ops review trends`, `personal-ops review impact`, and `personal-ops review weekly`
+- `GET /v1/review/trends`, `GET /v1/review/impact`, and `GET /v1/review/weekly`
+- console Review Trends surface with week-over-week deltas, noisy sources, recent tuning impact, and operator recommendations
+- additive status deltas for review trend movement without expanding the compact status footprint
+- comparison reporting for approved review tuning so the operator can see before-and-after effect without any automatic policy changes
+- unchanged trust boundaries:
+  - no automatic tuning approval
+  - no automatic rollback or reconfiguration
+  - no new core workflow ranking source
+  - no widening of browser mutation authority
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, and 10 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

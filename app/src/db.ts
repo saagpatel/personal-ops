@@ -66,6 +66,10 @@ import {
   ReviewNotificationEvent,
   ReviewNotificationKind,
   ReviewNotificationSuppressionReason,
+  ReviewMetricSnapshot,
+  ReviewMetricSnapshotMetrics,
+  ReviewMetricSnapshotScopeKey,
+  ReviewMetricSnapshotScopeType,
   ReviewPackage,
   ReviewPackageItem,
   ReviewPackageCycle,
@@ -88,7 +92,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 22;
+export const CURRENT_SCHEMA_VERSION = 23;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -370,6 +374,7 @@ export class PersonalOpsDb {
     for (const tableName of [
       "review_packages",
       "review_package_cycles",
+      "review_metric_snapshots",
       "review_feedback_events",
       "review_notification_events",
       "review_tuning_proposals",
@@ -3648,6 +3653,81 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapReviewNotificationEvent(row));
   }
 
+  getReviewMetricSnapshot(
+    snapshotDate: string,
+    scopeType: ReviewMetricSnapshotScopeType,
+    scopeKey: ReviewMetricSnapshotScopeKey,
+  ): ReviewMetricSnapshot | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM review_metric_snapshots
+         WHERE snapshot_date = ? AND scope_type = ? AND scope_key = ?`,
+      )
+      .get(snapshotDate, scopeType, scopeKey) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewMetricSnapshot(row) : null;
+  }
+
+  upsertReviewMetricSnapshot(input: {
+    snapshot_date: string;
+    scope_type: ReviewMetricSnapshotScopeType;
+    scope_key: ReviewMetricSnapshotScopeKey;
+    metrics: ReviewMetricSnapshotMetrics;
+    generated_at?: string;
+  }): ReviewMetricSnapshot {
+    const generatedAt = input.generated_at ?? nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO review_metric_snapshots (
+          snapshot_date, scope_type, scope_key, metrics_json, generated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(snapshot_date, scope_type, scope_key) DO UPDATE SET
+          metrics_json = excluded.metrics_json,
+          generated_at = excluded.generated_at`,
+      )
+      .run(
+        input.snapshot_date,
+        input.scope_type,
+        input.scope_key,
+        toJson(input.metrics),
+        generatedAt,
+      );
+    return this.getReviewMetricSnapshot(input.snapshot_date, input.scope_type, input.scope_key)!;
+  }
+
+  listReviewMetricSnapshots(options: {
+    scope_type?: ReviewMetricSnapshotScopeType;
+    scope_key?: ReviewMetricSnapshotScopeKey;
+    snapshot_date_from?: string;
+    snapshot_date_to?: string;
+  } = {}): ReviewMetricSnapshot[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.scope_type) {
+      clauses.push(`scope_type = ?`);
+      params.push(options.scope_type);
+    }
+    if (options.scope_key) {
+      clauses.push(`scope_key = ?`);
+      params.push(options.scope_key);
+    }
+    if (options.snapshot_date_from) {
+      clauses.push(`snapshot_date >= ?`);
+      params.push(options.snapshot_date_from);
+    }
+    if (options.snapshot_date_to) {
+      clauses.push(`snapshot_date <= ?`);
+      params.push(options.snapshot_date_to);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM review_metric_snapshots ${whereClause}
+         ORDER BY snapshot_date ASC, scope_type ASC, scope_key ASC`,
+      )
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewMetricSnapshot(row));
+  }
+
   upsertReviewTuningProposal(input: ReviewTuningProposal & { evidence_json: string }): ReviewTuningProposal {
     this.db
       .prepare(
@@ -4571,6 +4651,18 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_review_notification_events_cycle_created_at
         ON review_notification_events(package_cycle_id, created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS review_metric_snapshots (
+        snapshot_date TEXT NOT NULL,
+        scope_type TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        metrics_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        PRIMARY KEY (snapshot_date, scope_type, scope_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_metric_snapshots_scope_date
+        ON review_metric_snapshots(scope_type, scope_key, snapshot_date DESC);
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -4697,7 +4789,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("review_package_cycles") || this.tableExists("review_notification_events")
+      const inferred = this.tableExists("review_metric_snapshots")
+        ? 23
+        : this.tableExists("review_package_cycles") || this.tableExists("review_notification_events")
         ? 22
         : this.tableExists("review_read_model_state")
         ? this.tableExists("github_accounts") && this.tableExists("drive_files")
@@ -4829,6 +4923,10 @@ export class PersonalOpsDb {
       } else if (version === 21) {
         this.migrateToV22();
         version = 22;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 22) {
+        this.migrateToV23();
+        version = 23;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -5766,6 +5864,22 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV23() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS review_metric_snapshots (
+        snapshot_date TEXT NOT NULL,
+        scope_type TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        metrics_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        PRIMARY KEY (snapshot_date, scope_type, scope_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_metric_snapshots_scope_date
+        ON review_metric_snapshots(scope_type, scope_key, snapshot_date DESC);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6124,6 +6238,16 @@ export class PersonalOpsDb {
       client_id: String(row.client_id),
       actor: row.actor ? String(row.actor) : undefined,
       created_at: String(row.created_at),
+    };
+  }
+
+  private mapReviewMetricSnapshot(row: Record<string, unknown>): ReviewMetricSnapshot {
+    return {
+      snapshot_date: String(row.snapshot_date),
+      scope_type: String(row.scope_type) as ReviewMetricSnapshotScopeType,
+      scope_key: String(row.scope_key) as ReviewMetricSnapshotScopeKey,
+      metrics: JSON.parse(String(row.metrics_json ?? "{}")),
+      generated_at: String(row.generated_at),
     };
   }
 
