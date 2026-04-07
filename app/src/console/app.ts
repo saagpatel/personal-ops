@@ -24,11 +24,14 @@ import type {
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
   PlanningRecommendationSummaryReport,
+  ReviewImpactReport,
   ReviewPackage,
   ReviewPackageReport,
   ReviewReport,
+  ReviewTrendsReport,
   ReviewTuningProposal,
   ReviewTuningReport,
+  ReviewWeeklyReport,
   ReviewItem,
   ServiceStatusReport,
   SnapshotInspection,
@@ -61,6 +64,9 @@ interface ConsolePayload {
   reviewPackages: ReviewPackageReport;
   reviewTuning: ReviewTuningReport;
   reviewReport: ReviewReport;
+  reviewTrends: ReviewTrendsReport;
+  reviewImpact: ReviewImpactReport;
+  reviewWeekly: ReviewWeeklyReport;
   planningGroups: PlanningRecommendationGroup[];
   planningNext: PlanningRecommendationDetail | null;
   audit: AuditEvent[];
@@ -151,6 +157,18 @@ interface ReviewReportResponse {
   review_report: ReviewReport;
 }
 
+interface ReviewTrendsResponse {
+  review_trends: ReviewTrendsReport;
+}
+
+interface ReviewImpactResponse {
+  review_impact: ReviewImpactReport;
+}
+
+interface ReviewWeeklyResponse {
+  review_weekly: ReviewWeeklyReport;
+}
+
 interface PlanningAutopilotBundleResponse {
   planning_autopilot_bundle:
     | PlanningAutopilotBundle
@@ -236,7 +254,7 @@ class SessionLockedError extends Error {}
 
 const SECTIONS: Record<SectionId, string> = {
   overview: "Overview",
-  review: "Review Report",
+  review: "Review Trends",
   worklist: "Worklist",
   approvals: "Approvals",
   drafts: "Drafts",
@@ -428,6 +446,9 @@ async function loadPayload(): Promise<ConsolePayload> {
     reviewPackagesResponse,
     reviewTuningResponse,
     reviewReportResponse,
+    reviewTrendsResponse,
+    reviewImpactResponse,
+    reviewWeeklyResponse,
     planningGroupsResponse,
     planningNextResponse,
     auditResponse,
@@ -451,6 +472,9 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
     fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
     fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
+    fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
+    fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
+    fetchJson<ReviewWeeklyResponse>("/v1/review/weekly?days=14"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
     fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
     fetchAudit(state.auditLimit, state.auditCategory),
@@ -476,6 +500,9 @@ async function loadPayload(): Promise<ConsolePayload> {
     reviewPackages: reviewPackagesResponse.review_packages,
     reviewTuning: reviewTuningResponse.review_tuning,
     reviewReport: reviewReportResponse.review_report,
+    reviewTrends: reviewTrendsResponse.review_trends,
+    reviewImpact: reviewImpactResponse.review_impact,
+    reviewWeekly: reviewWeeklyResponse.review_weekly,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
     planningNext: planningNextResponse.planning_recommendation,
     audit: auditResponse.events,
@@ -747,6 +774,129 @@ function renderReviewReport(report: ReviewReport): string {
             <div class="list-item__actions list-item__actions--stack">
               ${commandStack(["personal-ops review report", "personal-ops review report --days 30"])}
             </div>
+          </section>
+        </div>
+      </section>
+    </section>
+  `;
+}
+
+function renderReviewTrendsDashboard(payload: ConsolePayload): string {
+  const weekly = payload.reviewWeekly;
+  const trends = payload.reviewTrends;
+  const impact = payload.reviewImpact;
+  return `
+    <section class="detail-stack">
+      <section class="hero">
+        <p class="eyebrow">Review trends</p>
+        <h3>The review loop now shows direction, impact, and where operator attention still matters most.</h3>
+        <p>${escapeHtml(`Week over week: open ${asPercent(weekly.week_over_week_open_rate_delta)} · action ${asPercent(weekly.week_over_week_action_rate_delta)} · notification action ${asPercent(weekly.week_over_week_notification_action_conversion_delta)}`)}</p>
+      </section>
+      <section class="stats-grid">
+        ${metricCard("Top trend surface", weekly.top_review_trend_surface ?? "none", "Surface with the strongest recent movement")}
+        ${metricCard("Trend open rate", asPercent(trends.summary.average_open_rate), "Average rolling open rate across the trend window")}
+        ${metricCard("Trend action rate", asPercent(trends.summary.average_acted_on_rate), "Average rolling acted-on rate across the trend window")}
+        ${metricCard("Trend stale-unused", asPercent(trends.summary.average_stale_unused_rate), "Average rolling stale-unused rate across the trend window")}
+        ${metricCard("Recent impacts", String(impact.comparisons.length), "Approved tuning comparisons available in the current lookback")}
+        ${metricCard("Recommendations", String(weekly.recommendations.length), "Manual follow-ups suggested for this week")}
+      </section>
+      <section class="columns columns--wide-right">
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Surface deltas</h3>
+            ${
+              weekly.surfaces.length === 0
+                ? `<div class="empty">No surface trend data is available yet.</div>`
+                : weekly.surfaces
+                    .map(
+                      (surface) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(surface.surface)}</h4>
+                            <span class="pill ${surface.acted_on_rate_delta >= 0 ? "pill--good" : "pill--warn"}">${escapeHtml(`action ${asPercent(surface.acted_on_rate_delta)}`)}</span>
+                          </div>
+                          <p class="subtle subtle--body">${escapeHtml(`Open ${asPercent(surface.open_rate_delta)} · stale-unused ${asPercent(surface.stale_unused_rate_delta)} · notification action ${asPercent(surface.notification_action_conversion_delta)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+          <section class="detail-card">
+            <h3>Top unresolved noisy sources</h3>
+            ${
+              weekly.top_noisy_sources.length === 0
+                ? `<div class="empty">No noisy sources are standing out right now.</div>`
+                : weekly.top_noisy_sources
+                    .map(
+                      (source) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(source.scope_key)}</h4>
+                            <span class="pill pill--warn">${escapeHtml(source.surface)}</span>
+                          </div>
+                          <p>${escapeHtml(source.latest_summary ?? "No recent summary is available for this source.")}</p>
+                          <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+        </div>
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Recent tuning impact</h3>
+            ${
+              impact.comparisons.length === 0
+                ? `<div class="empty">No approved tuning comparisons are available yet.</div>`
+                : impact.comparisons
+                    .slice(0, 5)
+                    .map(
+                      (comparison) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(comparison.proposal_kind)}</h4>
+                            <span class="pill ${comparison.confidence === "strong" ? "pill--good" : comparison.confidence === "directional" ? "pill--warn" : "pill--critical"}">${escapeHtml(comparison.confidence)}</span>
+                          </div>
+                          <p>${escapeHtml(comparison.summary)}</p>
+                          <p class="subtle subtle--body">${escapeHtml(`Open ${asPercent(comparison.open_rate_delta)} · action ${asPercent(comparison.acted_on_rate_delta)} · stale-unused ${asPercent(comparison.stale_unused_rate_delta)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+          <section class="detail-card">
+            <h3>Recommended manual review actions</h3>
+            ${
+              weekly.recommendations.length === 0
+                ? `<div class="empty">No weekly review actions are recommended right now.</div>`
+                : weekly.recommendations
+                    .map(
+                      (recommendation) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(recommendation.kind.replaceAll("_", " "))}</h4>
+                            ${recommendation.surface ? `<span class="pill pill--warn">${escapeHtml(recommendation.surface)}</span>` : ""}
+                          </div>
+                          <p>${escapeHtml(recommendation.message)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+            <div class="list-item__actions list-item__actions--stack">
+              ${commandStack([
+                "personal-ops review weekly",
+                "personal-ops review trends --days 30",
+                "personal-ops review impact --days 30",
+              ])}
+            </div>
+          </section>
+          <section class="detail-card">
+            <h3>Outcome baseline</h3>
+            ${renderReviewReport(payload.reviewReport)}
           </section>
         </div>
       </section>
@@ -2751,7 +2901,7 @@ function renderCurrentSection(payload: ConsolePayload): string {
     case "overview":
       return renderOverview(payload);
     case "review":
-      return renderReviewReport(payload.reviewReport);
+      return renderReviewTrendsDashboard(payload);
     case "worklist":
       return renderWorklist(payload);
     case "approvals":

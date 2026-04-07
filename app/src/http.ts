@@ -1051,6 +1051,66 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/review/trends") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read review trends.");
+        }
+        const daysRaw = Number(url.searchParams.get("days") ?? "30");
+        const surfaceParam = url.searchParams.get("surface");
+        const surface =
+          surfaceParam === "inbox" ||
+          surfaceParam === "meetings" ||
+          surfaceParam === "planning" ||
+          surfaceParam === "outbound"
+            ? surfaceParam
+            : undefined;
+        sendJson(response, 200, {
+          review_trends: await service.getReviewTrends({
+            days: daysRaw,
+            ...(surface ? { surface } : {}),
+          }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/review/impact") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read review impact.");
+        }
+        const daysRaw = Number(url.searchParams.get("days") ?? "30");
+        const surfaceParam = url.searchParams.get("surface");
+        const surface =
+          surfaceParam === "inbox" ||
+          surfaceParam === "meetings" ||
+          surfaceParam === "planning" ||
+          surfaceParam === "outbound"
+            ? surfaceParam
+            : undefined;
+        sendJson(response, 200, {
+          review_impact: await service.getReviewImpact({
+            days: daysRaw,
+            ...(surface ? { surface } : {}),
+          }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/review/weekly") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read the weekly review report.");
+        }
+        const daysRaw = Number(url.searchParams.get("days") ?? "14");
+        sendJson(response, 200, {
+          review_weekly: await service.getReviewWeekly({
+            days: daysRaw,
+          }),
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/review/notifications") {
         sendJson(response, 200, {
           review_notifications: service.getReviewNotificationSnapshot(),

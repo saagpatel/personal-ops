@@ -54,9 +54,12 @@ import {
   formatReviewOpenResult,
   formatReviewPackage,
   formatReviewPackageReport,
+  formatReviewImpactReport,
   formatReviewReport,
+  formatReviewTrendsReport,
   formatReviewResolveResult,
   formatReviewTuningReport,
+  formatReviewWeeklyReport,
   formatRestoreResult,
   formatSendWindowStatus,
   formatSnapshotInspection,
@@ -261,6 +264,59 @@ review
     const suffix = search.size ? `?${search.toString()}` : "";
     const response = await requestJson<{ review_report: unknown }>("GET", `/v1/review/report${suffix}`);
     printOutput(response, (value) => formatReviewReport(value.review_report as any), options.json);
+  });
+
+review
+  .command("trends")
+  .description("Show daily review trend snapshots and week-over-week deltas.")
+  .option("--days <days>", "Trend window size in days (7, 14, or 30)")
+  .option("--surface <surface>", "Optional surface filter (inbox, meetings, planning, outbound)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.days) {
+      search.set("days", String(options.days));
+    }
+    if (options.surface) {
+      search.set("surface", String(options.surface));
+    }
+    const suffix = search.size ? `?${search.toString()}` : "";
+    const response = await requestJson<{ review_trends: unknown }>("GET", `/v1/review/trends${suffix}`);
+    printOutput(response, (value) => formatReviewTrendsReport(value.review_trends as any), options.json);
+  });
+
+review
+  .command("impact")
+  .description("Compare approved tuning decisions against pre- and post-approval review outcomes.")
+  .option("--days <days>", "Lookback window in days (7, 14, or 30)")
+  .option("--surface <surface>", "Optional surface filter (inbox, meetings, planning, outbound)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.days) {
+      search.set("days", String(options.days));
+    }
+    if (options.surface) {
+      search.set("surface", String(options.surface));
+    }
+    const suffix = search.size ? `?${search.toString()}` : "";
+    const response = await requestJson<{ review_impact: unknown }>("GET", `/v1/review/impact${suffix}`);
+    printOutput(response, (value) => formatReviewImpactReport(value.review_impact as any), options.json);
+  });
+
+review
+  .command("weekly")
+  .description("Summarize the operator review loop with deltas, noisy sources, and manual recommendations.")
+  .option("--days <days>", "Window size in days (7, 14, or 30)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.days) {
+      search.set("days", String(options.days));
+    }
+    const suffix = search.size ? `?${search.toString()}` : "";
+    const response = await requestJson<{ review_weekly: unknown }>("GET", `/v1/review/weekly${suffix}`);
+    printOutput(response, (value) => formatReviewWeeklyReport(value.review_weekly as any), options.json);
   });
 
 const approval = program.command("approval").description("Work approval requests for outbound draft sends.");

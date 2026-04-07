@@ -8793,6 +8793,341 @@ test("assistant-led phase 10 review report attributes legacy feedback to the mat
   assert.equal(siblingSource?.stale_unused_count, 1);
 });
 
+test("assistant-led phase 11 review trends backfill daily snapshots once and keep them idempotent", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "trend-backfill-group",
+        summary: "Trend backfill group",
+        why_now: "Trend backfill why now",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-review-trends-backfill");
+  const initial = await service.getReviewTrends({ days: 7 });
+  assert.equal(initial.points.length, 7);
+
+  const globalSnapshots = service.db.listReviewMetricSnapshots({
+    scope_type: "global",
+    scope_key: "global",
+  });
+  assert.equal(globalSnapshots.length, 7);
+
+  const repeated = await service.getReviewTrends({ days: 7 });
+  assert.equal(repeated.points.length, 7);
+  assert.equal(
+    service.db.listReviewMetricSnapshots({
+      scope_type: "global",
+      scope_key: "global",
+    }).length,
+    7,
+  );
+  assert.equal(initial.points.at(-1)?.created_count, 1);
+});
+
+test("assistant-led phase 11 review trends compute week-over-week deltas and top trend surface from snapshots", async () => {
+  const { service } = createFixture();
+  const today = new Date();
+  for (let offset = 7; offset >= 0; offset -= 1) {
+    const snapshotDate = new Date(today.getTime() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const inboxOpen = offset === 7 ? 0.2 : offset === 0 ? 0.5 : 0.25;
+    const planningOpen = offset === 7 ? 0.1 : offset === 0 ? 0.8 : 0.2;
+    service.db.upsertReviewMetricSnapshot({
+      snapshot_date: snapshotDate,
+      scope_type: "global",
+      scope_key: "global",
+      metrics: {
+        created_count: 2,
+        opened_count: 1,
+        acted_on_count: 1,
+        completed_count: 1,
+        stale_unused_count: 0,
+        open_rate: inboxOpen,
+        acted_on_rate: offset === 0 ? 0.6 : 0.3,
+        stale_unused_rate: offset === 0 ? 0.1 : 0.2,
+        fired_notification_count: 1,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0.5,
+        notification_action_conversion_rate: offset === 0 ? 0.7 : 0.2,
+        noisy_source_count: 1,
+        open_tuning_proposal_count: 1,
+        active_tuning_state_count: 0,
+      },
+    });
+    service.db.upsertReviewMetricSnapshot({
+      snapshot_date: snapshotDate,
+      scope_type: "surface",
+      scope_key: "inbox",
+      metrics: {
+        created_count: 2,
+        opened_count: 1,
+        acted_on_count: 1,
+        completed_count: 1,
+        stale_unused_count: 0,
+        open_rate: inboxOpen,
+        acted_on_rate: offset === 0 ? 0.4 : 0.2,
+        stale_unused_rate: 0.2,
+        fired_notification_count: 1,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0.4,
+        notification_action_conversion_rate: offset === 0 ? 0.4 : 0.2,
+        noisy_source_count: 1,
+        open_tuning_proposal_count: 1,
+        active_tuning_state_count: 0,
+      },
+    });
+    service.db.upsertReviewMetricSnapshot({
+      snapshot_date: snapshotDate,
+      scope_type: "surface",
+      scope_key: "planning",
+      metrics: {
+        created_count: 2,
+        opened_count: 1,
+        acted_on_count: 1,
+        completed_count: 1,
+        stale_unused_count: 0,
+        open_rate: planningOpen,
+        acted_on_rate: offset === 0 ? 0.7 : 0.2,
+        stale_unused_rate: offset === 0 ? 0.05 : 0.25,
+        fired_notification_count: 1,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0.4,
+        notification_action_conversion_rate: offset === 0 ? 0.8 : 0.2,
+        noisy_source_count: 1,
+        open_tuning_proposal_count: 0,
+        active_tuning_state_count: 0,
+      },
+    });
+  }
+
+  const trends = await service.getReviewTrends({ days: 14 });
+  assert.equal(trends.points.length, 14);
+  assert.equal(trends.summary.top_review_trend_surface, "planning");
+  assert.equal(trends.summary.week_over_week_open_rate_delta, 0.3);
+  assert.equal(trends.summary.week_over_week_notification_action_conversion_delta, 0.5);
+});
+
+test("assistant-led phase 11 review impact compares approved tuning before and after approval windows", async () => {
+  const { service } = createFixture();
+  const now = Date.now();
+  const approvedAt = new Date(now - 15 * 24 * 60 * 60 * 1000).toISOString();
+  const preStart = new Date(Date.parse(approvedAt) - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const preSecond = new Date(Date.parse(approvedAt) - 5 * 24 * 60 * 60 * 1000).toISOString();
+  const postStart = new Date(Date.parse(approvedAt) + 1 * 24 * 60 * 60 * 1000).toISOString();
+  const postSecond = new Date(Date.parse(approvedAt) + 2 * 24 * 60 * 60 * 1000).toISOString();
+  const future = new Date(now + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  for (const [packageId, startedAt, openedAt, actedOnAt, staleUnusedAt] of [
+    ["impact-pre-1", preStart, undefined, undefined, preStart],
+    ["impact-pre-2", preSecond, undefined, undefined, preSecond],
+    ["impact-post-1", postStart, postStart, postStart, undefined],
+    ["impact-post-2", postSecond, postSecond, postSecond, undefined],
+  ] as const) {
+    service.db.ensureOpenReviewPackageCycle({
+      package_id: packageId,
+      surface: "inbox",
+      source_fingerprint: packageId,
+      summary: packageId,
+      why_now: packageId,
+      score_band: "high",
+      member_ids: [packageId],
+      items: [
+        {
+          package_item_id: `group:${packageId}`,
+          item_type: "inbox_autopilot_group",
+          item_id: packageId,
+          title: packageId,
+          summary: packageId,
+          command: "personal-ops inbox autopilot",
+          underlying_state: "awaiting_review",
+        },
+      ],
+      source_keys: ["inbox:impact-source"],
+      seen_at: startedAt,
+      opened_at: openedAt ?? null,
+      acted_on_at: actedOnAt ?? null,
+      completed_at: actedOnAt ?? null,
+      stale_unused_at: staleUnusedAt ?? null,
+    });
+  }
+
+  const postCycle = service.db.getLatestReviewPackageCycleForPackage("impact-post-2");
+  assert.ok(postCycle);
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_inbox",
+    decision: "fired",
+    source: "desktop",
+    surface: "inbox",
+    package_id: "impact-post-2",
+    package_cycle_id: postCycle!.package_cycle_id,
+    current_count: 1,
+    previous_count: 0,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:impact-source",
+    proposal_family_key: "source_suppression:inbox:inbox:impact-source",
+    evidence_fingerprint: "impact-source",
+    proposal_kind: "source_suppression",
+    surface: "inbox",
+    scope_key: "inbox:impact-source",
+    summary: "Suppress impact source",
+    evidence_window_days: 14,
+    evidence_count: 4,
+    positive_count: 0,
+    negative_count: 4,
+    unused_stale_count: 2,
+    status: "approved",
+    evidence_json: JSON.stringify({ scope_key: "inbox:impact-source" }),
+    created_at: approvedAt,
+    updated_at: approvedAt,
+    expires_at: future,
+    approved_at: approvedAt,
+    approved_by_client: cliIdentity.client_id,
+    approved_by_actor: cliIdentity.requested_by,
+    approved_note: "Approved for impact reporting.",
+  });
+
+  const impact = await service.getReviewImpact({ days: 30, surface: "inbox" });
+  const comparison = impact.comparisons.find((entry) => entry.proposal_id === "review-tuning:impact-source");
+  assert.ok(comparison);
+  assert.equal(comparison?.confidence, "directional");
+  assert.ok((comparison?.acted_on_rate_delta ?? 0) > 0);
+  assert.ok((comparison?.stale_unused_rate_delta ?? 0) < 0);
+});
+
+test("assistant-led phase 11 weekly review feeds additive status deltas and operator recommendations", async () => {
+  const { service } = createFixture();
+  const today = new Date();
+  for (let offset = 7; offset >= 0; offset -= 1) {
+    const snapshotDate = new Date(today.getTime() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    service.db.upsertReviewMetricSnapshot({
+      snapshot_date: snapshotDate,
+      scope_type: "global",
+      scope_key: "global",
+      metrics: {
+        created_count: 3,
+        opened_count: 2,
+        acted_on_count: 2,
+        completed_count: 1,
+        stale_unused_count: 1,
+        open_rate: offset === 7 ? 0.3 : 0.6,
+        acted_on_rate: offset === 7 ? 0.2 : 0.55,
+        stale_unused_rate: offset === 7 ? 0.35 : 0.1,
+        fired_notification_count: 2,
+        suppressed_notification_count: 1,
+        cooldown_hit_count: 1,
+        notification_open_conversion_rate: 0.3,
+        notification_action_conversion_rate: offset === 7 ? 0.2 : 0.6,
+        noisy_source_count: 1,
+        open_tuning_proposal_count: 1,
+        active_tuning_state_count: 1,
+      },
+    });
+    service.db.upsertReviewMetricSnapshot({
+      snapshot_date: snapshotDate,
+      scope_type: "surface",
+      scope_key: "planning",
+      metrics: {
+        created_count: 2,
+        opened_count: 1,
+        acted_on_count: 1,
+        completed_count: 1,
+        stale_unused_count: 0,
+        open_rate: offset === 7 ? 0.2 : 0.7,
+        acted_on_rate: offset === 7 ? 0.2 : 0.7,
+        stale_unused_rate: offset === 7 ? 0.4 : 0.1,
+        fired_notification_count: 1,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0.3,
+        notification_action_conversion_rate: offset === 7 ? 0.2 : 0.8,
+        noisy_source_count: 1,
+        open_tuning_proposal_count: 0,
+        active_tuning_state_count: 1,
+      },
+    });
+  }
+
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:weekly-approved",
+    proposal_family_key: "surface_priority_offset:planning:planning",
+    evidence_fingerprint: "weekly-approved",
+    proposal_kind: "surface_priority_offset",
+    surface: "planning",
+    scope_key: "planning",
+    summary: "Planning tuning approval",
+    evidence_window_days: 14,
+    evidence_count: 6,
+    positive_count: 0,
+    negative_count: 6,
+    unused_stale_count: 0,
+    status: "approved",
+    evidence_json: JSON.stringify({ surface: "planning" }),
+    created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+    approved_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    approved_by_client: cliIdentity.client_id,
+    approved_by_actor: cliIdentity.requested_by,
+    approved_note: "Approved for weekly view.",
+  });
+  service.db.upsertReviewTuningState({
+    proposal_id: "review-tuning:weekly-approved",
+    proposal_kind: "surface_priority_offset",
+    surface: "planning",
+    scope_key: "planning",
+    value_json: JSON.stringify({ offset: -200 }),
+    status: "active",
+    starts_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+    note: "Active for weekly test.",
+  });
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_planning",
+    decision: "suppressed",
+    source: "desktop",
+    surface: "planning",
+    suppression_reason: "cooldown",
+    current_count: 1,
+    previous_count: 1,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+  service.db.createReviewFeedbackEvent({
+    package_id: "weekly-noisy",
+    surface: "planning",
+    reason: "wrong_priority",
+    note: "Still noisy.",
+    actor: cliIdentity.requested_by ?? null,
+    client_id: cliIdentity.client_id,
+    source_fingerprint: "weekly-noisy",
+  });
+
+  const weekly = await service.getReviewWeekly({ days: 14 });
+  assert.equal(weekly.top_review_trend_surface, "planning");
+  assert.ok(weekly.week_over_week_action_rate_delta > 0);
+  assert.ok(weekly.recommendations.some((entry) => entry.kind === "keep_current_tuning"));
+
+  const status = await service.getStatusReport({ httpReachable: true });
+  assert.equal(status.review.top_review_trend_surface, "planning");
+  assert.ok(status.review.week_over_week_action_rate_delta > 0);
+});
+
 test("assistant-led phase 8 autopilot warms inbox work and exposes freshness in status", async () => {
   const accountEmail = "machine@example.com";
   const inbound = buildMessage("msg-phase8-autopilot", accountEmail, {

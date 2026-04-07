@@ -3,7 +3,7 @@ import { getDesktopStatusReport } from "../desktop.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
-import { buildStoredReviewPackageReport, buildStoredReviewReport } from "./review-intelligence.js";
+import { buildStoredReviewPackageReport, buildStoredReviewReport, buildStoredReviewWeekly } from "./review-intelligence.js";
 
 export async function buildStatusReport(
   service: any,
@@ -44,6 +44,9 @@ export async function buildStatusReport(
   const reviewOutcomeReport = skipDerived
     ? await buildStoredReviewReport(service, { window_days: 14 })
     : await service.getReviewReport({ window_days: 14 });
+  const reviewWeeklyReport = skipDerived
+    ? await buildStoredReviewWeekly(service, { days: 14 })
+    : await service.getReviewWeekly({ days: 14 });
   const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
@@ -281,6 +284,11 @@ export async function buildStatusReport(
       package_acted_on_rate_14d: reviewOutcomeReport.summary.acted_on_rate,
       stale_unused_rate_14d: reviewOutcomeReport.summary.stale_unused_rate,
       notification_action_conversion_rate_14d: reviewOutcomeReport.summary.notification_action_conversion_rate,
+      week_over_week_open_rate_delta: reviewWeeklyReport.week_over_week_open_rate_delta,
+      week_over_week_action_rate_delta: reviewWeeklyReport.week_over_week_action_rate_delta,
+      week_over_week_notification_action_conversion_delta:
+        reviewWeeklyReport.week_over_week_notification_action_conversion_delta,
+      top_review_trend_surface: reviewWeeklyReport.top_review_trend_surface,
     },
     desktop: desktopStatus,
   };

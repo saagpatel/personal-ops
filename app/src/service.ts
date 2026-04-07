@@ -89,7 +89,10 @@ import {
 } from "./service/planning-autopilot.js";
 import {
   approveReviewTuningProposal,
+  buildReviewImpact,
   buildReviewReport,
+  buildReviewTrends,
+  buildReviewWeekly,
   buildStoredReviewPackageReport,
   buildStoredReviewTuningReport,
   dismissReviewTuningProposal,
@@ -227,9 +230,12 @@ import {
   ReviewPackage,
   ReviewPackageReport,
   ReviewPackageSurface,
+  ReviewImpactReport,
   ReviewReport,
+  ReviewTrendsReport,
   ReviewTuningProposal,
   ReviewTuningReport,
+  ReviewWeeklyReport,
   SendWindow,
   ServiceState,
   ServiceStatusReport,
@@ -761,6 +767,18 @@ export class PersonalOpsService {
 
   async getReviewReport(options: { window_days?: number; surface?: ReviewPackageSurface } = {}): Promise<ReviewReport> {
     return buildReviewReport(this, options);
+  }
+
+  async getReviewTrends(options: { days?: number; surface?: ReviewPackageSurface } = {}): Promise<ReviewTrendsReport> {
+    return buildReviewTrends(this, options);
+  }
+
+  async getReviewImpact(options: { days?: number; surface?: ReviewPackageSurface } = {}): Promise<ReviewImpactReport> {
+    return buildReviewImpact(this, options);
+  }
+
+  async getReviewWeekly(options: { days?: number } = {}): Promise<ReviewWeeklyReport> {
+    return buildReviewWeekly(this, options);
   }
 
   async approveReviewTuningProposal(identity: ClientIdentity, proposalId: string, note: string): Promise<ReviewTuningProposal> {

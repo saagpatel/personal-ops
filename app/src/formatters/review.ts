@@ -1,9 +1,12 @@
 import type {
+  ReviewImpactReport,
   ReviewPackage,
   ReviewPackageReport,
   ReviewReport,
+  ReviewTrendsReport,
   ReviewTuningProposal,
   ReviewTuningReport,
+  ReviewWeeklyReport,
 } from "../types.js";
 import { line } from "./shared.js";
 
@@ -147,6 +150,99 @@ export function formatReviewReport(report: ReviewReport): string {
       lines.push(
         `- ${source.surface} ${source.scope_key} | negative=${source.negative_feedback_count} | stale-unused=${source.stale_unused_count} | rate=${asPercent(source.negative_feedback_rate)} | ${source.latest_summary ?? "no summary"}`,
       );
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewTrendsReport(report: ReviewTrendsReport): string {
+  const lines: string[] = [];
+  lines.push("Review Trends");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Window", `${report.days} days`));
+  lines.push(line("Latest snapshot", report.summary.latest_snapshot_date ?? "none"));
+  lines.push(line("Average open rate", asPercent(report.summary.average_open_rate)));
+  lines.push(line("Average acted-on rate", asPercent(report.summary.average_acted_on_rate)));
+  lines.push(line("Average stale-unused rate", asPercent(report.summary.average_stale_unused_rate)));
+  lines.push(
+    line(
+      "Average notification action conversion",
+      asPercent(report.summary.average_notification_action_conversion_rate),
+    ),
+  );
+  lines.push(line("WoW open delta", asPercent(report.summary.week_over_week_open_rate_delta)));
+  lines.push(line("WoW action delta", asPercent(report.summary.week_over_week_action_rate_delta)));
+  lines.push(line("WoW stale-unused delta", asPercent(report.summary.week_over_week_stale_unused_rate_delta)));
+  lines.push(
+    line(
+      "WoW notification action delta",
+      asPercent(report.summary.week_over_week_notification_action_conversion_delta),
+    ),
+  );
+  lines.push(line("Top trend surface", report.summary.top_review_trend_surface ?? "none"));
+  lines.push("");
+  if (report.points.length === 0) {
+    lines.push("No review trend snapshots are available in this window.");
+    return lines.join("\n");
+  }
+  for (const point of report.points) {
+    lines.push(
+      `- ${point.snapshot_date}: opened=${asPercent(point.open_rate)} | acted=${asPercent(point.acted_on_rate)} | stale-unused=${asPercent(point.stale_unused_rate)} | notification action=${asPercent(point.notification_action_conversion_rate)}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewImpactReport(report: ReviewImpactReport): string {
+  const lines: string[] = [];
+  lines.push("Review Impact");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Window", `${report.days} days`));
+  lines.push("");
+  if (report.comparisons.length === 0) {
+    lines.push("No approved review tuning comparisons are available in this window.");
+    return lines.join("\n");
+  }
+  for (const comparison of report.comparisons) {
+    lines.push(
+      `- ${comparison.proposal_id} | ${comparison.proposal_kind} | ${comparison.surface} | ${comparison.confidence}`,
+    );
+    lines.push(`  summary: ${comparison.summary}`);
+    lines.push(
+      `  deltas: open=${asPercent(comparison.open_rate_delta)} | acted=${asPercent(comparison.acted_on_rate_delta)} | stale-unused=${asPercent(comparison.stale_unused_rate_delta)} | notification fire=${asPercent(comparison.notification_fire_rate_delta)} | notification action=${asPercent(comparison.notification_action_conversion_delta)}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewWeeklyReport(report: ReviewWeeklyReport): string {
+  const lines: string[] = [];
+  lines.push("Review Weekly");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Window", `${report.days} days`));
+  lines.push(line("WoW open delta", asPercent(report.week_over_week_open_rate_delta)));
+  lines.push(line("WoW action delta", asPercent(report.week_over_week_action_rate_delta)));
+  lines.push(
+    line(
+      "WoW notification action delta",
+      asPercent(report.week_over_week_notification_action_conversion_delta),
+    ),
+  );
+  lines.push(line("Top trend surface", report.top_review_trend_surface ?? "none"));
+  lines.push("");
+  lines.push("Surfaces");
+  for (const surface of report.surfaces) {
+    lines.push(
+      `- ${surface.surface}: open delta=${asPercent(surface.open_rate_delta)} | action delta=${asPercent(surface.acted_on_rate_delta)} | stale-unused delta=${asPercent(surface.stale_unused_rate_delta)} | notification action delta=${asPercent(surface.notification_action_conversion_delta)}`,
+    );
+  }
+  lines.push("");
+  lines.push("Recommendations");
+  if (report.recommendations.length === 0) {
+    lines.push("No weekly review recommendations are available yet.");
+  } else {
+    for (const recommendation of report.recommendations) {
+      lines.push(`- ${recommendation.kind}: ${recommendation.message}`);
     }
   }
   return lines.join("\n");

@@ -1675,6 +1675,124 @@ export interface ReviewReport {
   top_noisy_sources: ReviewNoisySourceReport[];
 }
 
+export type ReviewMetricSnapshotScopeType = "global" | "surface";
+export type ReviewMetricSnapshotScopeKey = "global" | ReviewPackageSurface;
+export type ReviewImpactConfidence = "insufficient_data" | "directional" | "strong";
+export type ReviewWeeklyRecommendationKind =
+  | "keep_current_tuning"
+  | "revisit_tuning"
+  | "investigate_source"
+  | "insufficient_evidence";
+
+export interface ReviewMetricSnapshotMetrics {
+  created_count: number;
+  opened_count: number;
+  acted_on_count: number;
+  completed_count: number;
+  stale_unused_count: number;
+  open_rate: number;
+  acted_on_rate: number;
+  stale_unused_rate: number;
+  fired_notification_count: number;
+  suppressed_notification_count: number;
+  cooldown_hit_count: number;
+  notification_open_conversion_rate: number;
+  notification_action_conversion_rate: number;
+  noisy_source_count: number;
+  open_tuning_proposal_count: number;
+  active_tuning_state_count: number;
+}
+
+export interface ReviewMetricSnapshot {
+  snapshot_date: string;
+  scope_type: ReviewMetricSnapshotScopeType;
+  scope_key: ReviewMetricSnapshotScopeKey;
+  metrics: ReviewMetricSnapshotMetrics;
+  generated_at: string;
+}
+
+export interface ReviewTrendPoint extends ReviewMetricSnapshotMetrics {
+  snapshot_date: string;
+  scope_key: ReviewMetricSnapshotScopeKey;
+}
+
+export interface ReviewTrendsReport {
+  generated_at: string;
+  days: 7 | 14 | 30;
+  surface?: ReviewPackageSurface | undefined;
+  points: ReviewTrendPoint[];
+  summary: {
+    latest_snapshot_date: string | null;
+    average_open_rate: number;
+    average_acted_on_rate: number;
+    average_stale_unused_rate: number;
+    average_notification_action_conversion_rate: number;
+    week_over_week_open_rate_delta: number;
+    week_over_week_action_rate_delta: number;
+    week_over_week_stale_unused_rate_delta: number;
+    week_over_week_notification_action_conversion_delta: number;
+    top_review_trend_surface: ReviewPackageSurface | null;
+  };
+}
+
+export interface ReviewImpactComparison {
+  proposal_id: string;
+  proposal_kind: ReviewTuningProposalKind;
+  surface: ReviewPackageSurface;
+  scope_key: string;
+  approved_at: string;
+  comparison_window_days: 7 | 14 | 30;
+  confidence: ReviewImpactConfidence;
+  pre_metrics: ReviewMetricSnapshotMetrics;
+  post_metrics: ReviewMetricSnapshotMetrics;
+  open_rate_delta: number;
+  acted_on_rate_delta: number;
+  stale_unused_rate_delta: number;
+  notification_fire_rate_delta: number;
+  notification_action_conversion_delta: number;
+  noisy_source_delta: number;
+  summary: string;
+}
+
+export interface ReviewImpactReport {
+  generated_at: string;
+  days: 7 | 14 | 30;
+  surface?: ReviewPackageSurface | undefined;
+  comparisons: ReviewImpactComparison[];
+}
+
+export interface ReviewWeeklyRecommendation {
+  kind: ReviewWeeklyRecommendationKind;
+  surface?: ReviewPackageSurface | undefined;
+  scope_key?: string | undefined;
+  message: string;
+}
+
+export interface ReviewWeeklySurfaceSummary {
+  surface: ReviewPackageSurface;
+  current: ReviewMetricSnapshotMetrics;
+  previous: ReviewMetricSnapshotMetrics;
+  open_rate_delta: number;
+  acted_on_rate_delta: number;
+  stale_unused_rate_delta: number;
+  notification_action_conversion_delta: number;
+}
+
+export interface ReviewWeeklyReport {
+  generated_at: string;
+  days: 7 | 14 | 30;
+  current_period: ReviewMetricSnapshotMetrics;
+  previous_period: ReviewMetricSnapshotMetrics;
+  week_over_week_open_rate_delta: number;
+  week_over_week_action_rate_delta: number;
+  week_over_week_notification_action_conversion_delta: number;
+  top_review_trend_surface: ReviewPackageSurface | null;
+  surfaces: ReviewWeeklySurfaceSummary[];
+  top_noisy_sources: ReviewNoisySourceReport[];
+  recent_tuning_impact: ReviewImpactComparison[];
+  recommendations: ReviewWeeklyRecommendation[];
+}
+
 export interface MeetingPrepThreadSummary {
   thread_id: string;
   subject: string;
@@ -2267,6 +2385,10 @@ export interface ServiceStatusReport {
     package_acted_on_rate_14d: number;
     stale_unused_rate_14d: number;
     notification_action_conversion_rate_14d: number;
+    week_over_week_open_rate_delta: number;
+    week_over_week_action_rate_delta: number;
+    week_over_week_notification_action_conversion_delta: number;
+    top_review_trend_surface: ReviewPackageSurface | null;
   };
   desktop: DesktopStatusReport;
 }

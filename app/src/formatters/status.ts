@@ -222,12 +222,19 @@ export function formatStatusReport(report: ServiceStatusReport): string {
       line("Open rate (14d)", asPercent(report.review.package_open_rate_14d)),
       line("Acted-on rate (14d)", asPercent(report.review.package_acted_on_rate_14d)),
       line("Stale-unused rate (14d)", asPercent(report.review.stale_unused_rate_14d)),
+      line("WoW open delta", asPercent(report.review.week_over_week_open_rate_delta)),
+      line("WoW action delta", asPercent(report.review.week_over_week_action_rate_delta)),
       line(
         "Notification action conversion (14d)",
         asPercent(report.review.notification_action_conversion_rate_14d),
       ),
+      line(
+        "WoW notification action delta",
+        asPercent(report.review.week_over_week_notification_action_conversion_delta),
+      ),
       line("Refresh state", report.review.refresh_state),
       line("Refreshed", report.review.refreshed_at ?? "never"),
+      line("Top trend surface", report.review.top_review_trend_surface ?? "none"),
       line("Top package", topSummary(report.review.top_review_summary, "nothing queued")),
     ]);
   }

@@ -19,10 +19,13 @@ export {
   formatApprovalConfirmation,
 } from "./formatters/governance.js";
 export {
+  formatReviewImpactReport,
   formatReviewPackage,
   formatReviewPackageReport,
   formatReviewReport,
+  formatReviewTrendsReport,
   formatReviewTuningReport,
+  formatReviewWeeklyReport,
 } from "./formatters/review.js";
 export {
   formatSnapshotManifest,
