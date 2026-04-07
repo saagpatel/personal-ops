@@ -5,10 +5,16 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
 import {
+  buildWrapperProvenance,
+  evaluateWrapperHealth,
+  getInstallArtifactPaths,
+  type InstallArtifactPaths,
+  type WrapperHealthSummary,
+} from "./install-artifacts.js";
+import {
   getDesktopLocalStatusReport,
   getDesktopPaths,
   getDesktopStatusReport,
-  getDesktopToolchainReport,
   installDesktopApp,
   withDesktopManifest,
 } from "./desktop.js";
@@ -44,19 +50,10 @@ import {
   validateSecretTextFile,
 } from "./secrets.js";
 
+export { getInstallArtifactPaths } from "./install-artifacts.js";
+
 const INSTALL_SETUP_REQUIRED_IDS = new Set(["oauth_client_configured", "configured_mailbox_present"]);
 const DEFAULT_ASSISTANTS: AssistantKind[] = ["codex", "claude"];
-
-export interface InstallArtifactPaths {
-  cliWrapperPath: string;
-  daemonWrapperPath: string;
-  codexMcpWrapperPath: string;
-  claudeMcpWrapperPath: string;
-  launchAgentPlistPath: string;
-  distCliPath: string;
-  distDaemonPath: string;
-  distMcpPath: string;
-}
 
 interface InstallDependencies {
   launchAgentDependencies?: Parameters<typeof inspectLaunchAgent>[2];
@@ -72,6 +69,7 @@ const SECRET_PERMISSION_TARGETS: Array<{ label: string; resolvePath: (paths: Pat
   { label: "Assistant API token", resolvePath: (paths) => paths.assistantApiTokenFile },
 ];
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
+const WRAPPER_CURRENT_ASSISTANTS: AssistantKind[] = ["codex", "claude"];
 
 function shellQuote(value: string): string {
   return JSON.stringify(value);
@@ -161,18 +159,6 @@ function renderWrapper(
   return lines.join("\n");
 }
 
-function parseWrapper(wrapperPath: string): { nodeExecutable: string | null; targetFile: string | null } {
-  if (!fs.existsSync(wrapperPath)) {
-    return { nodeExecutable: null, targetFile: null };
-  }
-  const raw = fs.readFileSync(wrapperPath, "utf8");
-  const match = raw.match(/exec\s+"([^"]+)"\s+"([^"]+)"\s+"\$@"/);
-  return {
-    nodeExecutable: match?.[1] ?? null,
-    targetFile: match?.[2] ?? null,
-  };
-}
-
 function writeExecutable(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, contents, { encoding: "utf8", mode: 0o755 });
@@ -222,7 +208,8 @@ function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: 
   const artifacts = getInstallArtifactPaths(paths);
   const launchAgentLabel = getLaunchAgentLabel();
   const machine = ensureMachineIdentity(paths);
-  const existingDesktop = readInstallManifest(paths)?.desktop;
+  const existingManifest = readInstallManifest(paths);
+  const existingDesktop = existingManifest?.desktop;
   return {
     generated_at: new Date().toISOString(),
     node_executable: nodeExecutable,
@@ -238,6 +225,7 @@ function buildInstallManifest(paths: Paths, nodeExecutable: string, assistants: 
       codex_mcp: artifacts.codexMcpWrapperPath,
       claude_mcp: artifacts.claudeMcpWrapperPath,
     },
+    wrapper_provenance: buildWrapperProvenance(paths, nodeExecutable, artifacts),
     ...(existingDesktop ? { desktop: existingDesktop } : {}),
   };
 }
@@ -298,20 +286,6 @@ function readAuthConfigSummary(paths: Paths): {
   }
 }
 
-export function getInstallArtifactPaths(paths: Paths): InstallArtifactPaths {
-  const home = process.env.HOME ?? os.homedir();
-  return {
-    cliWrapperPath: path.join(home, ".local", "bin", "personal-ops"),
-    daemonWrapperPath: path.join(home, ".local", "bin", "personal-opsd"),
-    codexMcpWrapperPath: path.join(home, ".codex", "bin", "personal-ops-mcp"),
-    claudeMcpWrapperPath: path.join(home, ".claude", "bin", "personal-ops-mcp"),
-    launchAgentPlistPath: getLaunchAgentPlistPath(),
-    distCliPath: path.join(paths.appDir, "dist", "src", "cli.js"),
-    distDaemonPath: path.join(paths.appDir, "dist", "src", "daemon.js"),
-    distMcpPath: path.join(paths.appDir, "dist", "src", "mcp-server.js"),
-  };
-}
-
 function buildLaunchAgentEnvironment(paths: Paths): Record<string, string> {
   return {
     HOME: process.env.HOME ?? os.homedir(),
@@ -335,13 +309,13 @@ export function writeInstallManifest(paths: Paths, manifest: InstallManifest): v
   fs.writeFileSync(paths.installManifestFile, JSON.stringify(manifest, null, 2), "utf8");
 }
 
-export function installWrapper(
+function installWrapperFile(
   paths: Paths,
+  artifacts: InstallArtifactPaths,
   kind: "cli" | "daemon" | "mcp",
-  assistant?: AssistantKind,
-  nodeExecutable = process.execPath,
-): InstallManifest {
-  const artifacts = getInstallArtifactPaths(paths);
+  assistant: AssistantKind | undefined,
+  nodeExecutable: string,
+): AssistantKind[] {
   const currentAssistants = new Set<AssistantKind>(readInstallManifest(paths)?.assistant_wrappers ?? []);
 
   if (kind === "cli") {
@@ -349,31 +323,56 @@ export function installWrapper(
       throw new Error(`CLI entrypoint ${artifacts.distCliPath} is missing. Run npm run build first.`);
     }
     writeExecutable(artifacts.cliWrapperPath, renderWrapper(nodeExecutable, artifacts.distCliPath));
-  } else if (kind === "daemon") {
+    return [...currentAssistants];
+  }
+
+  if (kind === "daemon") {
     if (!fs.existsSync(artifacts.distDaemonPath)) {
       throw new Error(`Daemon entrypoint ${artifacts.distDaemonPath} is missing. Run npm run build first.`);
     }
     writeExecutable(artifacts.daemonWrapperPath, renderWrapper(nodeExecutable, artifacts.distDaemonPath));
-  } else {
-    if (!assistant) {
-      throw new Error("MCP wrapper install requires --assistant codex|claude.");
-    }
-    if (!fs.existsSync(artifacts.distMcpPath)) {
-      throw new Error(`MCP entrypoint ${artifacts.distMcpPath} is missing. Run npm run build first.`);
-    }
-    const wrapperPath = assistant === "codex" ? artifacts.codexMcpWrapperPath : artifacts.claudeMcpWrapperPath;
-    writeExecutable(
-      wrapperPath,
-      renderWrapper(nodeExecutable, artifacts.distMcpPath, {
-        PERSONAL_OPS_CLIENT_ID: `${assistant}-mcp`,
-        PERSONAL_OPS_REQUESTED_BY: assistant,
-        PERSONAL_OPS_ORIGIN: "assistant-mcp",
-      }),
-    );
-    currentAssistants.add(assistant);
+    return [...currentAssistants];
   }
 
-  const manifest = buildInstallManifest(paths, nodeExecutable, [...currentAssistants]);
+  if (!assistant) {
+    throw new Error("MCP wrapper install requires --assistant codex|claude.");
+  }
+  if (!fs.existsSync(artifacts.distMcpPath)) {
+    throw new Error(`MCP entrypoint ${artifacts.distMcpPath} is missing. Run npm run build first.`);
+  }
+  const wrapperPath = assistant === "codex" ? artifacts.codexMcpWrapperPath : artifacts.claudeMcpWrapperPath;
+  writeExecutable(
+    wrapperPath,
+    renderWrapper(nodeExecutable, artifacts.distMcpPath, {
+      PERSONAL_OPS_CLIENT_ID: `${assistant}-mcp`,
+      PERSONAL_OPS_REQUESTED_BY: assistant,
+      PERSONAL_OPS_ORIGIN: "assistant-mcp",
+    }),
+  );
+  currentAssistants.add(assistant);
+  return [...currentAssistants];
+}
+
+export function installWrapper(
+  paths: Paths,
+  kind: "cli" | "daemon" | "mcp",
+  assistant?: AssistantKind,
+  nodeExecutable = process.execPath,
+): InstallManifest {
+  const artifacts = getInstallArtifactPaths(paths);
+  const assistants = installWrapperFile(paths, artifacts, kind, assistant, nodeExecutable);
+  const manifest = buildInstallManifest(paths, nodeExecutable, assistants);
+  writeInstallManifest(paths, manifest);
+  return manifest;
+}
+
+export function installWrappers(paths: Paths, nodeExecutable = process.execPath): InstallManifest {
+  const artifacts = getInstallArtifactPaths(paths);
+  installWrapperFile(paths, artifacts, "cli", undefined, nodeExecutable);
+  installWrapperFile(paths, artifacts, "daemon", undefined, nodeExecutable);
+  installWrapperFile(paths, artifacts, "mcp", "codex", nodeExecutable);
+  installWrapperFile(paths, artifacts, "mcp", "claude", nodeExecutable);
+  const manifest = buildInstallManifest(paths, nodeExecutable, WRAPPER_CURRENT_ASSISTANTS);
   writeInstallManifest(paths, manifest);
   return manifest;
 }
@@ -418,12 +417,9 @@ export async function installAll(
   nodeExecutable = process.execPath,
   dependencies: InstallDependencies = {},
 ): Promise<InstallManifest> {
-  installWrapper(paths, "cli", undefined, nodeExecutable);
-  installWrapper(paths, "daemon", undefined, nodeExecutable);
-  installWrapper(paths, "mcp", "codex", nodeExecutable);
-  installWrapper(paths, "mcp", "claude", nodeExecutable);
+  installWrappers(paths, nodeExecutable);
   await installLaunchAgent(paths, nodeExecutable, dependencies);
-  const manifest = buildInstallManifest(paths, nodeExecutable, DEFAULT_ASSISTANTS);
+  const manifest = buildInstallManifest(paths, nodeExecutable, WRAPPER_CURRENT_ASSISTANTS);
   writeInstallManifest(paths, manifest);
   return manifest;
 }
@@ -476,6 +472,84 @@ export function fixInstallPermissions(paths: Paths): InstallPermissionsFixResult
   };
 }
 
+function wrapperCheckForSeverity(
+  severity: WrapperHealthSummary["severity"],
+  id: string,
+  title: string,
+  message: string,
+): DoctorCheck {
+  if (severity === "fail") {
+    return failCheck(id, title, message, "integration");
+  }
+  if (severity === "warn") {
+    return warnCheck(id, title, message, "integration");
+  }
+  return passCheck(id, title, message, "integration");
+}
+
+function addWrapperHealthChecks(checks: DoctorCheck[], wrapperHealth: WrapperHealthSummary[]): void {
+  for (const wrapper of wrapperHealth) {
+    checks.push(
+      wrapperCheckForSeverity(
+        wrapper.exists ? "pass" : wrapper.severity,
+        `${wrapper.key}_wrapper_exists`,
+        wrapper.label,
+        wrapper.exists ? `${wrapper.label} is installed at ${wrapper.wrapperPath}.` : wrapper.reason,
+      ),
+    );
+    checks.push(
+      wrapperCheckForSeverity(
+        wrapper.nodeExecutable && wrapper.nodeExecutableExists ? "pass" : wrapper.severity,
+        `${wrapper.key}_wrapper_node_executable`,
+        `${wrapper.label} Node`,
+        wrapper.nodeExecutable && wrapper.nodeExecutableExists
+          ? `${wrapper.label} uses ${wrapper.nodeExecutable}.`
+          : wrapper.reason,
+      ),
+    );
+    checks.push(
+      wrapperCheckForSeverity(
+        wrapper.targetFile && wrapper.targetExists && wrapper.targetFile === wrapper.expectedTarget ? "pass" : wrapper.severity,
+        `${wrapper.key}_wrapper_target_valid`,
+        `${wrapper.label} target`,
+        wrapper.targetFile && wrapper.targetExists && wrapper.targetFile === wrapper.expectedTarget
+          ? `${wrapper.label} points to ${wrapper.targetFile}.`
+          : wrapper.reason,
+      ),
+    );
+    checks.push(
+      wrapper.provenancePresent
+        ? passCheck(
+            `${wrapper.key}_wrapper_provenance_present`,
+            `${wrapper.label} provenance`,
+            `${wrapper.label} provenance is recorded in the install manifest.`,
+            "integration",
+          )
+        : warnCheck(
+            `${wrapper.key}_wrapper_provenance_present`,
+            `${wrapper.label} provenance`,
+            wrapper.reason,
+            "integration",
+          ),
+    );
+    checks.push(
+      wrapper.current
+        ? passCheck(
+            `${wrapper.key}_wrapper_current`,
+            `${wrapper.label} freshness`,
+            `${wrapper.label} matches the current checkout.`,
+            "integration",
+          )
+        : warnCheck(
+            `${wrapper.key}_wrapper_current`,
+            `${wrapper.label} freshness`,
+            wrapper.reason,
+            "integration",
+          ),
+    );
+  }
+}
+
 export function buildInstallCheckReport(paths: Paths, dependencies: InstallDependencies = {}): InstallCheckReport {
   const checks: DoctorCheck[] = [];
   const manifest = readInstallManifest(paths);
@@ -510,6 +584,7 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   const desktopPaths = getDesktopPaths(paths);
   const desktopStatus = getDesktopLocalStatusReport(paths);
   const desktopToolchain = desktopStatus.toolchain;
+  const wrapperHealth = evaluateWrapperHealth(paths, manifest, artifacts);
 
   checks.push(fileCheck("config_file_valid", "Config file", paths.configFile, true));
   checks.push(fileCheck("policy_file_valid", "Policy file", paths.policyFile, true));
@@ -834,62 +909,7 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   checks.push(fileCheck("dist_cli_exists", "Built CLI", artifacts.distCliPath, false));
   checks.push(fileCheck("dist_daemon_exists", "Built daemon", artifacts.distDaemonPath, false));
   checks.push(fileCheck("dist_mcp_exists", "Built MCP bridge", artifacts.distMcpPath, false));
-
-  const wrapperChecks = [
-    { id: "cli_wrapper_exists", title: "CLI wrapper", wrapperPath: artifacts.cliWrapperPath, expectedTarget: artifacts.distCliPath },
-    {
-      id: "daemon_wrapper_exists",
-      title: "Daemon wrapper",
-      wrapperPath: artifacts.daemonWrapperPath,
-      expectedTarget: artifacts.distDaemonPath,
-    },
-    {
-      id: "codex_mcp_wrapper_exists",
-      title: "Codex MCP wrapper",
-      wrapperPath: artifacts.codexMcpWrapperPath,
-      expectedTarget: artifacts.distMcpPath,
-    },
-    {
-      id: "claude_mcp_wrapper_exists",
-      title: "Claude MCP wrapper",
-      wrapperPath: artifacts.claudeMcpWrapperPath,
-      expectedTarget: artifacts.distMcpPath,
-    },
-  ];
-  for (const wrapper of wrapperChecks) {
-    if (!fs.existsSync(wrapper.wrapperPath)) {
-      checks.push(failCheck(wrapper.id, wrapper.title, `${wrapper.wrapperPath} is missing.`, "integration"));
-      continue;
-    }
-    const parsed = parseWrapper(wrapper.wrapperPath);
-    if (!parsed.targetFile) {
-      checks.push(failCheck(wrapper.id, wrapper.title, `${wrapper.wrapperPath} does not contain a recognizable exec target.`, "integration"));
-      continue;
-    }
-    if (parsed.targetFile !== wrapper.expectedTarget) {
-      checks.push(
-        failCheck(
-          wrapper.id,
-          wrapper.title,
-          `${wrapper.wrapperPath} points to ${parsed.targetFile}, expected ${wrapper.expectedTarget}.`,
-          "integration",
-        ),
-      );
-      continue;
-    }
-    if (!fs.existsSync(parsed.targetFile)) {
-      checks.push(
-        failCheck(
-          wrapper.id,
-          wrapper.title,
-          `${wrapper.wrapperPath} points to missing target ${parsed.targetFile}.`,
-          "integration",
-        ),
-      );
-      continue;
-    }
-    checks.push(passCheck(wrapper.id, wrapper.title, `${path.basename(wrapper.wrapperPath)} points to ${parsed.targetFile}.`, "integration"));
-  }
+  addWrapperHealthChecks(checks, wrapperHealth);
 
   checks.push(
     manifest

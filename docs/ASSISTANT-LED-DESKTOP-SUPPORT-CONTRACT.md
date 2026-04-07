@@ -43,11 +43,34 @@ Treat the following as unsupported-platform informational noise for this phase:
 Use these commands for desktop maintenance:
 
 - `personal-ops desktop status`
+- `personal-ops install wrappers`
 - `personal-ops install desktop`
+- `personal-ops install all`
 - `personal-ops install check`
 - `npm run verify:desktop-platform`
 - `npm run verify:desktop`
 - `npm run verify:all`
+
+## Wrapper Drift Vs Desktop Drift
+
+Use `personal-ops install wrappers` when the local launcher scripts have drifted:
+
+- the `personal-ops` wrapper is missing
+- the wrapper points to a Node executable that no longer exists
+- the wrapper provenance is stale relative to the current checkout
+- install check or doctor says the launcher scripts need refresh
+
+Use `personal-ops install desktop` when the native macOS app bundle itself is stale or missing:
+
+- `personal-ops desktop status` says reinstall is recommended
+- the installed app was built from an older checkout
+- the app bundle at `~/Applications/Personal Ops.app` is missing on macOS
+
+Use `personal-ops install all` when the machine needs the broader local runtime refreshed:
+
+- wrapper drift is paired with missing runtime artifacts
+- LaunchAgent setup also needs repair
+- the local install is missing multiple core artifacts at once
 
 ## Closeout Rule
 

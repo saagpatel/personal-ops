@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { buildInstallCheckReport, fixInstallPermissions, installAll, installDesktop, installLaunchAgent, installWrapper } from "../../install.js";
+import { buildInstallCheckReport, fixInstallPermissions, installAll, installDesktop, installLaunchAgent, installWrapper, installWrappers } from "../../install.js";
 import { formatInstallCheckReport, formatInstallManifest, formatInstallPermissionsFixResult, formatRestoreResult, formatSnapshotInspection, formatSnapshotList, formatSnapshotManifest, formatSnapshotPruneResult } from "../../formatters.js";
 import { pruneSnapshots } from "../../recovery.js";
 import { restoreSnapshot } from "../../restore.js";
@@ -16,6 +16,15 @@ export function registerInstallAndBackupCommands(program: Command, context: CliC
     .option("--json", "Print raw JSON")
     .action(async (options) => {
       const manifest = await installAll(paths);
+      context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
+    });
+
+  install
+    .command("wrappers")
+    .description("Install or refresh only the local CLI, daemon, and MCP wrappers.")
+    .option("--json", "Print raw JSON")
+    .action((options) => {
+      const manifest = installWrappers(paths);
       context.printOutput({ install: manifest }, (value) => formatInstallManifest(value.install), options.json);
     });
 

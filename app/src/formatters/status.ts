@@ -106,7 +106,10 @@ function doctorFollowUp(check: DoctorCheck): string | null {
   if (check.id.includes("launch_agent")) {
     return "Reinstall the LaunchAgent with `personal-ops install launchagent`, then rerun doctor.";
   }
-  if (check.id.includes("wrapper") || check.id.includes("dist_")) {
+  if (check.id.includes("wrapper") || check.id.includes("_mcp_launcher")) {
+    return "Refresh the local launcher scripts with `personal-ops install wrappers`, then rerun doctor.";
+  }
+  if (check.id.includes("dist_")) {
     return "Reinstall local artifacts with `personal-ops install all`, then rerun doctor.";
   }
   if (check.category === "integration") {
