@@ -43,6 +43,8 @@ Treat the following as unsupported-platform informational noise for this phase:
 Use these commands for desktop maintenance:
 
 - `personal-ops desktop status`
+- `personal-ops repair plan`
+- `personal-ops repair run next`
 - `personal-ops install wrappers`
 - `personal-ops install desktop`
 - `personal-ops install all`
@@ -59,6 +61,7 @@ Use `personal-ops install wrappers` when the local launcher scripts have drifted
 - the wrapper points to a Node executable that no longer exists
 - the wrapper provenance is stale relative to the current checkout
 - install check or doctor says the launcher scripts need refresh
+- the shared repair plan leads with wrapper refresh
 
 Use `personal-ops install desktop` when the native macOS app bundle itself is stale or missing:
 
@@ -71,6 +74,15 @@ Use `personal-ops install all` when the machine needs the broader local runtime 
 - wrapper drift is paired with missing runtime artifacts
 - LaunchAgent setup also needs repair
 - the local install is missing multiple core artifacts at once
+
+Use `personal-ops repair plan` when you want the full local repair sequence before taking action.
+
+Use `personal-ops repair run next` when the first repair step is one of the safe executable local actions:
+
+- refresh wrappers
+- fix secret-file permissions
+- reinstall the LaunchAgent
+- reinstall the desktop app on macOS
 
 ## Closeout Rule
 

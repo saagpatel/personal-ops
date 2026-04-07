@@ -44,6 +44,11 @@ function readyInstallCheck(): InstallCheckReport {
     summary: { pass: 1, warn: 0, fail: 0 },
     checks: [],
     manifest: null,
+    repair_plan_summary: {
+      first_step_id: null,
+      first_repair_step: null,
+      step_count: 0,
+    },
   };
 }
 
@@ -101,6 +106,7 @@ test("health check fails cleanly when no recovery snapshot exists", async () => 
   assert.equal(report.state, "degraded");
   assert.equal(report.latest_snapshot_id, null);
   assert.equal(report.next_repair_step, "personal-ops backup create");
+  assert.equal(report.repair_plan.first_step_id, "backup_create");
   assert.equal(report.checks.some((check) => check.id === "snapshot_freshness" && check.severity === "fail"), true);
   assert.equal(report.checks.some((check) => check.id === "recovery_rehearsal_freshness" && check.severity === "warn"), true);
 });
@@ -136,6 +142,7 @@ test("health check reports prune backlog and stale recovery rehearsal", async ()
   assert.equal(report.prune_candidate_count, 1);
   assert.ok(report.recovery_rehearsal_age_hours && report.recovery_rehearsal_age_hours > 14 * 24);
   assert.equal(report.next_repair_step, "personal-ops backup prune --dry-run");
+  assert.equal(report.repair_plan.first_step_id, "backup_prune");
   assert.equal(report.checks.some((check) => check.id === "snapshot_retention_pressure" && check.severity === "warn"), true);
   assert.equal(report.checks.some((check) => check.id === "recovery_rehearsal_freshness" && check.severity === "warn"), true);
 });

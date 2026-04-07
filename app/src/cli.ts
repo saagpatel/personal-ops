@@ -100,6 +100,7 @@ program
 Start here:
   personal-ops version         See current version and source-first upgrade path
   personal-ops install check   Verify local setup without needing the daemon
+  personal-ops repair plan     Show the shared local repair plan
   personal-ops health check    Run the recurring-friendly health pass
   personal-ops workflow now-next
                                Get the best next move right now

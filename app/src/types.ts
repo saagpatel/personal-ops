@@ -2219,6 +2219,56 @@ export interface InstallManifest {
   desktop?: DesktopStatusReport | undefined;
 }
 
+export type RepairStepId =
+  | "install_wrappers"
+  | "fix_permissions"
+  | "install_launchagent"
+  | "install_desktop"
+  | "install_check"
+  | "doctor"
+  | "doctor_deep"
+  | "backup_create"
+  | "backup_prune"
+  | "verify_recovery"
+  | "reconnect_local_auth"
+  | "install_all";
+
+export type RepairStepStatus = "pending" | "done";
+export type RepairStepScope = "install" | "desktop" | "runtime" | "recovery" | "auth";
+
+export interface RepairStep {
+  id: RepairStepId;
+  title: string;
+  reason: string;
+  suggested_command: string;
+  executable: boolean;
+  status: RepairStepStatus;
+  scope: RepairStepScope;
+  blocking: boolean;
+}
+
+export interface RepairPlan {
+  generated_at: string;
+  first_step_id: RepairStepId | null;
+  first_repair_step: string | null;
+  steps: RepairStep[];
+}
+
+export interface RepairPlanSummary {
+  first_step_id: RepairStepId | null;
+  first_repair_step: string | null;
+  step_count: number;
+}
+
+export interface RepairExecutionResult {
+  generated_at: string;
+  step_id: RepairStepId;
+  executed: boolean;
+  manual_only: boolean;
+  suggested_command: string;
+  message: string;
+}
+
 export interface InstallCheckReport {
   generated_at: string;
   state: ServiceState;
@@ -2229,6 +2279,7 @@ export interface InstallCheckReport {
   };
   checks: DoctorCheck[];
   manifest: InstallManifest | null;
+  repair_plan_summary: RepairPlanSummary;
 }
 
 export type DesktopSupportContract = "macos_only";
@@ -2286,6 +2337,7 @@ export interface DesktopStatusReport {
   toolchain: DesktopToolchainReport;
   daemon_session_handoff_ready: boolean;
   launch_url: string | null;
+  repair_plan_summary?: RepairPlanSummary | undefined;
 }
 
 export type InstallPermissionsFixStatus = "updated" | "already_secure" | "missing" | "failed";
@@ -2352,6 +2404,8 @@ export interface ServiceStatusReport {
   generated_at: string;
   service_version: string;
   state: ServiceState;
+  first_repair_step: string | null;
+  repair_plan: RepairPlan;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {
@@ -2539,6 +2593,8 @@ export interface DoctorReport {
   generated_at: string;
   state: ServiceState;
   deep: boolean;
+  first_repair_step: string | null;
+  repair_plan: RepairPlan;
   summary: {
     pass: number;
     warn: number;
@@ -2563,6 +2619,7 @@ export interface HealthCheckReport {
   last_recovery_rehearsal_at: string | null;
   recovery_rehearsal_age_hours: number | null;
   next_repair_step: string | null;
+  repair_plan: RepairPlan;
   summary: {
     pass: number;
     warn: number;

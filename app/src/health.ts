@@ -9,6 +9,7 @@ import {
   SNAPSHOT_FAIL_HOURS,
   SNAPSHOT_WARN_HOURS,
 } from "./recovery.js";
+import { buildRepairPlan } from "./repair-plan.js";
 import type {
   DoctorCheck,
   DoctorReport,
@@ -39,32 +40,6 @@ function summarizeChecks(checks: DoctorCheck[]) {
     },
     { pass: 0, warn: 0, fail: 0 },
   );
-}
-
-function nextRepairStep(checks: DoctorCheck[]): string | null {
-  const firstActionable =
-    checks.find((check) => check.severity === "fail") ??
-    checks.find((check) => check.severity === "warn") ??
-    null;
-  if (!firstActionable) {
-    return null;
-  }
-  if (firstActionable.id === "snapshot_freshness") {
-    return "personal-ops backup create";
-  }
-  if (firstActionable.id === "snapshot_retention_pressure") {
-    return "personal-ops backup prune --dry-run";
-  }
-  if (firstActionable.id === "recovery_rehearsal_freshness") {
-    return "cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery";
-  }
-  if (firstActionable.id === "install_health_ready") {
-    return "personal-ops install check";
-  }
-  if (firstActionable.id === "doctor_health_ready" || firstActionable.id === "daemon_runtime_ready") {
-    return "personal-ops doctor";
-  }
-  return "personal-ops status";
 }
 
 function classifyHealthState(checks: DoctorCheck[]): HealthCheckReport["state"] {
@@ -246,6 +221,7 @@ export async function buildHealthCheckReport(
 
   let daemonReachable = false;
   let doctorState: DoctorReport["state"] | null = null;
+  let doctorReport: Pick<DoctorReport, "checks" | "state" | "deep"> | null = null;
   let latestSnapshot = getLatestSnapshotSummary(paths);
 
   try {
@@ -274,6 +250,11 @@ export async function buildHealthCheckReport(
       const query = options.deep ? "?deep=true" : "";
       const doctorResponse = await requestJson<{ doctor: DoctorReport }>("GET", `/v1/doctor${query}`);
       doctorState = doctorResponse.doctor.state;
+      doctorReport = {
+        checks: doctorResponse.doctor.checks,
+        state: doctorResponse.doctor.state,
+        deep: doctorResponse.doctor.deep,
+      };
       checks.push(summarizeDoctor(doctorResponse.doctor));
     } catch (error) {
       checks.push(
@@ -303,6 +284,15 @@ export async function buildHealthCheckReport(
   const summary = summarizeChecks(checks);
   const prune = pruneSnapshots(paths, { dryRun: true });
   const recoveryRehearsal = readRecoveryRehearsalStamp(paths);
+  const repairPlan = buildRepairPlan({
+    install_check: installCheck,
+    doctor: doctorReport,
+    latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+    latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot),
+    snapshot_age_limit_hours: options.snapshotAgeLimitHours ?? SNAPSHOT_WARN_HOURS,
+    prune_candidate_count: prune.prune_candidates,
+    recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+  });
   return {
     generated_at: new Date().toISOString(),
     state: classifyHealthState(checks),
@@ -316,7 +306,8 @@ export async function buildHealthCheckReport(
     prune_candidate_count: prune.prune_candidates,
     last_recovery_rehearsal_at: recoveryRehearsal.stamp?.successful_at ?? null,
     recovery_rehearsal_age_hours: recoveryRehearsalAgeHours(recoveryRehearsal.stamp),
-    next_repair_step: nextRepairStep(checks),
+    next_repair_step: repairPlan.first_repair_step,
+    repair_plan: repairPlan,
     summary,
     checks,
   };

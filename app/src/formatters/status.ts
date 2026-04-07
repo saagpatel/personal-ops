@@ -3,6 +3,8 @@ import type {
   DoctorCheck,
   DoctorReport,
   HealthCheckReport,
+  RepairExecutionResult,
+  RepairPlan,
   ServiceStatusReport,
   VersionReport,
   WorklistReport,
@@ -32,6 +34,10 @@ function pushSection(lines: string[], title: string, rows: string[]) {
 
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
+
+  if (report.first_repair_step) {
+    actions.push(`Start with \`${report.first_repair_step}\` to follow the current local repair plan.`);
+  }
 
   if (report.machine.state_origin === "restored_cross_machine") {
     actions.push("This state was restored from another machine. Run `personal-ops doctor --deep` and the local auth flow before trusting live access.");
@@ -67,6 +73,27 @@ function statusActionItems(report: ServiceStatusReport): string[] {
   }
 
   return actions;
+}
+
+function formatRepairPlan(plan: RepairPlan): string[] {
+  if (plan.steps.length === 0) {
+    return ["- No repair actions are pending right now."];
+  }
+  return plan.steps.map(
+    (step, index) =>
+      `- ${index + 1}. ${step.title}: ${step.reason} Next: \`${step.suggested_command}\`${step.executable ? " (can run from `personal-ops repair run`)" : ""}.`,
+  );
+}
+
+export function formatRepairPlanReport(plan: RepairPlan): string {
+  const lines: string[] = [];
+  lines.push("Repair Plan");
+  lines.push(line("Generated", plan.generated_at));
+  lines.push(line("First repair step", plan.first_repair_step ?? "none"));
+  lines.push("");
+  lines.push("Steps");
+  lines.push(...formatRepairPlan(plan));
+  return lines.join("\n");
 }
 
 function doctorFollowUp(check: DoctorCheck): string | null {
@@ -174,6 +201,7 @@ export function formatStatusReport(report: ServiceStatusReport): string {
   lines.push(line("Version", report.service_version));
   lines.push(line("Generated", report.generated_at));
   lines.push(line("Next attention", topSummary(report.worklist_summary.top_item_summary, "nothing urgent right now")));
+  lines.push(line("First repair step", report.first_repair_step ?? "none"));
   lines.push(line("Send enabled", yesNo(report.send_policy.effective_enabled)));
   lines.push(line("Daemon reachable", yesNo(report.daemon_reachable)));
   lines.push(
@@ -186,6 +214,8 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     "Start Here",
     statusActionItems(report).map((item) => `- ${item}`),
   );
+
+  pushSection(lines, "Repair Plan", formatRepairPlan(report.repair_plan));
 
   pushSection(lines, "Readiness", [
     line("Mailbox configured", report.mailbox.configured ?? "not set"),
@@ -369,8 +399,11 @@ export function formatDoctorReport(report: DoctorReport): string {
   lines.push(`Personal Ops Doctor: ${formatStateLabel(report.state)}`);
   lines.push(line("Generated", report.generated_at));
   lines.push(line("Mode", report.deep ? "deep" : "local"));
+  lines.push(line("First repair step", report.first_repair_step ?? "none"));
   lines.push(line("Summary", `${report.summary.pass} pass / ${report.summary.warn} warn / ${report.summary.fail} fail`));
   lines.push("");
+
+  pushSection(lines, "Repair Plan", formatRepairPlan(report.repair_plan));
 
   const failures = report.checks.filter((check) => check.severity === "fail");
   const warnings = report.checks.filter((check) => check.severity === "warn");
@@ -527,6 +560,8 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
   lines.push(line("Summary", `${report.summary.pass} pass / ${report.summary.warn} warn / ${report.summary.fail} fail`));
   lines.push("");
 
+  pushSection(lines, "Repair Plan", formatRepairPlan(report.repair_plan));
+
   lines.push("Start Here");
   if (report.state === "ready") {
     lines.push("- Everything looks healthy right now.");
@@ -569,6 +604,18 @@ export function formatHealthCheckReport(report: HealthCheckReport): string {
     lines.push(...formatDoctorCheck(check));
   }
 
+  return lines.join("\n");
+}
+
+export function formatRepairExecutionResult(result: RepairExecutionResult): string {
+  const lines: string[] = [];
+  lines.push(`Repair Step: ${result.step_id}`);
+  lines.push(line("Generated", result.generated_at));
+  lines.push(line("Executed", yesNo(result.executed)));
+  lines.push(line("Manual only", yesNo(result.manual_only)));
+  lines.push(line("Command", result.suggested_command));
+  lines.push("");
+  lines.push(result.message);
   return lines.join("\n");
 }
 

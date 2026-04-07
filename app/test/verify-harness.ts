@@ -839,7 +839,7 @@ export async function runConsoleVerification(): Promise<void> {
       snapshotPage.on("dialog", async (dialog) => {
         await dialog.accept();
       });
-      await snapshotPage.goto(launchUrl, { waitUntil: "networkidle" });
+      await snapshotPage.goto(launchUrl, { waitUntil: "domcontentloaded" });
       await snapshotPage.waitForSelector("text=Local operator console");
       await snapshotPage.waitForSelector("text=Top-level readiness");
       await snapshotPage.waitForSelector("text=What to do right now");
@@ -885,7 +885,7 @@ export async function runConsoleVerification(): Promise<void> {
       planningPage.on("dialog", async (dialog) => {
         await dialog.accept();
       });
-      await planningPage.goto(planningLaunchUrl, { waitUntil: "networkidle" });
+      await planningPage.goto(planningLaunchUrl, { waitUntil: "domcontentloaded" });
       await planningPage.locator(".nav").getByRole("button", { name: "Planning", exact: true }).click();
       await planningPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Planning");
       await planningPage.waitForFunction(() => {
@@ -927,7 +927,7 @@ export async function runConsoleVerification(): Promise<void> {
       const lockedContext = await browser.newContext();
       const lockedPage = await lockedContext.newPage();
       await lockedPage.goto(`http://${env.config.serviceHost}:${env.config.servicePort}/console`, {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
       });
       await lockedPage.waitForSelector("text=Console locked");
       await lockedPage.waitForSelector("text=personal-ops console");
