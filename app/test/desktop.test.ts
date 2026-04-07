@@ -155,9 +155,11 @@ test("assistant-led phase 4 desktop status reports the optional app path and liv
 
 test("assistant-led phase 4 desktop open fails clearly when the native app is missing", () => {
   const { env, paths } = createDesktopEnv("open-missing");
+  const expectedMessage =
+    process.platform === "darwin" ? /install desktop/i : /supported only on macOS/i;
   assert.throws(
     () => withRuntimeEnv(env, () => openDesktopApp(paths)),
-    /install desktop/i,
+    expectedMessage,
   );
 });
 
