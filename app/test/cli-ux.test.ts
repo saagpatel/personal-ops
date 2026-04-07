@@ -16,7 +16,7 @@ import {
 } from "../src/formatters.js";
 import { formatGoogleLoginError as formatCliGoogleLoginError } from "../src/cli/http-client.js";
 import { buildHealthCheckReport } from "../src/health.js";
-import { buildInstallCheckReport, fixInstallPermissions, installAll } from "../src/install.js";
+import { buildInstallCheckReport, fixInstallPermissions, installAll, installWrappers } from "../src/install.js";
 import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
@@ -486,6 +486,51 @@ test("hardening install help includes fix-permissions guidance", () => {
 
   assert.match(output, /fix-permissions/i);
   assert.match(output, /owner-only permissions/i);
+});
+
+test("phase 15 repair plan command leads with wrapper repair when wrappers are stale", () => {
+  const { env, paths } = createTempEnv("repair-plan");
+  writeFixtureFiles(paths, 46212);
+  withRuntimeEnv(env, () => installWrappers(paths, "/missing/node"));
+
+  const output = execFileSync(process.execPath, [cliEntryPath(), "repair", "plan"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+
+  assert.match(output, /Repair Plan/);
+  assert.match(output, /personal-ops install wrappers/);
+});
+
+test("phase 15 repair run next executes the first executable step only", () => {
+  const { env, paths } = createTempEnv("repair-run-next");
+  writeFixtureFiles(paths, 46212);
+  withRuntimeEnv(env, () => installWrappers(paths, "/missing/node"));
+
+  const output = execFileSync(process.execPath, [cliEntryPath(), "repair", "run", "next"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+  const report = withRuntimeEnv(env, () => buildInstallCheckReport(paths));
+
+  assert.match(output, /Step complete/);
+  assert.equal(report.checks.some((check) => check.id.includes("_wrapper_") && check.severity !== "pass"), false);
+});
+
+test("phase 15 repair run reports manual-only steps without skipping ahead", () => {
+  const { env, paths } = createTempEnv("repair-run-manual");
+  writeFixtureFiles(paths, 46212);
+
+  const output = execFileSync(process.execPath, [cliEntryPath(), "repair", "run", "install_check"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+
+  assert.match(output, /Manual only:\s+yes/i);
+  assert.match(output, /personal-ops install check/);
 });
 
 test("Phase 4 daemon-unreachable errors point the operator to the next local checks", () => {

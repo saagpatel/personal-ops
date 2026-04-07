@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import { getDesktopStatusReport, openDesktopApp } from "../../desktop.js";
+import { buildHealthCheckReport } from "../../health.js";
+import { buildInstallCheckReport, fixInstallPermissions, installDesktop, installLaunchAgent, installWrappers } from "../../install.js";
 import {
   formatAssistantActionRunResult,
   formatAssistantQueueReport,
@@ -17,15 +19,17 @@ import {
   formatHealthCheckReport,
   formatMeetingPrepPacket,
   formatNowReport,
+  formatRepairExecutionResult,
+  formatRepairPlanReport,
   formatSendWindowStatus,
   formatStatusReport,
   formatVersionReport,
   formatWorkflowBundleReport,
   formatWorklistReport,
 } from "../../formatters.js";
-import { buildHealthCheckReport } from "../../health.js";
+import { buildRepairPlan, summarizeRepairPlan } from "../../repair-plan.js";
 import type { Logger } from "../../logger.js";
-import type { Paths } from "../../types.js";
+import type { Paths, RepairExecutionResult, RepairStepId } from "../../types.js";
 import { buildVersionReport } from "../../version.js";
 import type { CliContext } from "../shared.js";
 
@@ -88,7 +92,95 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .option("--json", "Print raw JSON")
     .action(async (options) => {
       const desktopStatus = await getDesktopStatusReport(paths);
-      context.printOutput({ desktop: desktopStatus }, (value) => formatDesktopStatus(value.desktop), options.json);
+      const repairPlan = buildRepairPlan({
+        install_check: buildInstallCheckReport(paths),
+        desktop: desktopStatus,
+      });
+      const payload = {
+        desktop: {
+          ...desktopStatus,
+          repair_plan_summary: summarizeRepairPlan(repairPlan),
+        },
+      };
+      context.printOutput(payload, (value) => formatDesktopStatus(value.desktop), options.json);
+    });
+
+  const repair = program.command("repair").description("Read or run the narrow local repair plan.");
+  repair
+    .command("plan")
+    .description("Show the current deterministic local repair plan.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const report = await buildHealthCheckReport(paths, context.requestJson, {
+        deep: false,
+        snapshotAgeLimitHours: 24,
+      });
+      context.printOutput({ repair_plan: report.repair_plan }, (value) => formatRepairPlanReport(value.repair_plan), options.json);
+    });
+
+  repair
+    .command("run")
+    .description("Run one safe executable repair step or print the next manual step.")
+    .argument("<stepId>", "Use a repair step id or `next`")
+    .option("--json", "Print raw JSON")
+    .action(async (stepId, options) => {
+      const report = await buildHealthCheckReport(paths, context.requestJson, {
+        deep: false,
+        snapshotAgeLimitHours: 24,
+      });
+      const plan = report.repair_plan;
+      const targetStep =
+        stepId === "next"
+          ? (plan.steps.find((step) => step.status === "pending") ?? null)
+          : (plan.steps.find((step) => step.id === stepId) ?? null);
+      if (!targetStep) {
+        throw new Error(
+          stepId === "next"
+            ? "No repair steps are pending right now."
+            : `Repair step \`${stepId}\` is not part of the current plan.`,
+        );
+      }
+
+      let execution: RepairExecutionResult;
+      if (!targetStep.executable) {
+        execution = {
+          generated_at: new Date().toISOString(),
+          step_id: targetStep.id,
+          executed: false,
+          manual_only: true,
+          suggested_command: targetStep.suggested_command,
+          message: `This step is advisory only. Run \`${targetStep.suggested_command}\` manually, then rerun \`personal-ops repair plan\`.`,
+        };
+      } else {
+        if (!["install_wrappers", "fix_permissions", "install_launchagent", "install_desktop"].includes(targetStep.id)) {
+          throw new Error(`Repair step \`${targetStep.id}\` is not executable from the CLI.`);
+        }
+        if (targetStep.id === "install_wrappers") {
+          installWrappers(paths);
+        } else if (targetStep.id === "fix_permissions") {
+          fixInstallPermissions(paths);
+        } else if (targetStep.id === "install_launchagent") {
+          await installLaunchAgent(paths);
+        } else if (targetStep.id === "install_desktop") {
+          await installDesktop(paths);
+        }
+
+        const refreshedReport = await buildHealthCheckReport(paths, context.requestJson, {
+          deep: false,
+          snapshotAgeLimitHours: 24,
+        });
+        execution = {
+          generated_at: new Date().toISOString(),
+          step_id: targetStep.id as RepairStepId,
+          executed: true,
+          manual_only: false,
+          suggested_command: targetStep.suggested_command,
+          message: refreshedReport.repair_plan.first_repair_step
+            ? `Step complete. Next repair step: \`${refreshedReport.repair_plan.first_repair_step}\`.`
+            : "Step complete. No repair steps are pending right now.",
+        };
+      }
+      context.printOutput({ repair_execution: execution }, (value) => formatRepairExecutionResult(value.repair_execution), options.json);
     });
 
   program

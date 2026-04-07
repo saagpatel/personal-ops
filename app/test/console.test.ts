@@ -22,11 +22,38 @@ import type {
   Paths,
 } from "../src/types.js";
 
+const nativeFetch = globalThis.fetch.bind(globalThis);
+
 const TEST_IDENTITY: ClientIdentity = {
   client_id: "console-test",
   requested_by: "console-test",
   auth_role: "operator",
 };
+
+function isRetryableConsoleFetchError(error: unknown): boolean {
+  if (!(error instanceof TypeError)) {
+    return false;
+  }
+  const cause = error.cause;
+  return cause instanceof Error && "code" in cause && cause.code === "ECONNRESET";
+}
+
+async function fetchWithRetry(
+  input: Parameters<typeof nativeFetch>[0],
+  init?: Parameters<typeof nativeFetch>[1],
+): Promise<Response> {
+  try {
+    return await nativeFetch(input, init);
+  } catch (error) {
+    if (!isRetryableConsoleFetchError(error)) {
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return nativeFetch(input, init);
+  }
+}
+
+const fetch = fetchWithRetry;
 
 function buildChildEnv(overrides: Record<string, string>): Record<string, string> {
   const inherited = Object.fromEntries(

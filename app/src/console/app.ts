@@ -1883,6 +1883,31 @@ function renderOverview(payload: ConsolePayload): string {
           ${renderAutopilotStatusCard(autopilot)}
         </section>
         <section class="detail-card">
+          <h3>Repair plan</h3>
+          <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
+          ${
+            payload.doctor.repair_plan.steps.length === 0
+              ? `<div class="empty">No repair actions are pending right now.</div>`
+              : payload.doctor.repair_plan.steps
+                  .slice(0, 5)
+                  .map(
+                    (step, index) => `
+                      <article class="list-item">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(`${index + 1}. ${step.title}`)}</h4>
+                          <span class="pill ${step.executable ? "pill--warn" : "pill--critical"}">${escapeHtml(step.scope)}</span>
+                        </div>
+                        <p>${escapeHtml(step.reason)}</p>
+                        <div class="list-item__actions list-item__actions--stack">
+                          ${commandStack([step.suggested_command])}
+                        </div>
+                      </article>
+                    `,
+                  )
+                  .join("")
+          }
+        </section>
+        <section class="detail-card">
           <h3>Review overlay</h3>
           <p class="subtle subtle--body">Review packages stay separate from the raw worklist so you can compress review work without changing the underlying queue.</p>
           ${

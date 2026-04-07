@@ -43,6 +43,7 @@ import {
   readMachineIdentity,
   readRestoreProvenance,
 } from "./machine.js";
+import { buildRepairPlan, summarizeRepairPlan } from "./repair-plan.js";
 import {
   repairSecretFilePermissions,
   validateOAuthClientFile,
@@ -1032,11 +1033,24 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
 
   githubDb?.close();
 
-  return {
+  const report: InstallCheckReport = {
     generated_at: new Date().toISOString(),
     state: classifyInstallState(checks),
     summary: summarizeChecks(checks),
     checks,
     manifest,
+    repair_plan_summary: {
+      first_step_id: null,
+      first_repair_step: null,
+      step_count: 0,
+    },
   };
+  report.repair_plan_summary = summarizeRepairPlan(
+    buildRepairPlan({
+      generated_at: report.generated_at,
+      install_check: report,
+      desktop: desktopStatus,
+    }),
+  );
+  return report;
 }

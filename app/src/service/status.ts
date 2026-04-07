@@ -6,9 +6,12 @@ import type {
   ServiceStatusReport,
 } from "../types.js";
 import { getDesktopStatusReport } from "../desktop.js";
+import { buildInstallCheckReport } from "../install.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
+import { buildRepairPlan } from "../repair-plan.js";
+import { pruneSnapshots, readRecoveryRehearsalStamp, snapshotAgeHours, SNAPSHOT_WARN_HOURS } from "../recovery.js";
 import {
   buildStoredReviewCalibration,
   buildStoredReviewPackageReport,
@@ -97,7 +100,7 @@ export async function buildStatusReport(
   const reviewCalibrationReport = skipDerived
     ? await buildStoredReviewCalibration(service)
     : await service.getReviewCalibration();
-  const desktopStatus = await getDesktopStatusReport(service.paths);
+  const rawDesktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
       ["sync_degraded", "inbox_unread_old", "thread_needs_reply", "thread_stale_followup"].includes(item.kind),
@@ -141,10 +144,39 @@ export async function buildStatusReport(
   const latestSnapshotManifest = latestSnapshot ? service.readSnapshotManifest(latestSnapshot.snapshot_id) : null;
   const machine = machineIdentity.status === "configured" ? machineIdentity.identity : null;
   const provenance = restoreProvenance.status === "configured" ? restoreProvenance.provenance : null;
+  const installCheck = buildInstallCheckReport(service.paths);
+  const recoveryRehearsal = readRecoveryRehearsalStamp(service.paths);
+  const prune = pruneSnapshots(service.paths, { dryRun: true });
+  const repairPlan = buildRepairPlan({
+    generated_at: new Date().toISOString(),
+    install_check: installCheck,
+    doctor: {
+      checks,
+      state: classifiedState,
+      deep: false,
+    },
+    desktop: rawDesktopStatus,
+    latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+    latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot),
+    snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
+    prune_candidate_count: prune.prune_candidates,
+    recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+    machine_state_origin: describeStateOrigin(provenance),
+  });
+  const desktopStatus = {
+    ...rawDesktopStatus,
+    repair_plan_summary: {
+      first_step_id: repairPlan.first_step_id,
+      first_repair_step: repairPlan.first_repair_step,
+      step_count: repairPlan.steps.length,
+    },
+  };
   return {
     generated_at: new Date().toISOString(),
     service_version: service.getServiceVersion(),
     state: classifiedState,
+    first_repair_step: repairPlan.first_repair_step,
+    repair_plan: repairPlan,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {
@@ -350,10 +382,36 @@ export async function buildStatusReport(
 
 export async function buildDoctorReport(service: any, options: { deep: boolean; httpReachable: boolean }): Promise<DoctorReport> {
   const checks = await service.collectDoctorChecks(options);
+  const state = service.classifyState(checks);
+  const installCheck = buildInstallCheckReport(service.paths);
+  const desktopStatus = await getDesktopStatusReport(service.paths);
+  const latestSnapshot = service.getLatestSnapshotSummary();
+  const recoveryRehearsal = readRecoveryRehearsalStamp(service.paths);
+  const prune = pruneSnapshots(service.paths, { dryRun: true });
+  const restoreProvenance = readRestoreProvenance(service.paths);
+  const provenance = restoreProvenance.status === "configured" ? restoreProvenance.provenance : null;
+  const repairPlan = buildRepairPlan({
+    generated_at: new Date().toISOString(),
+    install_check: installCheck,
+    doctor: {
+      checks,
+      state,
+      deep: options.deep,
+    },
+    desktop: desktopStatus,
+    latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+    latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot),
+    snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
+    prune_candidate_count: prune.prune_candidates,
+    recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+    machine_state_origin: describeStateOrigin(provenance),
+  });
   return {
     generated_at: new Date().toISOString(),
-    state: service.classifyState(checks),
+    state,
     deep: options.deep,
+    first_repair_step: repairPlan.first_repair_step,
+    repair_plan: repairPlan,
     summary: service.summarizeChecks(checks),
     checks,
   };

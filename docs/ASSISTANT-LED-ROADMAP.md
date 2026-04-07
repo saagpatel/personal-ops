@@ -282,13 +282,30 @@ Delivered shape:
 - unchanged trust boundaries:
   - desktop shell remains optional and macOS-only
   - no new browser mutation authority
-  - no new HTTP or MCP API surface
+- no new HTTP or MCP API surface
+- no change to send, approval, auth, restore, or ranking controls
+
+## Phase 15
+
+Phase 15 is now complete.
+
+Delivered shape:
+
+- one shared repair plan across doctor, status, health check, install check, and desktop status
+- `personal-ops repair plan` for the deterministic local repair sequence
+- `personal-ops repair run <stepId|next>` for the narrow safe subset of executable local repairs
+- status, doctor, health, install check, desktop status, and console now agree on the same first repair step
+- repair guidance now prefers targeted fixes before broader reinstall advice
+- unchanged trust boundaries:
+  - repair execution stays CLI-only
+  - browser and console remain read-only for repair
+  - no new HTTP or MCP APIs
   - no change to send, approval, auth, restore, or ranking controls
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and 14 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, and 15 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work
