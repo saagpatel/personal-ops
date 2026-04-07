@@ -2,12 +2,20 @@ import { createHash } from "node:crypto";
 import type {
   ClientIdentity,
   ReviewFeedbackReason,
+  ReviewNotificationDecision,
+  ReviewNotificationEvent,
+  ReviewNotificationKind,
+  ReviewNotificationSnapshot,
   ReviewPackage,
+  ReviewPackageCycle,
   ReviewPackageItem,
   ReviewPackageReport,
   ReviewPackageState,
   ReviewPackageSurface,
+  ReviewReport,
+  ReviewReportSurface,
   ReviewReadModelRefreshState,
+  ReviewNoisySourceReport,
   ReviewTuningProposal,
   ReviewTuningProposalKind,
   ReviewTuningReport,
@@ -27,6 +35,7 @@ type InternalReviewPackage = ReviewPackage & {
 
 const REVIEW_WINDOW_DAYS = 14;
 const UNUSED_WINDOW_DAYS = 7;
+const NOTIFICATION_ATTRIBUTION_HOURS = 24;
 const SURFACES: ReviewPackageSurface[] = ["inbox", "meetings", "planning", "outbound"];
 
 function nowIso(): string {
@@ -341,11 +350,13 @@ function hydrateUnusedStale(service: any, pkg: InternalReviewPackage): InternalR
     !record.stale_unused_at
   ) {
     service.db.markReviewPackageStaleUnused(pkg.package_id);
+    service.db.markReviewPackageCycleStaleUnused(pkg.package_id);
   }
   return pkg;
 }
 
 async function deriveCurrentPackages(service: any): Promise<InternalReviewPackage[]> {
+  const previousCurrent = service.db.listReviewPackageRecords({ include_completed: true, current_only: true });
   const derived: InternalReviewPackage[] = [];
   for (const surface of SURFACES) {
     const items = await buildSurfaceItems(service, surface);
@@ -357,6 +368,7 @@ async function deriveCurrentPackages(service: any): Promise<InternalReviewPackag
   }
 
   service.db.markAllReviewPackagesNotCurrent();
+  const refreshedAt = nowIso();
   for (const pkg of derived) {
     service.db.upsertReviewPackage({
       ...pkg,
@@ -367,6 +379,47 @@ async function deriveCurrentPackages(service: any): Promise<InternalReviewPackag
       stale_unused_at: service.db.getReviewPackageRecord(pkg.package_id)?.stale_unused_at ?? null,
     });
     hydrateUnusedStale(service, pkg);
+    const record = service.db.getReviewPackageRecord(pkg.package_id);
+    if (record) {
+      service.db.ensureOpenReviewPackageCycle({
+        package_id: record.package_id,
+        surface: record.surface,
+        source_fingerprint: record.source_fingerprint,
+        summary: record.summary,
+        why_now: record.why_now,
+        score_band: record.score_band,
+        member_ids: record.member_ids,
+        items: record.items,
+        source_keys: record.source_keys,
+        seen_at: refreshedAt,
+        opened_at: record.opened_at ?? null,
+        acted_on_at: record.acted_on_at ?? null,
+        completed_at: record.completed_at ?? null,
+        stale_unused_at: record.stale_unused_at ?? null,
+      });
+    }
+  }
+  const activePackageIds = new Set(derived.map((pkg) => pkg.package_id));
+  for (const previous of previousCurrent) {
+    if (activePackageIds.has(previous.package_id)) {
+      continue;
+    }
+    const cycle = service.db.getOpenReviewPackageCycle(previous.package_id);
+    if (!cycle) {
+      continue;
+    }
+    service.db.closeReviewPackageCycle(cycle.package_cycle_id, {
+      outcome: previous.completed_at
+        ? "completed"
+        : previous.stale_unused_at
+          ? "stale_unused"
+          : "disappeared",
+      ended_at: refreshedAt,
+      opened_at: previous.opened_at ?? null,
+      acted_on_at: previous.acted_on_at ?? null,
+      completed_at: previous.completed_at ?? null,
+      stale_unused_at: previous.stale_unused_at ?? null,
+    });
   }
   return derived.sort((left, right) => right.sort_score - left.sort_score || left.surface.localeCompare(right.surface));
 }
@@ -741,6 +794,7 @@ export async function getReviewPackageDetail(service: any, packageId: string): P
     throw new Error(`Review package ${packageId} is not available right now.`);
   }
   service.db.markReviewPackageOpened(packageId);
+  service.db.markReviewPackageCycleOpened(packageId);
   return service.db.getReviewPackage(packageId) ?? pkg;
 }
 
@@ -760,12 +814,14 @@ export async function submitReviewPackageFeedback(
   if (!pkg || !pkg.is_current) {
     throw new Error(`Review package ${packageId} is not available right now.`);
   }
+  const cycle = service.db.getOpenReviewPackageCycle(packageId);
   if (input.package_item_id && !pkg.items.some((item: ReviewPackageItem) => item.package_item_id === input.package_item_id)) {
     throw new Error(`Review package item ${input.package_item_id} is not part of ${packageId}.`);
   }
 
   service.db.createReviewFeedbackEvent({
     package_id: packageId,
+    package_cycle_id: cycle?.package_cycle_id ?? null,
     surface: pkg.surface,
     package_item_id: input.package_item_id,
     reason: input.reason,
@@ -775,6 +831,10 @@ export async function submitReviewPackageFeedback(
     source_fingerprint: pkg.source_fingerprint,
   });
   service.db.markReviewPackageActedOn(packageId);
+  service.db.markReviewPackageCycleActedOn(packageId);
+  if (!input.package_item_id) {
+    service.db.markReviewPackageCycleCompleted(packageId);
+  }
   service.db.recordAuditEvent({
     client_id: identity.client_id,
     action: "review_package_feedback",
@@ -930,19 +990,445 @@ export async function dismissReviewTuningProposal(
   return service.db.getReviewTuningProposal(proposalId) ?? dismissed;
 }
 
-export function getReviewNotificationSnapshot(service: any): {
-  review_package_count: number;
-  top_review_summary: string | null;
-  open_tuning_proposal_count: number;
-  review_package_inbox_count: number;
-  review_package_meetings_count: number;
-  review_package_planning_count: number;
-  review_package_outbound_count: number;
-  review_notification_cooldown_minutes: Record<ReviewPackageSurface, number>;
-} {
+function clampWindowDays(value?: number): 7 | 14 | 30 {
+  if (value === 7 || value === 30) {
+    return value;
+  }
+  return 14;
+}
+
+function windowStartIso(windowDays: 7 | 14 | 30): string {
+  return new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function rate(count: number, total: number): number {
+  if (total <= 0) {
+    return 0;
+  }
+  return Number((count / total).toFixed(4));
+}
+
+function cycleForFeedbackEvent(
+  event: { package_cycle_id?: string | undefined; package_id: string; created_at: string },
+  cyclesById: Map<string, ReviewPackageCycle>,
+  cyclesByPackageId: Map<string, ReviewPackageCycle[]>,
+): ReviewPackageCycle | null {
+  if (event.package_cycle_id) {
+    return cyclesById.get(event.package_cycle_id) ?? null;
+  }
+  const cycles = cyclesByPackageId.get(event.package_id) ?? [];
+  const createdAtMs = Date.parse(event.created_at);
+  return (
+    cycles.find((cycle) => {
+      const startMs = Date.parse(cycle.started_at);
+      const endMs = Date.parse(cycle.ended_at ?? cycle.last_seen_at);
+      return createdAtMs >= startMs && createdAtMs <= endMs;
+    }) ?? null
+  );
+}
+
+function sourceKeysForFeedbackEvent(
+  event: { package_item_id?: string | undefined; package_id: string; created_at: string; package_cycle_id?: string | undefined },
+  cyclesById: Map<string, ReviewPackageCycle>,
+  cyclesByPackageId: Map<string, ReviewPackageCycle[]>,
+): string[] {
+  const cycle = cycleForFeedbackEvent(event, cyclesById, cyclesByPackageId);
+  if (!cycle) {
+    return [];
+  }
+  if (!event.package_item_id) {
+    return cycle.source_keys;
+  }
+  const index = cycle.items.findIndex((item) => item.package_item_id === event.package_item_id);
+  return index >= 0 ? [cycle.source_keys[index] ?? "unknown"] : [];
+}
+
+function surfaceForNotificationKind(kind: ReviewNotificationKind): ReviewPackageSurface | null {
+  if (kind === "review_package_inbox") {
+    return "inbox";
+  }
+  if (kind === "review_package_meetings") {
+    return "meetings";
+  }
+  if (kind === "review_package_planning") {
+    return "planning";
+  }
+  if (kind === "review_package_outbound") {
+    return "outbound";
+  }
+  return null;
+}
+
+function surfaceForNotificationEvent(
+  event: ReviewNotificationEvent,
+  cyclesById: Map<string, ReviewPackageCycle>,
+  proposalsById: Map<string, ReviewTuningProposal>,
+): ReviewPackageSurface | null {
+  if (event.surface) {
+    return event.surface;
+  }
+  const kindSurface = surfaceForNotificationKind(event.kind);
+  if (kindSurface) {
+    return kindSurface;
+  }
+  if (event.package_cycle_id) {
+    return cyclesById.get(event.package_cycle_id)?.surface ?? null;
+  }
+  if (event.proposal_id) {
+    return proposalsById.get(event.proposal_id)?.surface ?? null;
+  }
+  return null;
+}
+
+function activeTuningCounts(service: any): Array<{
+  proposal_kind: ReviewTuningProposalKind;
+  surface: ReviewPackageSurface;
+  count: number;
+}> {
+  const counts = new Map<string, { proposal_kind: ReviewTuningProposalKind; surface: ReviewPackageSurface; count: number }>();
+  for (const state of activeTuningState(service)) {
+    const key = `${state.proposal_kind}:${state.surface}`;
+    const current = counts.get(key) ?? { proposal_kind: state.proposal_kind, surface: state.surface, count: 0 };
+    current.count += 1;
+    counts.set(key, current);
+  }
+  return [...counts.values()].sort(
+    (left, right) => left.surface.localeCompare(right.surface) || left.proposal_kind.localeCompare(right.proposal_kind),
+  );
+}
+
+export async function buildStoredReviewReport(
+  service: any,
+  options: { window_days?: number; surface?: ReviewPackageSurface } = {},
+): Promise<ReviewReport> {
+  const windowDays = clampWindowDays(options.window_days);
+  const startIso = windowStartIso(windowDays);
+  const cycles: ReviewPackageCycle[] = service.db.listReviewPackageCycles({ include_open: true });
+  const scopedCycles = cycles.filter(
+    (cycle: ReviewPackageCycle) =>
+      (!options.surface || cycle.surface === options.surface) && Date.parse(cycle.started_at) >= Date.parse(startIso),
+  );
+  const cyclesById = new Map<string, ReviewPackageCycle>(
+    cycles.map((cycle: ReviewPackageCycle) => [cycle.package_cycle_id, cycle]),
+  );
+  const cyclesByPackageId = new Map<string, ReviewPackageCycle[]>();
+  for (const cycle of cycles) {
+    const existing = cyclesByPackageId.get(cycle.package_id) ?? [];
+    existing.push(cycle);
+    existing.sort((left, right) => Date.parse(left.started_at) - Date.parse(right.started_at));
+    cyclesByPackageId.set(cycle.package_id, existing);
+  }
+
+  const feedbackEvents: Array<{
+    package_cycle_id?: string | undefined;
+    package_id: string;
+    surface: ReviewPackageSurface;
+    package_item_id?: string | undefined;
+    reason: ReviewFeedbackReason;
+    created_at: string;
+  }> = service.db
+    .listReviewFeedbackEvents({ days: windowDays })
+    .filter((event: any) => !options.surface || event.surface === options.surface);
+  const allTuningProposals: ReviewTuningProposal[] = service.db.listReviewTuningProposals({ include_expired: true });
+  const proposalsById = new Map<string, ReviewTuningProposal>(
+    allTuningProposals.map((proposal: ReviewTuningProposal) => [proposal.proposal_id, proposal]),
+  );
+  const tuningProposals = allTuningProposals.filter(
+    (proposal: ReviewTuningProposal) => !options.surface || proposal.surface === options.surface,
+  );
+  const notificationEvents: ReviewNotificationEvent[] = service
+    .db.listReviewNotificationEvents({ days: windowDays })
+    .filter(
+      (event: ReviewNotificationEvent) =>
+        !options.surface || surfaceForNotificationEvent(event, cyclesById, proposalsById) === options.surface,
+    );
+
+  const createdCount = scopedCycles.length;
+  const openedCount = scopedCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.opened_at)).length;
+  const actedOnCount = scopedCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.acted_on_at)).length;
+  const completedCount = scopedCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.completed_at)).length;
+  const staleUnusedCount = scopedCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.stale_unused_at)).length;
+  const disappearedCount = scopedCycles.filter((cycle: ReviewPackageCycle) => cycle.outcome === "disappeared").length;
+
+  const sourceStats = new Map<
+    string,
+    {
+      surface: ReviewPackageSurface;
+      scope_key: string;
+      feedback_count: number;
+      negative_feedback_count: number;
+      positive_feedback_count: number;
+      stale_unused_count: number;
+      latest_summary: string | null;
+    }
+  >();
+
+  for (const event of feedbackEvents) {
+    const scopeKeys = sourceKeysForFeedbackEvent(event, cyclesById, cyclesByPackageId);
+    for (const scopeKey of scopeKeys) {
+      const key = `${event.surface}:${scopeKey}`;
+      const current = sourceStats.get(key) ?? {
+        surface: event.surface,
+        scope_key: scopeKey,
+        feedback_count: 0,
+        negative_feedback_count: 0,
+        positive_feedback_count: 0,
+        stale_unused_count: 0,
+        latest_summary: cycleForFeedbackEvent(event, cyclesById, cyclesByPackageId)?.summary ?? null,
+      };
+      current.feedback_count += 1;
+      if (negativeReason(event.reason)) {
+        current.negative_feedback_count += 1;
+      } else {
+        current.positive_feedback_count += 1;
+      }
+      if (!current.latest_summary) {
+        current.latest_summary = cycleForFeedbackEvent(event, cyclesById, cyclesByPackageId)?.summary ?? null;
+      }
+      sourceStats.set(key, current);
+    }
+  }
+
+  for (const cycle of scopedCycles) {
+    if (!cycle.stale_unused_at || Date.parse(cycle.stale_unused_at) < Date.parse(startIso)) {
+      continue;
+    }
+    cycle.source_keys.forEach((scopeKey: string, index: number) => {
+      const key = `${cycle.surface}:${scopeKey}`;
+      const current = sourceStats.get(key) ?? {
+        surface: cycle.surface,
+        scope_key: scopeKey,
+        feedback_count: 0,
+        negative_feedback_count: 0,
+        positive_feedback_count: 0,
+        stale_unused_count: 0,
+        latest_summary: cycle.items[index]?.title ?? cycle.summary,
+      };
+      current.stale_unused_count += 1;
+      if (!current.latest_summary) {
+        current.latest_summary = cycle.items[index]?.title ?? cycle.summary;
+      }
+      sourceStats.set(key, current);
+    });
+  }
+
+  const firedPackageNotifications = notificationEvents.filter(
+    (event: ReviewNotificationEvent) => event.decision === "fired" && Boolean(event.package_cycle_id),
+  );
+  const convertedOpenCount = firedPackageNotifications.filter((event: ReviewNotificationEvent) => {
+    const cycle = event.package_cycle_id ? cyclesById.get(event.package_cycle_id) : null;
+    if (!cycle?.opened_at) {
+      return false;
+    }
+    const openedAtMs = Date.parse(cycle.opened_at);
+    const createdAtMs = Date.parse(event.created_at);
+    return openedAtMs >= createdAtMs && openedAtMs <= createdAtMs + NOTIFICATION_ATTRIBUTION_HOURS * 60 * 60 * 1000;
+  }).length;
+  const convertedActionCount = firedPackageNotifications.filter((event: ReviewNotificationEvent) => {
+    const cycle = event.package_cycle_id ? cyclesById.get(event.package_cycle_id) : null;
+    if (!cycle?.acted_on_at) {
+      return false;
+    }
+    const actedOnAtMs = Date.parse(cycle.acted_on_at);
+    const createdAtMs = Date.parse(event.created_at);
+    return actedOnAtMs >= createdAtMs && actedOnAtMs <= createdAtMs + NOTIFICATION_ATTRIBUTION_HOURS * 60 * 60 * 1000;
+  }).length;
+
+  const proposalsCreatedInWindow = tuningProposals.filter(
+    (proposal: ReviewTuningProposal) => Date.parse(proposal.created_at) >= Date.parse(startIso),
+  );
+  const proposalsApprovedInWindow = tuningProposals.filter(
+    (proposal: ReviewTuningProposal) => proposal.approved_at && Date.parse(proposal.approved_at) >= Date.parse(startIso),
+  );
+  const proposalsDismissedInWindow = tuningProposals.filter(
+    (proposal: ReviewTuningProposal) => proposal.dismissed_at && Date.parse(proposal.dismissed_at) >= Date.parse(startIso),
+  );
+  const reopenedCount = proposalsCreatedInWindow.filter(
+    (proposal: ReviewTuningProposal) =>
+      proposal.status !== "dismissed" &&
+      tuningProposals.some(
+        (older: ReviewTuningProposal) =>
+          older.proposal_family_key === proposal.proposal_family_key &&
+          older.status === "dismissed" &&
+          older.proposal_id !== proposal.proposal_id &&
+          Date.parse(older.updated_at) <= Date.parse(proposal.updated_at),
+      ),
+  ).length;
+
+  const surfaceReports: ReviewReportSurface[] = SURFACES
+    .filter((surface) => !options.surface || surface === options.surface)
+    .map((surface: ReviewPackageSurface) => {
+    const surfaceCycles = scopedCycles.filter((cycle: ReviewPackageCycle) => cycle.surface === surface);
+    const created = surfaceCycles.length;
+    const opened = surfaceCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.opened_at)).length;
+    const actedOn = surfaceCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.acted_on_at)).length;
+    const staleUnused = surfaceCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.stale_unused_at)).length;
+    const surfaceStats = [...sourceStats.values()].filter((stat) => stat.surface === surface);
+    const surfaceNotifications = notificationEvents.filter(
+      (event: ReviewNotificationEvent) => surfaceForNotificationEvent(event, cyclesById, proposalsById) === surface,
+    );
+    const surfaceFiredPackageNotifications = surfaceNotifications.filter(
+      (event: ReviewNotificationEvent) => event.decision === "fired" && Boolean(event.package_cycle_id),
+    );
+    const surfaceOpenConversions = surfaceFiredPackageNotifications.filter((event: ReviewNotificationEvent) => {
+      const cycle = event.package_cycle_id ? cyclesById.get(event.package_cycle_id) : null;
+      if (!cycle?.opened_at) {
+        return false;
+      }
+      const openedAtMs = Date.parse(cycle.opened_at);
+      const createdAtMs = Date.parse(event.created_at);
+      return openedAtMs >= createdAtMs && openedAtMs <= createdAtMs + NOTIFICATION_ATTRIBUTION_HOURS * 60 * 60 * 1000;
+    }).length;
+    const surfaceActionConversions = surfaceFiredPackageNotifications.filter((event: ReviewNotificationEvent) => {
+      const cycle = event.package_cycle_id ? cyclesById.get(event.package_cycle_id) : null;
+      if (!cycle?.acted_on_at) {
+        return false;
+      }
+      const actedOnAtMs = Date.parse(cycle.acted_on_at);
+      const createdAtMs = Date.parse(event.created_at);
+      return actedOnAtMs >= createdAtMs && actedOnAtMs <= createdAtMs + NOTIFICATION_ATTRIBUTION_HOURS * 60 * 60 * 1000;
+    }).length;
+
+    return {
+      surface,
+      created_count: created,
+      opened_count: opened,
+      acted_on_count: actedOn,
+      completed_count: surfaceCycles.filter((cycle: ReviewPackageCycle) => Boolean(cycle.completed_at)).length,
+      stale_unused_count: staleUnused,
+      open_rate: rate(opened, created),
+      acted_on_rate: rate(actedOn, created),
+      stale_unused_rate: rate(staleUnused, created),
+      negative_feedback_count: surfaceStats.reduce((total, stat) => total + stat.negative_feedback_count, 0),
+      positive_feedback_count: surfaceStats.reduce((total, stat) => total + stat.positive_feedback_count, 0),
+      negative_feedback_rate: rate(
+        surfaceStats.reduce((total, stat) => total + stat.negative_feedback_count, 0),
+        surfaceStats.reduce((total, stat) => total + stat.feedback_count, 0),
+      ),
+      fired_notification_count: surfaceNotifications.filter((event: ReviewNotificationEvent) => event.decision === "fired").length,
+      suppressed_notification_count: surfaceNotifications.filter((event: ReviewNotificationEvent) => event.decision === "suppressed").length,
+      cooldown_hit_count: surfaceNotifications.filter(
+        (event: ReviewNotificationEvent) => event.decision === "suppressed" && event.suppression_reason === "cooldown",
+      ).length,
+      notification_open_conversion_rate: rate(surfaceOpenConversions, surfaceFiredPackageNotifications.length),
+      notification_action_conversion_rate: rate(surfaceActionConversions, surfaceFiredPackageNotifications.length),
+      open_tuning_proposal_count: tuningProposals.filter(
+        (proposal: ReviewTuningProposal) => proposal.surface === surface && proposal.status === "proposed",
+      ).length,
+      active_tuning_state_count: activeTuningState(service).filter((state) => state.surface === surface).length,
+    };
+    });
+
+  const topNoisySources: ReviewNoisySourceReport[] = [...sourceStats.values()]
+    .map((stat) => ({
+      surface: stat.surface,
+      scope_key: stat.scope_key,
+      feedback_count: stat.feedback_count,
+      negative_feedback_count: stat.negative_feedback_count,
+      positive_feedback_count: stat.positive_feedback_count,
+      negative_feedback_rate: rate(stat.negative_feedback_count, stat.feedback_count),
+      stale_unused_count: stat.stale_unused_count,
+      latest_summary: stat.latest_summary,
+    }))
+    .sort(
+      (left, right) =>
+        right.negative_feedback_count + right.stale_unused_count - (left.negative_feedback_count + left.stale_unused_count) ||
+        right.feedback_count - left.feedback_count ||
+        left.scope_key.localeCompare(right.scope_key),
+    )
+    .slice(0, 8);
+
+  return {
+    generated_at: nowIso(),
+    window_days: windowDays,
+    summary: {
+      created_count: createdCount,
+      opened_count: openedCount,
+      acted_on_count: actedOnCount,
+      completed_count: completedCount,
+      stale_unused_count: staleUnusedCount,
+      disappeared_count: disappearedCount,
+      open_rate: rate(openedCount, createdCount),
+      acted_on_rate: rate(actedOnCount, createdCount),
+      stale_unused_rate: rate(staleUnusedCount, createdCount),
+      notification_open_conversion_rate: rate(convertedOpenCount, firedPackageNotifications.length),
+      notification_action_conversion_rate: rate(convertedActionCount, firedPackageNotifications.length),
+    },
+    surfaces: surfaceReports,
+    proposal_outcomes: {
+      proposed_count: proposalsCreatedInWindow.length,
+      approved_count: proposalsApprovedInWindow.length,
+      dismissed_count: proposalsDismissedInWindow.length,
+      reopened_count: reopenedCount,
+      active_state_counts: activeTuningCounts(service),
+    },
+    notification_performance: {
+      fired_count: notificationEvents.filter((event: ReviewNotificationEvent) => event.decision === "fired").length,
+      suppressed_count: notificationEvents.filter((event: ReviewNotificationEvent) => event.decision === "suppressed").length,
+      cooldown_hit_count: notificationEvents.filter(
+        (event: ReviewNotificationEvent) => event.decision === "suppressed" && event.suppression_reason === "cooldown",
+      ).length,
+      notification_open_conversion_rate: rate(convertedOpenCount, firedPackageNotifications.length),
+      notification_action_conversion_rate: rate(convertedActionCount, firedPackageNotifications.length),
+    },
+    top_noisy_sources: topNoisySources,
+  };
+}
+
+export async function buildReviewReport(
+  service: any,
+  options: { window_days?: number; surface?: ReviewPackageSurface } = {},
+): Promise<ReviewReport> {
+  await service.ensureReviewReadModel({ trigger: "review_report_read" });
+  return buildStoredReviewReport(service, options);
+}
+
+export async function recordReviewNotificationEvents(
+  service: any,
+  identity: ClientIdentity,
+  events: Array<{
+    kind: ReviewNotificationKind;
+    decision: ReviewNotificationDecision;
+    source: "desktop";
+    surface?: ReviewPackageSurface;
+    package_id?: string;
+    package_cycle_id?: string;
+    proposal_id?: string;
+    suppression_reason?: "cooldown" | "permission_denied";
+    current_count: number;
+    previous_count: number;
+    cooldown_minutes: number;
+  }>,
+): Promise<void> {
+  service.assertOperatorOnly(identity, "record review notification events");
+  for (const event of events) {
+    service.db.createReviewNotificationEvent({
+      ...event,
+      client_id: identity.client_id,
+      actor: identity.requested_by ?? null,
+    });
+  }
+}
+
+export function getReviewNotificationSnapshot(service: any): ReviewNotificationSnapshot {
   const packages = service.db.listReviewPackages();
   const proposals = service.db.listReviewTuningProposals().filter((proposal: ReviewTuningProposal) => proposal.status === "proposed");
   const cooldownMultipliers = notificationCooldownOverrides(service);
+  const targets = Object.fromEntries(
+    SURFACES.map((surface) => {
+      const pkg = packages.find((candidate: ReviewPackage) => candidate.surface === surface);
+      const cycle = pkg ? service.db.getOpenReviewPackageCycle(pkg.package_id) : null;
+      return [
+        surface,
+        pkg
+          ? {
+              package_id: pkg.package_id,
+              package_cycle_id: cycle?.package_cycle_id,
+            }
+          : undefined,
+      ];
+    }),
+  ) as Partial<Record<ReviewPackageSurface, { package_id: string; package_cycle_id?: string }>>;
   return {
     review_package_count: packages.length,
     top_review_summary: packages[0]?.summary ?? null,
@@ -957,5 +1443,7 @@ export function getReviewNotificationSnapshot(service: any): {
       planning: service.config.autopilotNotificationCooldownMinutes * cooldownMultipliers.planning,
       outbound: service.config.autopilotNotificationCooldownMinutes * cooldownMultipliers.outbound,
     },
+    review_package_targets: targets,
+    top_tuning_proposal_id: proposals[0]?.proposal_id,
   };
 }

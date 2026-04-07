@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{env, fs, path::PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +51,8 @@ struct DesktopSnapshot {
     review_package_planning_count: usize,
     review_package_outbound_count: usize,
     review_notification_cooldown_minutes: ReviewNotificationCooldowns,
+    review_package_targets: ReviewPackageTargets,
+    top_tuning_proposal_id: Option<String>,
     notification_cooldown_minutes: u64,
     daemon_available: bool,
     repair_hint: String,
@@ -61,6 +64,20 @@ struct ReviewNotificationCooldowns {
     meetings: u64,
     planning: u64,
     outbound: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct ReviewNotificationTarget {
+    package_id: String,
+    package_cycle_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct ReviewPackageTargets {
+    inbox: Option<ReviewNotificationTarget>,
+    meetings: Option<ReviewNotificationTarget>,
+    planning: Option<ReviewNotificationTarget>,
+    outbound: Option<ReviewNotificationTarget>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,6 +199,23 @@ struct ReviewNotificationsPayload {
     review_package_planning_count: usize,
     review_package_outbound_count: usize,
     review_notification_cooldown_minutes: ReviewNotificationCooldowns,
+    review_package_targets: ReviewPackageTargets,
+    top_tuning_proposal_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RecordReviewNotificationEventRequest {
+    kind: String,
+    decision: String,
+    source: String,
+    surface: Option<String>,
+    package_id: Option<String>,
+    package_cycle_id: Option<String>,
+    proposal_id: Option<String>,
+    suppression_reason: Option<String>,
+    current_count: usize,
+    previous_count: usize,
+    cooldown_minutes: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -287,6 +321,36 @@ async fn get_json<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, String>
         .json::<T>()
         .await
         .map_err(|error| format!("Desktop shell could not decode daemon response: {}", error))
+}
+
+async fn post_json<T: Serialize>(path: &str, body: &T) -> Result<(), String> {
+    let base_url = service_base_url()?;
+    let token = operator_token()?;
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}{}", base_url, path))
+        .header("authorization", format!("Bearer {}", token))
+        .header("accept", "application/json")
+        .header("content-type", "application/json")
+        .header("x-personal-ops-client", "desktop-shell")
+        .header("x-personal-ops-origin", "desktop-shell")
+        .header("x-personal-ops-requested-by", "desktop")
+        .json(body)
+        .send()
+        .await
+        .map_err(|error| format!("Desktop shell could not reach the daemon: {}", error))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(if body.trim().is_empty() {
+            format!("Desktop daemon request failed with {}.", status)
+        } else {
+            body
+        });
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -403,10 +467,25 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
         review_package_planning_count: review_notifications.review_notifications.review_package_planning_count,
         review_package_outbound_count: review_notifications.review_notifications.review_package_outbound_count,
         review_notification_cooldown_minutes: review_notifications.review_notifications.review_notification_cooldown_minutes,
+        review_package_targets: review_notifications.review_notifications.review_package_targets,
+        top_tuning_proposal_id: review_notifications.review_notifications.top_tuning_proposal_id,
         notification_cooldown_minutes: cooldown,
         daemon_available: true,
         repair_hint,
     })
+}
+
+#[tauri::command]
+async fn record_review_notification_events(
+    events: Vec<RecordReviewNotificationEventRequest>,
+) -> Result<(), String> {
+    post_json(
+        "/v1/review/notifications/events",
+        &json!({
+            "events": events,
+        }),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -422,6 +501,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_console_session,
             get_desktop_snapshot,
+            record_review_notification_events,
             desktop_quit
         ])
         .run(tauri::generate_context!())

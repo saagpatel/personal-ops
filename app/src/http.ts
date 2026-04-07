@@ -1028,9 +1028,59 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/review/report") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read the review report.");
+        }
+        const windowDaysRaw = Number(url.searchParams.get("window_days") ?? "14");
+        const surfaceParam = url.searchParams.get("surface");
+        const surface =
+          surfaceParam === "inbox" ||
+          surfaceParam === "meetings" ||
+          surfaceParam === "planning" ||
+          surfaceParam === "outbound"
+            ? surfaceParam
+            : undefined;
+        sendJson(response, 200, {
+          review_report: await service.getReviewReport({
+            window_days: windowDaysRaw,
+            ...(surface ? { surface } : {}),
+          }),
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/review/notifications") {
         sendJson(response, 200, {
           review_notifications: service.getReviewNotificationSnapshot(),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/review/notifications/events") {
+        const body = await readJsonBody(request);
+        sendJson(response, 200, {
+          recorded: true,
+          count: Array.isArray(body.events) ? body.events.length : 0,
+          ...(Array.isArray(body.events)
+            ? await service.recordReviewNotificationEvents(
+                extractIdentity(request, auth?.role ?? "operator"),
+                body.events.map((event: any) => ({
+                  kind: String(event.kind),
+                  decision: String(event.decision),
+                  source: "desktop" as const,
+                  ...(event.surface ? { surface: String(event.surface) } : {}),
+                  ...(event.package_id ? { package_id: String(event.package_id) } : {}),
+                  ...(event.package_cycle_id ? { package_cycle_id: String(event.package_cycle_id) } : {}),
+                  ...(event.proposal_id ? { proposal_id: String(event.proposal_id) } : {}),
+                  ...(event.suppression_reason ? { suppression_reason: String(event.suppression_reason) } : {}),
+                  current_count: Number(event.current_count ?? 0),
+                  previous_count: Number(event.previous_count ?? 0),
+                  cooldown_minutes: Number(event.cooldown_minutes ?? 0),
+                })),
+              ).then(() => ({}))
+            : {}),
         });
         return;
       }

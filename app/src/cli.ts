@@ -54,6 +54,7 @@ import {
   formatReviewOpenResult,
   formatReviewPackage,
   formatReviewPackageReport,
+  formatReviewReport,
   formatReviewResolveResult,
   formatReviewTuningReport,
   formatRestoreResult,
@@ -241,6 +242,25 @@ review
         } as any),
       options.json,
     );
+  });
+
+review
+  .command("report")
+  .description("Summarize review outcomes, tuning results, and notification performance.")
+  .option("--days <days>", "Window size in days (7, 14, or 30)")
+  .option("--surface <surface>", "Optional surface filter (inbox, meetings, planning, outbound)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.days) {
+      search.set("window_days", String(options.days));
+    }
+    if (options.surface) {
+      search.set("surface", String(options.surface));
+    }
+    const suffix = search.size ? `?${search.toString()}` : "";
+    const response = await requestJson<{ review_report: unknown }>("GET", `/v1/review/report${suffix}`);
+    printOutput(response, (value) => formatReviewReport(value.review_report as any), options.json);
   });
 
 const approval = program.command("approval").description("Work approval requests for outbound draft sends.");

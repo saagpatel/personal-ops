@@ -89,11 +89,13 @@ import {
 } from "./service/planning-autopilot.js";
 import {
   approveReviewTuningProposal,
+  buildReviewReport,
   buildStoredReviewPackageReport,
   buildStoredReviewTuningReport,
   dismissReviewTuningProposal,
   getReviewNotificationSnapshot,
   getReviewPackageDetail,
+  recordReviewNotificationEvents,
   refreshReviewReadModel,
   reviewReadModelNeedsRefresh,
   submitReviewPackageFeedback,
@@ -220,8 +222,12 @@ import {
   RelatedDriveFile,
   ReviewDetail,
   ReviewFeedbackReason,
+  ReviewNotificationDecision,
+  ReviewNotificationKind,
   ReviewPackage,
   ReviewPackageReport,
+  ReviewPackageSurface,
+  ReviewReport,
   ReviewTuningProposal,
   ReviewTuningReport,
   SendWindow,
@@ -753,6 +759,10 @@ export class PersonalOpsService {
     return buildStoredReviewTuningReport(this);
   }
 
+  async getReviewReport(options: { window_days?: number; surface?: ReviewPackageSurface } = {}): Promise<ReviewReport> {
+    return buildReviewReport(this, options);
+  }
+
   async approveReviewTuningProposal(identity: ClientIdentity, proposalId: string, note: string): Promise<ReviewTuningProposal> {
     return approveReviewTuningProposal(this, identity, proposalId, note);
   }
@@ -763,6 +773,25 @@ export class PersonalOpsService {
 
   getReviewNotificationSnapshot() {
     return getReviewNotificationSnapshot(this);
+  }
+
+  async recordReviewNotificationEvents(
+    identity: ClientIdentity,
+    events: Array<{
+      kind: ReviewNotificationKind;
+      decision: ReviewNotificationDecision;
+      source: "desktop";
+      surface?: ReviewPackageSurface;
+      package_id?: string;
+      package_cycle_id?: string;
+      proposal_id?: string;
+      suppression_reason?: "cooldown" | "permission_denied";
+      current_count: number;
+      previous_count: number;
+      cooldown_minutes: number;
+    }>,
+  ): Promise<void> {
+    return recordReviewNotificationEvents(this, identity, events);
   }
 
   isAutopilotRunning(): boolean {

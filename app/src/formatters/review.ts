@@ -1,5 +1,15 @@
-import type { ReviewPackage, ReviewPackageReport, ReviewTuningProposal, ReviewTuningReport } from "../types.js";
+import type {
+  ReviewPackage,
+  ReviewPackageReport,
+  ReviewReport,
+  ReviewTuningProposal,
+  ReviewTuningReport,
+} from "../types.js";
 import { line } from "./shared.js";
+
+function asPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
 
 function formatPackage(pkg: ReviewPackage): string[] {
   const lines: string[] = [];
@@ -87,6 +97,56 @@ export function formatReviewTuningReport(report: ReviewTuningReport): string {
     lines.push(`- ${formatProposal(proposal)[0]}`);
     for (const detail of formatProposal(proposal).slice(1)) {
       lines.push(detail);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewReport(report: ReviewReport): string {
+  const lines: string[] = [];
+  lines.push("Review Report");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Window", `${report.window_days} days`));
+  lines.push(line("Created", String(report.summary.created_count)));
+  lines.push(line("Opened", `${report.summary.opened_count} (${asPercent(report.summary.open_rate)})`));
+  lines.push(line("Acted on", `${report.summary.acted_on_count} (${asPercent(report.summary.acted_on_rate)})`));
+  lines.push(line("Completed", String(report.summary.completed_count)));
+  lines.push(line("Stale unused", `${report.summary.stale_unused_count} (${asPercent(report.summary.stale_unused_rate)})`));
+  lines.push(
+    line(
+      "Notification action conversion",
+      asPercent(report.summary.notification_action_conversion_rate),
+    ),
+  );
+  lines.push("");
+  lines.push("Surfaces");
+  for (const surface of report.surfaces) {
+    lines.push(
+      `- ${surface.surface}: created=${surface.created_count} | opened=${asPercent(surface.open_rate)} | acted=${asPercent(surface.acted_on_rate)} | stale-unused=${asPercent(surface.stale_unused_rate)} | notifications fired=${surface.fired_notification_count} suppressed=${surface.suppressed_notification_count}`,
+    );
+  }
+  lines.push("");
+  lines.push("Proposal Outcomes");
+  lines.push(line("Proposed", String(report.proposal_outcomes.proposed_count)));
+  lines.push(line("Approved", String(report.proposal_outcomes.approved_count)));
+  lines.push(line("Dismissed", String(report.proposal_outcomes.dismissed_count)));
+  lines.push(line("Reopened", String(report.proposal_outcomes.reopened_count)));
+  lines.push("");
+  lines.push("Notification Performance");
+  lines.push(line("Fired", String(report.notification_performance.fired_count)));
+  lines.push(line("Suppressed", String(report.notification_performance.suppressed_count)));
+  lines.push(line("Cooldown hits", String(report.notification_performance.cooldown_hit_count)));
+  lines.push(line("Open conversion", asPercent(report.notification_performance.notification_open_conversion_rate)));
+  lines.push(line("Action conversion", asPercent(report.notification_performance.notification_action_conversion_rate)));
+  lines.push("");
+  lines.push("Top Noisy Sources");
+  if (report.top_noisy_sources.length === 0) {
+    lines.push("No noisy sources in the selected window.");
+  } else {
+    for (const source of report.top_noisy_sources) {
+      lines.push(
+        `- ${source.surface} ${source.scope_key} | negative=${source.negative_feedback_count} | stale-unused=${source.stale_unused_count} | rate=${asPercent(source.negative_feedback_rate)} | ${source.latest_summary ?? "no summary"}`,
+      );
     }
   }
   return lines.join("\n");

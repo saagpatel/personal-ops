@@ -103,6 +103,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/review/packages" ||
       pathname.startsWith("/v1/review/packages/") ||
       pathname === "/v1/review/tuning" ||
+      pathname === "/v1/review/report" ||
       pathname === "/v1/planning-recommendations/summary" ||
       pathname === "/v1/planning-recommendations/next" ||
       pathname.startsWith("/v1/planning-recommendations/") ||
