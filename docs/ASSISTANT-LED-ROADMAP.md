@@ -40,6 +40,8 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 9 | Review Intelligence 2.0 | Compress prepared work into bounded review packages and add review-only tuning without altering core ranking | Complete |
 | 10 | Review Outcomes, Eval Loop, and Notification Governance | Measure whether review packages and review notifications are actually paying off, and expose that evidence to the operator | Complete |
 | 11 | Review Trends, Tuning Impact, and Weekly Operator Review | Turn rolling review outcomes into trend, comparison, and weekly operator guidance without widening trust boundaries | Complete |
+| 12 | Outcome-Driven Review Calibration | Turn review reports into target-vs-actual calibration without widening authority | Complete |
+| 13 | Desktop Platform Hardening | Make the macOS desktop support contract explicit, durable, and cheaper to maintain | Complete |
 
 ## Phase 1
 
@@ -247,10 +249,28 @@ Delivered shape:
   - no browser mutation path for calibration targets
   - no widening of send, approval, auth, or restore controls
 
+## Phase 13
+
+Phase 13 is now complete.
+
+Delivered shape:
+
+- explicit `macos_only` desktop support contract in desktop status and install reporting
+- persisted desktop build provenance for build time, source commit, Vite version, and Tauri CLI/runtime versions
+- reinstall recommendations when the installed app is stale relative to the current checkout
+- dedicated `personal-ops` desktop dependency verification through `npm run verify:desktop-platform`
+- executable policy that treats unsupported Linux GTK3/WebKit transitive findings as informational noise for this macOS-only phase
+- durable desktop support guidance in `docs/ASSISTANT-LED-DESKTOP-SUPPORT-CONTRACT.md`
+- unchanged trust boundaries:
+  - desktop shell remains optional
+  - no new browser mutation authority
+  - LaunchAgent remains the startup path
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, and 12 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, and 13 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

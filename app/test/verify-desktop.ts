@@ -139,8 +139,14 @@ async function main() {
   try {
     const manifest = await withRuntimeEnv(env, () => installDesktop(paths));
     assert.ok(manifest.desktop, "install manifest should include desktop metadata");
+    assert.equal(manifest.desktop?.support_contract, "macos_only");
     assert.equal(manifest.desktop?.installed, true);
     assert.equal(fs.existsSync(manifest.desktop?.app_path ?? ""), true);
+    assert.equal(Boolean(manifest.desktop?.build_provenance.built_at), true);
+    assert.equal(Boolean(manifest.desktop?.build_provenance.source_commit), true);
+    assert.equal(Boolean(manifest.desktop?.build_provenance.vite_version), true);
+    assert.equal(Boolean(manifest.desktop?.build_provenance.tauri_runtime_version), true);
+    assert.equal(manifest.desktop?.reinstall_recommended, false);
     assert.equal(manifest.desktop?.daemon_session_handoff_ready, true);
     process.stdout.write(`Desktop verification passed: ${manifest.desktop?.app_path}\n`);
   } finally {

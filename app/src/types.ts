@@ -2230,23 +2230,46 @@ export interface InstallCheckReport {
   manifest: InstallManifest | null;
 }
 
+export type DesktopSupportContract = "macos_only";
+
+export interface DesktopDependencyPosture {
+  status: "supported_path_clear" | "project_missing";
+  summary: string;
+  unsupported_platform_notes: string[];
+}
+
+export interface DesktopBuildProvenance {
+  built_at: string | null;
+  source_commit: string | null;
+  vite_version: string | null;
+  tauri_cli_version: string | null;
+  tauri_runtime_version: string | null;
+}
+
 export interface DesktopToolchainReport {
+  support_contract: DesktopSupportContract;
   platform_supported: boolean;
   npm_available: boolean;
   cargo_available: boolean;
   rustc_available: boolean;
   xcode_select_available: boolean;
+  unsupported_reason: string | null;
+  dependency_posture: DesktopDependencyPosture;
   ready: boolean;
   summary: string;
 }
 
 export interface DesktopStatusReport {
+  support_contract: DesktopSupportContract;
   supported: boolean;
   installed: boolean;
   bundle_exists: boolean;
   app_path: string;
   build_bundle_path: string;
   project_path: string;
+  build_provenance: DesktopBuildProvenance;
+  reinstall_recommended: boolean;
+  reinstall_reason: string | null;
   toolchain: DesktopToolchainReport;
   daemon_session_handoff_ready: boolean;
   launch_url: string | null;

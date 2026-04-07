@@ -4,7 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
-import { getDesktopPaths, getDesktopToolchainReport, installDesktopApp, withDesktopManifest } from "./desktop.js";
+import {
+  getDesktopLocalStatusReport,
+  getDesktopPaths,
+  getDesktopStatusReport,
+  getDesktopToolchainReport,
+  installDesktopApp,
+  withDesktopManifest,
+} from "./desktop.js";
 import { PersonalOpsDb } from "./db.js";
 import { getKeychainSecret } from "./keychain.js";
 import {
@@ -425,8 +432,14 @@ export async function installDesktop(
   paths: Paths,
   nodeExecutable = process.execPath,
 ): Promise<InstallManifest> {
-  const desktop = await installDesktopApp(paths);
-  const manifest = withDesktopManifest(
+  const localDesktop = await installDesktopApp(paths);
+  let manifest = withDesktopManifest(
+    buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
+    localDesktop,
+  );
+  writeInstallManifest(paths, manifest);
+  const desktop = await getDesktopStatusReport(paths);
+  manifest = withDesktopManifest(
     buildInstallManifest(paths, nodeExecutable, readInstallManifest(paths)?.assistant_wrappers ?? DEFAULT_ASSISTANTS),
     desktop,
   );
@@ -495,7 +508,8 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   const machineIdentity = readMachineIdentity(paths);
   const restoreProvenance = readRestoreProvenance(paths);
   const desktopPaths = getDesktopPaths(paths);
-  const desktopToolchain = getDesktopToolchainReport(paths);
+  const desktopStatus = getDesktopLocalStatusReport(paths);
+  const desktopToolchain = desktopStatus.toolchain;
 
   checks.push(fileCheck("config_file_valid", "Config file", paths.configFile, true));
   checks.push(fileCheck("policy_file_valid", "Policy file", paths.policyFile, true));
@@ -885,7 +899,7 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
   checks.push(
     desktopToolchain.platform_supported
       ? passCheck("desktop_platform_supported", "Desktop platform", "Desktop shell is supported on this Mac.", "integration")
-      : passCheck("desktop_platform_supported", "Desktop platform", "Desktop shell is macOS-only and not required here.", "integration"),
+      : passCheck("desktop_platform_supported", "Desktop platform", `${desktopToolchain.unsupported_reason ?? desktopToolchain.summary} It is not required on this machine.`, "integration"),
   );
   checks.push(
     !desktopToolchain.platform_supported
@@ -894,7 +908,7 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
         ? passCheck(
             "desktop_toolchain_ready",
             "Desktop toolchain",
-            "Desktop shell source is not present in this runtime environment. The native shell remains optional.",
+            desktopToolchain.summary,
             "integration",
           )
         : desktopToolchain.ready
@@ -920,6 +934,28 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
           `Desktop app is optional in this phase and is not installed at ${desktopPaths.installedAppPath}. Run \`personal-ops install desktop\` when you want the native shell.`,
           "integration",
         ),
+  );
+  checks.push(
+    desktopStatus.installed && desktopStatus.reinstall_recommended
+      ? warnCheck(
+          "desktop_app_current",
+          "Desktop app currency",
+          `${desktopStatus.reinstall_reason ?? "Desktop app should be refreshed from this checkout."} Run \`personal-ops install desktop\` to refresh it.`,
+          "integration",
+        )
+      : desktopStatus.installed && desktopStatus.build_provenance.built_at
+        ? passCheck(
+            "desktop_app_current",
+            "Desktop app currency",
+            `Desktop app matches checkout ${desktopStatus.build_provenance.source_commit?.slice(0, 8) ?? "unknown"}.`,
+            "integration",
+          )
+        : passCheck(
+            "desktop_app_current",
+            "Desktop app currency",
+            "Desktop app is not installed, so no desktop refresh is needed.",
+            "integration",
+          ),
   );
 
   checks.push(

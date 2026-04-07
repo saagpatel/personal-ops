@@ -2,8 +2,14 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
-import type { DesktopStatusReport, DesktopToolchainReport, InstallManifest, Paths } from "./types.js";
+import type { DesktopBuildProvenance, DesktopStatusReport, DesktopToolchainReport, InstallManifest, Paths } from "./types.js";
+import {
+  buildDesktopToolchainReport,
+  DESKTOP_SUPPORT_CONTRACT,
+  summarizeDesktopReinstall,
+} from "./desktop-platform.js";
 import type { ConsoleSessionGrant } from "./web-console.js";
 
 interface DesktopPaths {
@@ -78,7 +84,94 @@ export function getDesktopPaths(paths: Paths): DesktopPaths {
   };
 }
 
-export function getDesktopToolchainReport(paths: Paths): DesktopToolchainReport {
+function readDesktopPackageJson(desktopPaths: DesktopPaths): Record<string, any> | null {
+  if (!fs.existsSync(desktopPaths.packageJsonPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(desktopPaths.packageJsonPath, "utf8")) as Record<string, any>;
+}
+
+function readDesktopPackageLockVersion(desktopPaths: DesktopPaths, packageName: string): string | null {
+  const lockPath = path.join(desktopPaths.projectPath, "package-lock.json");
+  if (!fs.existsSync(lockPath)) {
+    return null;
+  }
+  const lock = JSON.parse(fs.readFileSync(lockPath, "utf8")) as {
+    packages?: Record<string, { version?: string }>;
+  };
+  return lock.packages?.[`node_modules/${packageName}`]?.version ?? null;
+}
+
+function readDesktopCargoDependencyVersion(desktopPaths: DesktopPaths, packageName: string): string | null {
+  const cargoLockPath = path.join(desktopPaths.projectPath, "src-tauri", "Cargo.lock");
+  if (!fs.existsSync(cargoLockPath)) {
+    return null;
+  }
+  const raw = fs.readFileSync(cargoLockPath, "utf8");
+  const match = raw.match(new RegExp(`\\[\\[package\\]\\]\\nname = "${packageName}"\\nversion = "([^"]+)"`));
+  return match?.[1] ?? null;
+}
+
+function readDesktopTauriRuntimeVersion(desktopPaths: DesktopPaths): string | null {
+  const cargoTomlPath = path.join(desktopPaths.projectPath, "src-tauri", "Cargo.toml");
+  if (!fs.existsSync(cargoTomlPath)) {
+    return null;
+  }
+  const cargoToml = parseToml(fs.readFileSync(cargoTomlPath, "utf8")) as {
+    dependencies?: Record<string, string | { version?: string }>;
+  };
+  const dependency = cargoToml.dependencies?.tauri;
+  if (typeof dependency === "string") {
+    return dependency;
+  }
+  return dependency?.version ?? readDesktopCargoDependencyVersion(desktopPaths, "tauri");
+}
+
+function resolveCurrentSourceCommit(paths: Paths): string | null {
+  if (process.env.PERSONAL_OPS_SOURCE_COMMIT) {
+    return process.env.PERSONAL_OPS_SOURCE_COMMIT;
+  }
+  const result = probeCommand("git", ["-C", paths.appDir, "rev-parse", "HEAD"]);
+  if (!result.available) {
+    return null;
+  }
+  const firstLine = result.output.split("\n")[0] ?? "";
+  return firstLine.trim() || null;
+}
+
+function currentDesktopBuildProvenance(paths: Paths): DesktopBuildProvenance {
+  const desktopPaths = getDesktopPaths(paths);
+  const packageJson = readDesktopPackageJson(desktopPaths);
+  const viteVersion = readDesktopPackageLockVersion(desktopPaths, "vite") ?? String(packageJson?.devDependencies?.vite ?? "").trim();
+  const tauriCliVersion =
+    readDesktopPackageLockVersion(desktopPaths, "@tauri-apps/cli") ?? String(packageJson?.devDependencies?.["@tauri-apps/cli"] ?? "").trim();
+  return {
+    built_at: null,
+    source_commit: resolveCurrentSourceCommit(paths),
+    vite_version: viteVersion || null,
+    tauri_cli_version: tauriCliVersion || null,
+    tauri_runtime_version: readDesktopTauriRuntimeVersion(desktopPaths),
+  };
+}
+
+function readStoredDesktopStatus(paths: Paths): DesktopStatusReport | null {
+  if (!fs.existsSync(paths.installManifestFile)) {
+    return null;
+  }
+  try {
+    const manifest = JSON.parse(fs.readFileSync(paths.installManifestFile, "utf8")) as InstallManifest;
+    return manifest.desktop ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function buildDesktopStatusReport(
+  paths: Paths,
+  options: {
+    buildProvenanceOverride?: DesktopBuildProvenance;
+  } = {},
+): DesktopStatusReport {
   const desktopPaths = getDesktopPaths(paths);
   const npm = probeCommand("npm", ["--version"]);
   const cargo = probeCommand("cargo", ["--version"]);
@@ -86,24 +179,56 @@ export function getDesktopToolchainReport(paths: Paths): DesktopToolchainReport 
   const xcodeSelect = probeCommand("xcode-select", ["-p"]);
   const platformSupported = process.platform === "darwin";
   const projectPresent = fs.existsSync(desktopPaths.packageJsonPath);
-  const ready = platformSupported && projectPresent && npm.available && cargo.available && rustc.available && xcodeSelect.available;
-  const summary = !platformSupported
-    ? "Desktop shell is macOS-only in this phase."
-    : !projectPresent
-      ? "Desktop project files are missing from the source checkout."
-      : ready
-        ? "macOS desktop toolchain is ready."
-        : "Desktop toolchain is incomplete. Check npm, cargo, rustc, and xcode-select.";
+  const toolchain = buildDesktopToolchainReport({
+    platformSupported,
+    projectPresent,
+    npmAvailable: npm.available,
+    cargoAvailable: cargo.available,
+    rustcAvailable: rustc.available,
+    xcodeSelectAvailable: xcodeSelect.available,
+  });
+  const storedDesktop = readStoredDesktopStatus(paths);
+  const buildProvenance = options.buildProvenanceOverride ?? storedDesktop?.build_provenance ?? {
+    built_at: null,
+    source_commit: null,
+    vite_version: null,
+    tauri_cli_version: null,
+    tauri_runtime_version: null,
+  };
+  const currentProvenance = currentDesktopBuildProvenance(paths);
+  const installed = fs.existsSync(desktopPaths.installedAppPath);
+  const reinstallState = summarizeDesktopReinstall(installed, projectPresent, currentProvenance.source_commit, buildProvenance);
 
   return {
-    platform_supported: platformSupported,
-    npm_available: npm.available,
-    cargo_available: cargo.available,
-    rustc_available: rustc.available,
-    xcode_select_available: xcodeSelect.available,
-    ready,
-    summary,
+    support_contract: DESKTOP_SUPPORT_CONTRACT,
+    supported: platformSupported,
+    installed,
+    bundle_exists: fs.existsSync(desktopPaths.buildBundlePath),
+    app_path: desktopPaths.installedAppPath,
+    build_bundle_path: desktopPaths.buildBundlePath,
+    project_path: desktopPaths.projectPath,
+    build_provenance: buildProvenance,
+    reinstall_recommended: reinstallState.reinstallRecommended,
+    reinstall_reason: reinstallState.reinstallReason,
+    toolchain,
+    daemon_session_handoff_ready: false,
+    launch_url: null,
   };
+}
+
+export function getDesktopToolchainReport(paths: Paths): DesktopToolchainReport {
+  return buildDesktopStatusReport(paths).toolchain;
+}
+
+export function getDesktopLocalStatusReport(
+  paths: Paths,
+  options: {
+    buildProvenanceOverride?: DesktopBuildProvenance;
+  } = {},
+): DesktopStatusReport {
+  return options.buildProvenanceOverride
+    ? buildDesktopStatusReport(paths, { buildProvenanceOverride: options.buildProvenanceOverride })
+    : buildDesktopStatusReport(paths);
 }
 
 export async function createDesktopConsoleSession(paths: Paths): Promise<ConsoleSessionGrant> {
@@ -131,8 +256,7 @@ export async function createDesktopConsoleSession(paths: Paths): Promise<Console
 }
 
 export async function getDesktopStatusReport(paths: Paths): Promise<DesktopStatusReport> {
-  const desktopPaths = getDesktopPaths(paths);
-  const toolchain = getDesktopToolchainReport(paths);
+  const baseReport = getDesktopLocalStatusReport(paths);
   let launchUrl: string | null = null;
   let handoffReady = false;
   try {
@@ -144,13 +268,7 @@ export async function getDesktopStatusReport(paths: Paths): Promise<DesktopStatu
   }
 
   return {
-    supported: process.platform === "darwin",
-    installed: fs.existsSync(desktopPaths.installedAppPath),
-    bundle_exists: fs.existsSync(desktopPaths.buildBundlePath),
-    app_path: desktopPaths.installedAppPath,
-    build_bundle_path: desktopPaths.buildBundlePath,
-    project_path: desktopPaths.projectPath,
-    toolchain,
+    ...baseReport,
     daemon_session_handoff_ready: handoffReady,
     launch_url: launchUrl,
   };
@@ -189,17 +307,30 @@ export async function installDesktopApp(paths: Paths): Promise<DesktopStatusRepo
   fs.rmSync(desktopPaths.installedAppPath, { recursive: true, force: true });
   fs.cpSync(desktopPaths.buildBundlePath, desktopPaths.installedAppPath, { recursive: true });
 
-  return getDesktopStatusReport(paths);
+  return getDesktopLocalStatusReport(paths, {
+    buildProvenanceOverride: {
+      ...currentDesktopBuildProvenance(paths),
+      built_at: new Date().toISOString(),
+    },
+  });
 }
 
 export function openDesktopApp(paths: Paths): void {
-  const desktopPaths = getDesktopPaths(paths);
-  if (!fs.existsSync(desktopPaths.installedAppPath)) {
+  const desktopStatus = getDesktopLocalStatusReport(paths);
+  if (!desktopStatus.supported) {
+    throw new Error(desktopStatus.toolchain.unsupported_reason ?? "Desktop shell is supported only on macOS in this phase.");
+  }
+  if (desktopStatus.reinstall_recommended) {
     throw new Error(
-      `Desktop app is not installed at ${desktopPaths.installedAppPath}. Run \`personal-ops install desktop\` first.`,
+      `${desktopStatus.reinstall_reason ?? `Desktop app at ${desktopStatus.app_path} needs to be refreshed.`} Run \`personal-ops install desktop\` first.`,
     );
   }
-  execFileSync("open", [desktopPaths.installedAppPath]);
+  if (!desktopStatus.installed) {
+    throw new Error(
+      `Desktop app is not installed at ${desktopStatus.app_path}. Run \`personal-ops install desktop\` first.`,
+    );
+  }
+  execFileSync("open", [desktopStatus.app_path]);
 }
 
 export function withDesktopManifest(manifest: InstallManifest, desktop: DesktopStatusReport): InstallManifest {
