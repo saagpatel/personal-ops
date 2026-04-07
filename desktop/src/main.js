@@ -58,7 +58,7 @@ function updateStatus(snapshot) {
   awaitingReview.textContent = String(snapshot.awaiting_review_count ?? 0);
   pendingApprovals.textContent = String(snapshot.approval_pending_count ?? 0);
   summary.textContent = snapshot.daemon_available
-    ? snapshot.autopilot_summary || "The native shell is connected to the local operator workspace."
+    ? snapshot.top_review_summary || snapshot.autopilot_summary || "The native shell is connected to the local operator workspace."
     : "The daemon is unavailable right now, so the shell is waiting on local repair.";
   repairHint.textContent = snapshot.repair_hint || "";
   setBlockedState(!snapshot.daemon_available, snapshot.repair_hint);
@@ -212,6 +212,19 @@ async function pollSnapshot() {
       apply_ready_planning_count: 0,
       outbound_approval_ready_count: 0,
       outbound_send_ready_count: 0,
+      review_package_count: 0,
+      top_review_summary: null,
+      open_tuning_proposal_count: 0,
+      review_package_inbox_count: 0,
+      review_package_meetings_count: 0,
+      review_package_planning_count: 0,
+      review_package_outbound_count: 0,
+      review_notification_cooldown_minutes: {
+        inbox: 30,
+        meetings: 30,
+        planning: 30,
+        outbound: 30,
+      },
       notification_cooldown_minutes: 30,
       daemon_available: false,
       repair_hint: message,

@@ -3,10 +3,16 @@ import { getDesktopStatusReport } from "../desktop.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
+import { buildStoredReviewPackageReport } from "./review-intelligence.js";
 
-export async function buildStatusReport(service: any, options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
+export async function buildStatusReport(
+  service: any,
+  options: { httpReachable: boolean; skipDerived?: boolean },
+): Promise<ServiceStatusReport> {
+  const skipDerived = Boolean(options.skipDerived);
   const checks = await service.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
   const summary = service.summarizeChecks(checks);
+  const classifiedState = service.classifyState(checks);
   const schemaCompatibility = service.db.getSchemaCompatibility();
   const mailAccount = service.db.getMailAccount();
   const launchAgent = service.inspectLaunchAgent();
@@ -26,12 +32,15 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const effectiveSendEnabled = service.isSendEnabled(activeSendWindow);
   const pendingCount = reviewItems.filter((item: any) => item.state === "pending").length;
   const openedCount = reviewItems.filter((item: any) => item.state === "opened").length;
-  const worklist = await service.getWorklistReport(options);
+  const worklist = await service.getWorklistReport({ httpReachable: options.httpReachable });
   const inboxStatus = service.getInboxStatusReport();
   const calendarStatus = service.getCalendarStatusReport();
   const githubStatus = service.getGithubStatusReport();
   const driveStatus = service.getDriveStatusReport();
   const autopilotStatus = await service.getAutopilotStatusReport({ httpReachable: options.httpReachable });
+  const reviewPackageReport = skipDerived
+    ? await buildStoredReviewPackageReport(service, classifiedState)
+    : await service.getReviewPackageReport();
   const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
@@ -79,7 +88,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   return {
     generated_at: new Date().toISOString(),
     service_version: service.getServiceVersion(),
-    state: service.classifyState(checks),
+    state: classifiedState,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {
@@ -257,6 +266,14 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
       last_success_at: autopilotStatus.last_success_at,
       stale_profile_count: autopilotStatus.profiles.filter((profile: any) => profile.state === "stale" || profile.state === "idle").length,
       top_item_summary: autopilotStatus.top_item_summary,
+    },
+    review: {
+      ready_package_count: reviewPackageReport.packages.length,
+      open_tuning_proposal_count: reviewPackageReport.open_tuning_proposal_count,
+      unused_package_count_7d: reviewPackageReport.unused_package_count_7d,
+      top_review_summary: reviewPackageReport.top_item_summary,
+      refreshed_at: reviewPackageReport.refreshed_at,
+      refresh_state: reviewPackageReport.refresh_state,
     },
     desktop: desktopStatus,
   };

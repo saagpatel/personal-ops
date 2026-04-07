@@ -984,6 +984,87 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/review/packages") {
+        sendJson(response, 200, {
+          review_packages: await service.getReviewPackageReport(),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname.startsWith("/v1/review/packages/")) {
+        const packageId = decodeURIComponent(url.pathname.slice("/v1/review/packages/".length));
+        if (packageId && !packageId.includes("/")) {
+          sendJson(response, 200, {
+            review_package: await service.getReviewPackage(packageId),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/review/packages/") && url.pathname.endsWith("/feedback")) {
+        const packageId = decodeURIComponent(url.pathname.replace("/v1/review/packages/", "").replace("/feedback", ""));
+        if (packageId && !packageId.includes("/")) {
+          const body = await readJsonBody(request);
+          const feedbackInput = {
+            reason: String(body.reason ?? "useful") as "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+            note: String(body.note ?? ""),
+            ...(body.package_item_id ? { package_item_id: String(body.package_item_id) } : {}),
+          };
+          sendJson(response, 200, {
+            review_package: await service.submitReviewPackageFeedback(
+              extractIdentity(request, auth?.role ?? "operator"),
+              packageId,
+              feedbackInput,
+            ),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/review/tuning") {
+        sendJson(response, 200, {
+          review_tuning: await service.getReviewTuningReport(),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/review/notifications") {
+        sendJson(response, 200, {
+          review_notifications: service.getReviewNotificationSnapshot(),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/review/tuning/") && url.pathname.endsWith("/approve")) {
+        const proposalId = decodeURIComponent(url.pathname.replace("/v1/review/tuning/", "").replace("/approve", ""));
+        if (proposalId && !proposalId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            review_tuning_proposal: await service.approveReviewTuningProposal(
+              extractIdentity(request, auth?.role ?? "operator"),
+              proposalId,
+              String(body.note ?? ""),
+            ),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/review/tuning/") && url.pathname.endsWith("/dismiss")) {
+        const proposalId = decodeURIComponent(url.pathname.replace("/v1/review/tuning/", "").replace("/dismiss", ""));
+        if (proposalId && !proposalId.includes("/")) {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            review_tuning_proposal: await service.dismissReviewTuningProposal(
+              extractIdentity(request, auth?.role ?? "operator"),
+              proposalId,
+              String(body.note ?? ""),
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/tasks") {
         sendJson(response, 200, {
           tasks: service.listTasks({

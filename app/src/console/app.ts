@@ -24,6 +24,10 @@ import type {
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
   PlanningRecommendationSummaryReport,
+  ReviewPackage,
+  ReviewPackageReport,
+  ReviewTuningProposal,
+  ReviewTuningReport,
   ReviewItem,
   ServiceStatusReport,
   SnapshotInspection,
@@ -53,6 +57,8 @@ interface ConsolePayload {
   reviewItems: ReviewItem[];
   planningSummary: PlanningRecommendationSummaryReport;
   planningAutopilot: PlanningAutopilotReport;
+  reviewPackages: ReviewPackageReport;
+  reviewTuning: ReviewTuningReport;
   planningGroups: PlanningRecommendationGroup[];
   planningNext: PlanningRecommendationDetail | null;
   audit: AuditEvent[];
@@ -129,6 +135,14 @@ interface PlanningSummaryResponse {
 
 interface PlanningAutopilotResponse {
   planning_autopilot: PlanningAutopilotReport;
+}
+
+interface ReviewPackageReportResponse {
+  review_packages: ReviewPackageReport;
+}
+
+interface ReviewTuningResponse {
+  review_tuning: ReviewTuningReport;
 }
 
 interface PlanningAutopilotBundleResponse {
@@ -404,6 +418,8 @@ async function loadPayload(): Promise<ConsolePayload> {
     reviewQueueResponse,
     planningSummaryResponse,
     planningAutopilotResponse,
+    reviewPackagesResponse,
+    reviewTuningResponse,
     planningGroupsResponse,
     planningNextResponse,
     auditResponse,
@@ -424,6 +440,8 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<ReviewQueueResponse>("/v1/review-queue"),
     fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
     fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
+    fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
+    fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
     fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
     fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
     fetchAudit(state.auditLimit, state.auditCategory),
@@ -446,6 +464,8 @@ async function loadPayload(): Promise<ConsolePayload> {
     reviewItems: reviewQueueResponse.review_items,
     planningSummary: planningSummaryResponse.planning_recommendation_summary,
     planningAutopilot: planningAutopilotResponse.planning_autopilot,
+    reviewPackages: reviewPackagesResponse.review_packages,
+    reviewTuning: reviewTuningResponse.review_tuning,
     planningGroups: planningGroupsResponse.planning_recommendation_groups,
     planningNext: planningNextResponse.planning_recommendation,
     audit: auditResponse.events,
@@ -489,6 +509,76 @@ function reviewItemForArtifact(payload: ConsolePayload, artifactId: string): Rev
   return payload.reviewItems.find((review) => review.artifact_id === artifactId && review.state !== "resolved")
     ?? payload.reviewItems.find((review) => review.artifact_id === artifactId)
     ?? null;
+}
+
+function reviewPackageCommand(packageId: string): string {
+  return `personal-ops review package ${packageId}`;
+}
+
+function reviewPackageFeedbackCommand(
+  packageId: string,
+  reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+  packageItemId?: string,
+): string {
+  return `${reviewPackageCommand(packageId)} feedback --reason ${reason} --note "<reason>"${packageItemId ? ` --item ${packageItemId}` : ""}`;
+}
+
+function renderReviewPackageCard(pkg: ReviewPackage): string {
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>${escapeHtml(pkg.summary)}</h4>
+        <span class="pill pill--good">${escapeHtml(pkg.surface)}</span>
+      </div>
+      <p>${escapeHtml(pkg.why_now)}</p>
+      <p class="subtle subtle--body">${escapeHtml(`State ${pkg.state} · fresh until ${formatTime(pkg.stale_at)} · ${pkg.items.length} item(s)`)}</p>
+      <section class="panel">
+        <h4>Package items</h4>
+        <ul>
+          ${pkg.items
+            .map(
+              (item) => `
+                <li>
+                  ${escapeHtml(item.title)} · ${escapeHtml(item.underlying_state)}
+                  ${item.current_feedback_reason ? ` · feedback ${escapeHtml(item.current_feedback_reason)}` : ""}
+                  <div class="list-item__actions">
+                    <button class="button" data-review-package-feedback="${escapeHtml(pkg.package_id)}" data-review-feedback-reason="not_useful" data-review-package-item="${escapeHtml(item.package_item_id)}" type="button">Flag item</button>
+                    <button class="copy-button" data-copy="${escapeHtml(item.command)}" type="button">Copy item command</button>
+                  </div>
+                </li>
+              `,
+            )
+            .join("")}
+        </ul>
+      </section>
+      <div class="list-item__actions">
+        <button class="button button--primary" data-review-package-feedback="${escapeHtml(pkg.package_id)}" data-review-feedback-reason="useful" type="button">Mark useful</button>
+        <button class="button" data-review-package-feedback="${escapeHtml(pkg.package_id)}" data-review-feedback-reason="wrong_priority" type="button">Wrong priority</button>
+        <button class="button" data-review-package-feedback="${escapeHtml(pkg.package_id)}" data-review-feedback-reason="bad_timing" type="button">Bad timing</button>
+        <button class="button" data-review-package-feedback="${escapeHtml(pkg.package_id)}" data-review-feedback-reason="not_useful" type="button">Not useful</button>
+      </div>
+      <div class="list-item__actions list-item__actions--stack">
+        ${commandStack([reviewPackageCommand(pkg.package_id), ...pkg.next_commands])}
+      </div>
+    </article>
+  `;
+}
+
+function renderReviewTuningCard(proposal: ReviewTuningProposal): string {
+  return `
+    <article class="list-item">
+      <div class="list-item__top">
+        <h4>${escapeHtml(proposal.summary)}</h4>
+        <span class="pill pill--warn">${escapeHtml(proposal.status)}</span>
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(`${proposal.proposal_kind} · ${proposal.surface} · evidence ${proposal.evidence_count}`)}</p>
+      <div class="list-item__actions">
+        <button class="button button--primary" data-review-tuning-approve="${escapeHtml(proposal.proposal_id)}" type="button">Approve tuning</button>
+        <button class="button" data-review-tuning-dismiss="${escapeHtml(proposal.proposal_id)}" type="button">Dismiss tuning</button>
+        <button class="copy-button" data-copy="${escapeHtml(`personal-ops review tuning ${proposal.proposal_id}`)}" type="button">Copy CLI command</button>
+      </div>
+    </article>
+  `;
 }
 
 function setFlash(message: string, tone: BannerTone = "good"): void {
@@ -1315,6 +1405,7 @@ function renderOverview(payload: ConsolePayload): string {
   const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
   const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
   const topMeetingPrep = prepMeetings.actions[0] ?? null;
+  const topReviewTuning = payload.reviewTuning.proposals.find((proposal) => proposal.status === "proposed") ?? null;
   return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -1370,6 +1461,25 @@ function renderOverview(payload: ConsolePayload): string {
           <h3>Autopilot warm start</h3>
           <p class="subtle subtle--body">Continuous autopilot keeps day-start, inbox, meetings, planning, and outbound surfaces warm so the console opens into prepared work instead of waiting for manual refresh.</p>
           ${renderAutopilotStatusCard(autopilot)}
+        </section>
+        <section class="detail-card">
+          <h3>Review overlay</h3>
+          <p class="subtle subtle--body">Review packages stay separate from the raw worklist so you can compress review work without changing the underlying queue.</p>
+          ${
+            payload.reviewPackages.packages.length === 0
+              ? `<div class="empty">No review packages are active right now.</div>`
+              : payload.reviewPackages.packages.map((pkg) => renderReviewPackageCard(pkg)).join("")
+          }
+          ${
+            topReviewTuning
+              ? `
+                <section class="panel">
+                  <h4>Open tuning proposal</h4>
+                  ${renderReviewTuningCard(topReviewTuning)}
+                </section>
+              `
+              : ""
+          }
         </section>
         <section class="detail-card">
           <h3>Planning autopilot</h3>
@@ -3361,6 +3471,79 @@ async function createSnapshotFromConsole(): Promise<void> {
   }
 }
 
+async function submitReviewPackageFeedbackFromConsole(
+  packageId: string,
+  reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+  packageItemId?: string,
+): Promise<void> {
+  const note = window.prompt(
+    `Add a short operator note for the "${reason.replaceAll("_", " ")}" feedback.`,
+    packageItemId ? `Review item ${reason}` : `Review package ${reason}`,
+  );
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before sending review feedback.", "warn");
+    render();
+    return;
+  }
+  try {
+    await postJson(`/v1/review/packages/${encodeURIComponent(packageId)}/feedback`, {
+      reason,
+      note: note.trim(),
+      ...(packageItemId ? { package_item_id: packageItemId } : {}),
+    });
+    setFlash("Review feedback saved.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run ${reviewPackageFeedbackCommand(packageId, reason, packageItemId)} for the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
+async function decideReviewTuningProposalFromConsole(action: "approve" | "dismiss", proposalId: string): Promise<void> {
+  const note = window.prompt(
+    action === "approve"
+      ? "Add a short operator note before approving this tuning proposal."
+      : "Add a short operator note before dismissing this tuning proposal.",
+    action === "approve" ? "Approve review tuning" : "Dismiss review tuning",
+  );
+  if (note === null) {
+    return;
+  }
+  if (!note.trim()) {
+    setFlash("Add a note before deciding this tuning proposal.", "warn");
+    render();
+    return;
+  }
+  if (!confirm(`${action === "approve" ? "Approve" : "Dismiss"} this review tuning proposal now?`)) {
+    return;
+  }
+  try {
+    await postJson(`/v1/review/tuning/${encodeURIComponent(proposalId)}/${action}`, { note: note.trim() });
+    setFlash(action === "approve" ? "Review tuning approved." : "Review tuning dismissed.", "good");
+    await refreshAll();
+  } catch (error) {
+    if (error instanceof SessionLockedError) {
+      renderLocked();
+      return;
+    }
+    setFlash(
+      `${error instanceof Error ? error.message : String(error)} Run personal-ops review tuning ${proposalId} ${action} --note "<reason>" for the CLI path.`,
+      "critical",
+    );
+    render();
+  }
+}
+
 async function performPlanningAction(action: "apply" | "snooze" | "reject"): Promise<void> {
   const recommendationId = state.selectedPlanningRecommendationId;
   if (!recommendationId) {
@@ -3609,6 +3792,28 @@ document.addEventListener("click", async (event) => {
   const reviewResolveButton = target.closest<HTMLButtonElement>("[data-review-resolve]");
   if (reviewResolveButton?.dataset.reviewResolve) {
     await resolveReviewFromConsole(reviewResolveButton.dataset.reviewResolve);
+    return;
+  }
+
+  const reviewPackageFeedbackButton = target.closest<HTMLButtonElement>("[data-review-package-feedback]");
+  if (reviewPackageFeedbackButton?.dataset.reviewPackageFeedback && reviewPackageFeedbackButton.dataset.reviewFeedbackReason) {
+    await submitReviewPackageFeedbackFromConsole(
+      reviewPackageFeedbackButton.dataset.reviewPackageFeedback,
+      reviewPackageFeedbackButton.dataset.reviewFeedbackReason as "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+      reviewPackageFeedbackButton.dataset.reviewPackageItem,
+    );
+    return;
+  }
+
+  const reviewTuningApproveButton = target.closest<HTMLButtonElement>("[data-review-tuning-approve]");
+  if (reviewTuningApproveButton?.dataset.reviewTuningApprove) {
+    await decideReviewTuningProposalFromConsole("approve", reviewTuningApproveButton.dataset.reviewTuningApprove);
+    return;
+  }
+
+  const reviewTuningDismissButton = target.closest<HTMLButtonElement>("[data-review-tuning-dismiss]");
+  if (reviewTuningDismissButton?.dataset.reviewTuningDismiss) {
+    await decideReviewTuningProposalFromConsole("dismiss", reviewTuningDismissButton.dataset.reviewTuningDismiss);
     return;
   }
 

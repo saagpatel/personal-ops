@@ -563,6 +563,94 @@ function seedPlanningAutopilotFixture(service: PersonalOpsService, accountEmail:
   };
 }
 
+function installReviewSourceFixtures(service: PersonalOpsService, options?: {
+  inboxGroups?: Array<{
+    group_id: string;
+    summary: string;
+    why_now: string;
+    score_band: "highest" | "high" | "medium";
+    state: string;
+  }>;
+  planningBundles?: Array<{
+    bundle_id: string;
+    summary: string;
+    why_now: string;
+    score_band: "highest" | "high" | "medium";
+    state: string;
+    apply_ready?: boolean;
+  }>;
+  outboundGroups?: Array<{
+    group_id: string;
+    summary: string;
+    why_now: string;
+    score_band: "highest" | "high" | "medium";
+    state: string;
+  }>;
+  meetingPackets?: Array<{ event_id: string; summary: string }>;
+}) {
+  let inboxGroups =
+    options?.inboxGroups ??
+    Array.from({ length: 4 }, (_, index) => ({
+      group_id: `inbox-group-${index + 1}`,
+      summary: `Inbox review group ${index + 1}`,
+      why_now: `Inbox reason ${index + 1}`,
+      score_band: index === 0 ? "highest" : "high",
+      state: "awaiting_review",
+    }));
+  let planningBundles =
+    options?.planningBundles ??
+    Array.from({ length: 4 }, (_, index) => ({
+      bundle_id: `planning-bundle-${index + 1}`,
+      summary: `Planning bundle ${index + 1}`,
+      why_now: `Planning reason ${index + 1}`,
+      score_band: index === 0 ? "highest" : "high",
+      state: "awaiting_review",
+      apply_ready: index % 2 === 0,
+    }));
+  let outboundGroups =
+    options?.outboundGroups ??
+    Array.from({ length: 4 }, (_, index) => ({
+      group_id: `outbound-group-${index + 1}`,
+      summary: `Outbound group ${index + 1}`,
+      why_now: `Outbound reason ${index + 1}`,
+      score_band: index === 0 ? "highest" : "high",
+      state: index % 2 === 0 ? "send_ready" : "approval_ready",
+    }));
+  let meetingPackets =
+    options?.meetingPackets ??
+    Array.from({ length: 4 }, (_, index) => ({
+      event_id: `meeting-event-${index + 1}`,
+      summary: `Meeting prep packet ${index + 1}`,
+    }));
+
+  (service as any).collectDoctorChecks = async () => [];
+  (service as any).getInboxAutopilotReport = async () => ({ groups: inboxGroups });
+  (service as any).getPlanningAutopilotReport = async () => ({ bundles: planningBundles });
+  (service as any).getOutboundAutopilotReport = async () => ({ groups: outboundGroups });
+  (service.db as any).listMeetingPrepPackets = () => meetingPackets;
+  (service as any).getCalendarEventDetail = (eventId: string): GoogleCalendarEventMetadata =>
+    buildCalendarEventMetadata(eventId, "primary", {
+      summary: `Meeting ${eventId}`,
+      start_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      end_at: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+    });
+
+  return {
+    setInboxGroups(next: typeof inboxGroups) {
+      inboxGroups = next;
+    },
+    setPlanningBundles(next: typeof planningBundles) {
+      planningBundles = next;
+    },
+    setOutboundGroups(next: typeof outboundGroups) {
+      outboundGroups = next;
+    },
+    setMeetingPackets(next: typeof meetingPackets) {
+      meetingPackets = next;
+    },
+  };
+}
+
 const cliIdentity: ClientIdentity = { client_id: "operator-cli", requested_by: "operator", auth_role: "operator" };
 const mcpIdentity: ClientIdentity = {
   client_id: "codex-mcp",
@@ -8179,6 +8267,313 @@ test("assistant-led phase 7 workflows prefer grouped outbound finish-work when i
 
   assert.equal(nowNext.actions[0]?.target_type, "outbound_autopilot_group");
   assert.equal(prepDay.actions.some((action) => action.target_type === "outbound_autopilot_group"), true);
+});
+
+test("assistant-led phase 9 review packages stay bounded to one active package per surface", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service);
+
+  await service.refreshReviewReadModel("test-bounded");
+  const report = await service.getReviewPackageReport();
+
+  assert.equal(report.packages.length, 4);
+  assert.deepEqual(
+    [...report.packages.map((pkg) => pkg.surface)].sort(),
+    ["inbox", "meetings", "outbound", "planning"],
+  );
+  assert.deepEqual(
+    report.packages.map((pkg) => pkg.items.length),
+    [3, 3, 3, 3],
+  );
+  assert.equal(new Set(report.packages.map((pkg) => pkg.surface)).size, 4);
+});
+
+test("assistant-led phase 9 review package identity ignores presentation-only copy changes", async () => {
+  const { service } = createFixture();
+  const fixtures = installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "stable-inbox-group",
+        summary: "Original inbox summary",
+        why_now: "Original inbox why now",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-copy-stable-initial");
+  const initial = await service.getReviewPackageReport();
+  const initialInbox = initial.packages.find((pkg) => pkg.surface === "inbox");
+  assert.ok(initialInbox);
+
+  fixtures.setInboxGroups([
+    {
+      group_id: "stable-inbox-group",
+      summary: "Updated inbox summary",
+      why_now: "Updated inbox why now",
+      score_band: "highest",
+      state: "awaiting_review",
+    },
+  ]);
+
+  await service.refreshReviewReadModel("test-copy-stable-refresh");
+  const refreshed = await service.getReviewPackageReport();
+  const refreshedInbox = refreshed.packages.find((pkg) => pkg.surface === "inbox");
+  assert.ok(refreshedInbox);
+
+  assert.equal(refreshedInbox?.package_id, initialInbox?.package_id);
+  assert.equal(refreshedInbox?.source_fingerprint, initialInbox?.source_fingerprint);
+  assert.equal(refreshedInbox?.summary, "Updated inbox summary");
+  assert.equal(refreshedInbox?.why_now, "Updated inbox why now");
+});
+
+test("assistant-led phase 9 review reads reuse one refresh and serve stored state while recomputing", async () => {
+  const { service } = createFixture();
+  const staleAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  service.db.upsertReviewPackage({
+    package_id: "review-package:seed",
+    surface: "inbox",
+    state: "review_ready",
+    summary: "Stored review package",
+    why_now: "Stored review why now",
+    score_band: "high",
+    signals: ["seeded"],
+    prepared_at: staleAt,
+    stale_at: staleAt,
+    source_fingerprint: "seed-fingerprint",
+    member_ids: ["seed-item"],
+    next_commands: ["personal-ops inbox autopilot"],
+    items: [
+      {
+        package_item_id: "inbox_autopilot_group:seed-item",
+        item_type: "inbox_autopilot_group",
+        item_id: "seed-item",
+        title: "Stored item",
+        summary: "Stored item summary",
+        command: "personal-ops inbox autopilot",
+        underlying_state: "awaiting_review",
+      },
+    ],
+    source_keys: ["inbox:seed-item"],
+    is_current: true,
+  });
+  service.db.upsertReviewReadModelState({
+    refresh_state: "fresh",
+    last_refresh_started_at: staleAt,
+    last_refresh_finished_at: staleAt,
+    last_refresh_trigger: "seed",
+    last_refresh_error: null,
+  });
+
+  let inboxRefreshCount = 0;
+  let releaseRefresh!: () => void;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = () => resolve();
+  });
+  (service as any).collectDoctorChecks = async () => [];
+  (service as any).getInboxAutopilotReport = async () => {
+    inboxRefreshCount += 1;
+    await refreshGate;
+    return {
+      groups: [
+        {
+          group_id: "fresh-group",
+          summary: "Fresh review package",
+          why_now: "Fresh review why now",
+          score_band: "highest",
+          state: "awaiting_review",
+        },
+      ],
+    };
+  };
+  (service as any).getPlanningAutopilotReport = async () => ({ bundles: [] });
+  (service as any).getOutboundAutopilotReport = async () => ({ groups: [] });
+  (service.db as any).listMeetingPrepPackets = () => [];
+
+  const [packagesDuringRefresh, tuningDuringRefresh] = await Promise.all([
+    service.getReviewPackageReport(),
+    service.getReviewTuningReport(),
+  ]);
+
+  assert.equal(inboxRefreshCount, 1);
+  assert.equal(packagesDuringRefresh.packages[0]?.package_id, "review-package:seed");
+  assert.equal(packagesDuringRefresh.refresh_state, "refreshing");
+  assert.equal(tuningDuringRefresh.refresh_state, "refreshing");
+
+  releaseRefresh();
+  await (service as any).reviewReadModelRefreshInFlight;
+
+  const refreshed = await service.getReviewPackageReport();
+  assert.equal(inboxRefreshCount, 1);
+  assert.equal(refreshed.packages[0]?.summary, "Fresh review package");
+  assert.notEqual(refreshed.packages[0]?.package_id, "review-package:seed");
+});
+
+test("assistant-led phase 9 review packages remain a derived overlay and never alter the worklist", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedPlanningAutopilotFixture(service, accountEmail);
+
+  const projectWorklist = (report: WorklistReport) =>
+    report.items.map((item) => ({
+      kind: item.kind,
+      severity: item.severity,
+      target_id: item.target_id ?? null,
+      summary: item.summary,
+    }));
+
+  const before = await service.getWorklistReport({ httpReachable: true });
+  service.db.upsertReviewPackage({
+    package_id: "review-package:overlay-only",
+    surface: "planning",
+    state: "review_ready",
+    summary: "Overlay planning package",
+    why_now: "This should never become a worklist source.",
+    score_band: "high",
+    signals: ["planning_review_ready"],
+    prepared_at: new Date().toISOString(),
+    stale_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    source_fingerprint: "overlay-only",
+    member_ids: ["bundle-1"],
+    next_commands: ["personal-ops review package review-package:overlay-only"],
+    items: [
+      {
+        package_item_id: "planning_autopilot_bundle:bundle-1",
+        item_type: "planning_autopilot_bundle",
+        item_id: "bundle-1",
+        title: "Overlay planning item",
+        summary: "Overlay planning summary",
+        command: "personal-ops planning autopilot --bundle bundle-1",
+        underlying_state: "awaiting_review",
+      },
+    ],
+    source_keys: ["planning:bundle-1"],
+    is_current: true,
+  });
+  service.db.upsertReviewReadModelState({
+    refresh_state: "fresh",
+    last_refresh_started_at: new Date().toISOString(),
+    last_refresh_finished_at: new Date().toISOString(),
+    last_refresh_trigger: "seed",
+    last_refresh_error: null,
+  });
+  const after = await service.getWorklistReport({ httpReachable: true });
+
+  assert.deepEqual(projectWorklist(after), projectWorklist(before));
+  assert.equal(after.items.some((item) => item.kind.includes("review")), false);
+});
+
+test("assistant-led phase 9 item-level feedback only annotates the targeted review item", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "feedback-group-1",
+        summary: "Feedback group 1",
+        why_now: "Feedback reason 1",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+      {
+        group_id: "feedback-group-2",
+        summary: "Feedback group 2",
+        why_now: "Feedback reason 2",
+        score_band: "high",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-item-feedback");
+  const initial = await service.getReviewPackageReport();
+  const pkg = initial.packages.find((candidate) => candidate.surface === "inbox");
+  assert.ok(pkg);
+  assert.equal(pkg?.items.length, 2);
+
+  const targetedItem = pkg!.items[1]!;
+  await service.submitReviewPackageFeedback(cliIdentity, pkg!.package_id, {
+    package_item_id: targetedItem.package_item_id,
+    reason: "not_useful",
+    note: "Only this item was noisy.",
+  });
+
+  const refreshed = await service.getReviewPackage(pkg!.package_id);
+  assert.equal(refreshed.items[0]?.current_feedback_reason, undefined);
+  assert.equal(refreshed.items[1]?.current_feedback_reason, "not_useful");
+  assert.equal(refreshed.state, "review_ready");
+});
+
+test("assistant-led phase 9 tuning approvals preserve evidence and only change the review overlay", async () => {
+  const { service } = createFixture();
+  installReviewSourceFixtures(service, {
+    inboxGroups: [
+      {
+        group_id: "suppression-group",
+        summary: "Suppression group",
+        why_now: "Suppression why now",
+        score_band: "highest",
+        state: "awaiting_review",
+      },
+    ],
+    planningBundles: [],
+    outboundGroups: [],
+    meetingPackets: [],
+  });
+
+  await service.refreshReviewReadModel("test-tuning-overlay-initial");
+  const initialReport = await service.getReviewPackageReport();
+  const inboxPackage = initialReport.packages.find((pkg) => pkg.surface === "inbox");
+  assert.ok(inboxPackage);
+  const beforeWorklist = await service.getWorklistReport({ httpReachable: true });
+
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:test-suppression",
+    proposal_family_key: "source_suppression:inbox:inbox:suppression-group",
+    evidence_fingerprint: "evidence-suppression-1",
+    proposal_kind: "source_suppression",
+    surface: "inbox",
+    scope_key: "inbox:suppression-group",
+    summary: "Suppress noisy inbox review source",
+    evidence_window_days: 14,
+    evidence_count: 4,
+    positive_count: 0,
+    negative_count: 4,
+    unused_stale_count: 0,
+    status: "proposed",
+    evidence_json: JSON.stringify({ source_key: "inbox:suppression-group", negative_count: 4 }),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  service.db.upsertReviewReadModelState({
+    refresh_state: "fresh",
+    last_refresh_started_at: new Date().toISOString(),
+    last_refresh_finished_at: new Date().toISOString(),
+    last_refresh_trigger: "seed",
+    last_refresh_error: null,
+  });
+
+  await service.approveReviewTuningProposal(cliIdentity, "review-tuning:test-suppression", "Suppress this noisy inbox source.");
+
+  const approved = service.db.getReviewTuningProposalRecord("review-tuning:test-suppression");
+  assert.ok(approved);
+  assert.equal(approved?.status, "approved");
+  assert.equal(approved?.evidence_json, JSON.stringify({ source_key: "inbox:suppression-group", negative_count: 4 }));
+
+  const refreshedReport = await service.getReviewPackageReport();
+  assert.equal(refreshedReport.packages.some((pkg) => pkg.surface === "inbox"), false);
+  const afterWorklist = await service.getWorklistReport({ httpReachable: true });
+  assert.deepEqual(
+    afterWorklist.items.map((item) => ({ kind: item.kind, target_id: item.target_id ?? null, summary: item.summary })),
+    beforeWorklist.items.map((item) => ({ kind: item.kind, target_id: item.target_id ?? null, summary: item.summary })),
+  );
 });
 
 test("assistant-led phase 8 autopilot warms inbox work and exposes freshness in status", async () => {

@@ -88,6 +88,17 @@ import {
   preparePlanningAutopilotBundle,
 } from "./service/planning-autopilot.js";
 import {
+  approveReviewTuningProposal,
+  buildStoredReviewPackageReport,
+  buildStoredReviewTuningReport,
+  dismissReviewTuningProposal,
+  getReviewNotificationSnapshot,
+  getReviewPackageDetail,
+  refreshReviewReadModel,
+  reviewReadModelNeedsRefresh,
+  submitReviewPackageFeedback,
+} from "./service/review-intelligence.js";
+import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
   listSnapshots as listSnapshotsFromModule,
@@ -208,6 +219,11 @@ import {
   RelatedDriveDoc,
   RelatedDriveFile,
   ReviewDetail,
+  ReviewFeedbackReason,
+  ReviewPackage,
+  ReviewPackageReport,
+  ReviewTuningProposal,
+  ReviewTuningReport,
   SendWindow,
   ServiceState,
   ServiceStatusReport,
@@ -595,6 +611,8 @@ export class PersonalOpsService {
   private readonly assistantActionStartedAt = new Map<string, string>();
   private autopilotRunInFlight: Promise<AutopilotStatusReport> | null = null;
   private queuedAutopilotRequest: AutopilotRunRequest | null = null;
+  private reviewReadModelRefreshInFlight: Promise<void> | null = null;
+  private reviewReadModelRefreshDepth = 0;
 
   constructor(
     private readonly paths: Paths,
@@ -668,13 +686,83 @@ export class PersonalOpsService {
   }
 
   async getStatusReport(options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
-    return buildStatusReport(this, options);
+    return buildStatusReport(this, {
+      ...options,
+      skipDerived: this.reviewReadModelRefreshDepth > 0,
+    });
   }
 
   async getAutopilotStatusReport(
     options: { httpReachable: boolean; triggerWarm?: AutopilotTrigger | null } = { httpReachable: true },
   ): Promise<AutopilotStatusReport> {
     return buildAutopilotStatusReport(this, options);
+  }
+
+  private startReviewReadModelRefresh(trigger: string): Promise<void> {
+    if (this.reviewReadModelRefreshInFlight) {
+      return this.reviewReadModelRefreshInFlight;
+    }
+    this.reviewReadModelRefreshInFlight = (async () => {
+      this.reviewReadModelRefreshDepth += 1;
+      try {
+        await refreshReviewReadModel(this, trigger);
+      } finally {
+        this.reviewReadModelRefreshDepth = Math.max(0, this.reviewReadModelRefreshDepth - 1);
+        this.reviewReadModelRefreshInFlight = null;
+      }
+    })();
+    return this.reviewReadModelRefreshInFlight;
+  }
+
+  async ensureReviewReadModel(options: { trigger: string; wait_for_fresh?: boolean; force?: boolean }): Promise<void> {
+    const state = this.db.getReviewReadModelState();
+    const needsRefresh = options.force || reviewReadModelNeedsRefresh(this);
+    if (!needsRefresh) {
+      return;
+    }
+    const refresh = this.startReviewReadModelRefresh(options.trigger);
+    if (options.wait_for_fresh || !state?.last_refresh_finished_at) {
+      await refresh;
+    }
+  }
+
+  async refreshReviewReadModel(trigger = "manual"): Promise<void> {
+    await this.ensureReviewReadModel({ trigger, wait_for_fresh: true, force: true });
+  }
+
+  async getReviewPackageReport(): Promise<ReviewPackageReport> {
+    await this.ensureReviewReadModel({ trigger: "review_packages_read" });
+    return buildStoredReviewPackageReport(this);
+  }
+
+  async getReviewPackage(packageId: string): Promise<ReviewPackage> {
+    await this.ensureReviewReadModel({ trigger: "review_package_detail_read", wait_for_fresh: true });
+    return getReviewPackageDetail(this, packageId);
+  }
+
+  async submitReviewPackageFeedback(
+    identity: ClientIdentity,
+    packageId: string,
+    input: { reason: ReviewFeedbackReason; note: string; package_item_id?: string },
+  ): Promise<ReviewPackage> {
+    return submitReviewPackageFeedback(this, identity, packageId, input);
+  }
+
+  async getReviewTuningReport(): Promise<ReviewTuningReport> {
+    await this.ensureReviewReadModel({ trigger: "review_tuning_read" });
+    return buildStoredReviewTuningReport(this);
+  }
+
+  async approveReviewTuningProposal(identity: ClientIdentity, proposalId: string, note: string): Promise<ReviewTuningProposal> {
+    return approveReviewTuningProposal(this, identity, proposalId, note);
+  }
+
+  async dismissReviewTuningProposal(identity: ClientIdentity, proposalId: string, note: string): Promise<ReviewTuningProposal> {
+    return dismissReviewTuningProposal(this, identity, proposalId, note);
+  }
+
+  getReviewNotificationSnapshot() {
+    return getReviewNotificationSnapshot(this);
   }
 
   isAutopilotRunning(): boolean {

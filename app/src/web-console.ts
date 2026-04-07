@@ -100,6 +100,9 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/review-queue" ||
       pathname === "/v1/review-queue/pending" ||
       pathname.startsWith("/v1/review-queue/") ||
+      pathname === "/v1/review/packages" ||
+      pathname.startsWith("/v1/review/packages/") ||
+      pathname === "/v1/review/tuning" ||
       pathname === "/v1/planning-recommendations/summary" ||
       pathname === "/v1/planning-recommendations/next" ||
       pathname.startsWith("/v1/planning-recommendations/") ||
@@ -129,6 +132,9 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       /^\/v1\/outbound\/autopilot\/groups\/[^/]+\/send$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/open$/.test(pathname) ||
       /^\/v1\/review-queue\/[^/]+\/resolve$/.test(pathname) ||
+      /^\/v1\/review\/packages\/[^/]+\/feedback$/.test(pathname) ||
+      /^\/v1\/review\/tuning\/[^/]+\/approve$/.test(pathname) ||
+      /^\/v1\/review\/tuning\/[^/]+\/dismiss$/.test(pathname) ||
       /^\/v1\/approval-queue\/[^/]+\/reject$/.test(pathname) ||
       /^\/v1\/approval-queue\/[^/]+\/reopen$/.test(pathname) ||
       /^\/v1\/approval-queue\/[^/]+\/cancel$/.test(pathname) ||
