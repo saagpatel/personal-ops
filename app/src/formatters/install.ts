@@ -166,6 +166,13 @@ export function formatDesktopStatus(report: DesktopStatusReport): string {
     line("Session handoff", yesNo(report.daemon_session_handoff_ready)),
     line("Launch URL", report.launch_url ?? "not available"),
     line("First repair step", report.repair_plan_summary?.first_repair_step ?? "none"),
+    line(
+      "Last repair",
+      report.repair_plan_summary?.last_repair
+        ? `${report.repair_plan_summary.last_repair.step_id} (${report.repair_plan_summary.last_repair.outcome})`
+        : "none",
+    ),
+    line("Recurring drift", report.repair_plan_summary?.recurring_issue?.step_id ?? "none"),
   ].join("\n");
 }
 
@@ -175,6 +182,15 @@ export function formatInstallCheckReport(report: InstallCheckReport): string {
   lines.push(line("Generated", report.generated_at));
   lines.push(line("Summary", `${report.summary.pass} pass / ${report.summary.warn} warn / ${report.summary.fail} fail`));
   lines.push(line("First repair step", report.repair_plan_summary.first_repair_step ?? "none"));
+  lines.push(
+    line(
+      "Last repair",
+      report.repair_plan_summary.last_repair
+        ? `${report.repair_plan_summary.last_repair.step_id} (${report.repair_plan_summary.last_repair.outcome})`
+        : "none",
+    ),
+  );
+  lines.push(line("Recurring drift", report.repair_plan_summary.recurring_issue?.step_id ?? "none"));
   if (report.manifest) {
     lines.push(line("Node", report.manifest.node_executable));
     lines.push(line("LaunchAgent", report.manifest.launch_agent_plist_path));

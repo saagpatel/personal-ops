@@ -84,6 +84,14 @@ Use `personal-ops repair run next` when the first repair step is one of the safe
 - reinstall the LaunchAgent
 - reinstall the desktop app on macOS
 
+Phase 16 also adds repair memory to these same surfaces:
+
+- last safe repair outcome
+- whether the targeted issue was actually resolved
+- recurring drift hints when wrapper, desktop, LaunchAgent, or permission repairs keep coming back
+
+That additive repair memory does not change the support contract or widen desktop authority. It only makes the existing repair path easier to trust.
+
 ## Closeout Rule
 
 Any future desktop maintenance change should preserve this contract unless a later roadmap phase explicitly changes the supported platform scope.

@@ -42,6 +42,9 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 | 11 | Review Trends, Tuning Impact, and Weekly Operator Review | Turn rolling review outcomes into trend, comparison, and weekly operator guidance without widening trust boundaries | Complete |
 | 12 | Outcome-Driven Review Calibration | Turn review reports into target-vs-actual calibration without widening authority | Complete |
 | 13 | Desktop Platform Hardening | Make the macOS desktop support contract explicit, durable, and cheaper to maintain | Complete |
+| 14 | Desktop Install Reliability and CI Stability | Make wrapper repair, desktop diagnostics, and platform-safe CI checks line up with the macOS-only desktop contract | Complete |
+| 15 | Guided Local Repair and Repair Plans | Turn local diagnostics into one deterministic repair plan with narrow CLI execution | Complete |
+| 16 | Repair Outcome Tracking and Drift Prevention | Record whether safe repairs worked and highlight recurring local drift before it becomes noise | Complete |
 
 ## Phase 1
 
@@ -282,8 +285,8 @@ Delivered shape:
 - unchanged trust boundaries:
   - desktop shell remains optional and macOS-only
   - no new browser mutation authority
-- no new HTTP or MCP API surface
-- no change to send, approval, auth, restore, or ranking controls
+  - no new HTTP or MCP API surface
+  - no change to send, approval, auth, restore, or ranking controls
 
 ## Phase 15
 
@@ -302,10 +305,27 @@ Delivered shape:
   - no new HTTP or MCP APIs
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 16
+
+Phase 16 is now complete.
+
+Delivered shape:
+
+- local SQLite repair execution history for safe repair steps and direct safe install repairs
+- before-and-after repair outcome recording with `resolved`, `still_pending`, and `failed`
+- additive repair-memory summaries across status, doctor, health, install check, desktop status, and console
+- recurring-drift detection over a 30-day window with fixed prevention hints for wrappers, desktop app drift, LaunchAgent drift, and secret permissions drift
+- repair run output that now says whether the targeted issue was actually cleared and what remains if it was not
+- unchanged trust boundaries:
+  - repair execution stays CLI-only
+  - browser and console remain read-only for repair
+  - no new HTTP or MCP APIs
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, and 15 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, and 16 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

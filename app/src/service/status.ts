@@ -162,6 +162,7 @@ export async function buildStatusReport(
     prune_candidate_count: prune.prune_candidates,
     recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
     machine_state_origin: describeStateOrigin(provenance),
+    recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
   });
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -169,6 +170,11 @@ export async function buildStatusReport(
       first_step_id: repairPlan.first_step_id,
       first_repair_step: repairPlan.first_repair_step,
       step_count: repairPlan.steps.length,
+      last_step_id: repairPlan.last_execution?.step_id ?? null,
+      last_outcome: repairPlan.last_execution?.outcome ?? null,
+      top_recurring_step_id: repairPlan.top_recurring_issue?.step_id ?? null,
+      last_repair: repairPlan.last_repair,
+      recurring_issue: repairPlan.recurring_issue,
     },
   };
   return {
@@ -405,6 +411,7 @@ export async function buildDoctorReport(service: any, options: { deep: boolean; 
     prune_candidate_count: prune.prune_candidates,
     recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
     machine_state_origin: describeStateOrigin(provenance),
+    recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
   });
   return {
     generated_at: new Date().toISOString(),
