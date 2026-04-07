@@ -346,6 +346,14 @@ export async function prepareInboxAutopilotGroup(
   service: any,
   identity: any,
   groupId: string,
+  options: {
+    autopilotMetadata?: {
+      autopilot_run_id?: string;
+      autopilot_profile?: string;
+      autopilot_trigger?: string;
+      autopilot_prepared_at?: string;
+    };
+  } = {},
 ): Promise<DraftGenerationResult> {
   service.assertOperatorOnly(identity, "prepare this inbox autopilot group");
   service.db.registerClient(identity);
@@ -387,6 +395,10 @@ export async function prepareInboxAutopilotGroup(
           assistant_source_thread_id: thread.thread_id,
           assistant_group_id: group.group_id,
           assistant_why_now: group.why_now,
+          autopilot_run_id: options.autopilotMetadata?.autopilot_run_id,
+          autopilot_profile: options.autopilotMetadata?.autopilot_profile,
+          autopilot_trigger: options.autopilotMetadata?.autopilot_trigger,
+          autopilot_prepared_at: options.autopilotMetadata?.autopilot_prepared_at,
         };
 
         const draft = existingDraft

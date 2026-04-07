@@ -31,6 +31,7 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
   const calendarStatus = service.getCalendarStatusReport();
   const githubStatus = service.getGithubStatusReport();
   const driveStatus = service.getDriveStatusReport();
+  const autopilotStatus = await service.getAutopilotStatusReport({ httpReachable: options.httpReachable });
   const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
@@ -248,6 +249,15 @@ export async function buildStatusReport(service: any, options: { httpReachable: 
     },
     github: githubStatus,
     drive: driveStatus,
+    autopilot: {
+      enabled: autopilotStatus.enabled,
+      mode: autopilotStatus.mode,
+      readiness: autopilotStatus.readiness,
+      running: autopilotStatus.running,
+      last_success_at: autopilotStatus.last_success_at,
+      stale_profile_count: autopilotStatus.profiles.filter((profile: any) => profile.state === "stale" || profile.state === "idle").length,
+      top_item_summary: autopilotStatus.top_item_summary,
+    },
     desktop: desktopStatus,
   };
 }

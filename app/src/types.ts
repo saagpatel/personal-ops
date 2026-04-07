@@ -24,6 +24,14 @@ export interface Config {
   serviceHost: string;
   servicePort: number;
   allowedOrigins: string[];
+  autopilotEnabled: boolean;
+  autopilotMode: AutopilotMode;
+  autopilotRunIntervalMinutes: number;
+  autopilotWarmOnConsoleOpen: boolean;
+  autopilotWarmOnDesktopOpen: boolean;
+  autopilotProfiles: AutopilotProfile[];
+  autopilotFailureBackoffMinutes: number;
+  autopilotNotificationCooldownMinutes: number;
   gmailAccountEmail: string;
   gmailReviewUrl: string;
   githubEnabled: boolean;
@@ -129,6 +137,10 @@ export type CalendarProvider = "google";
 export type CalendarSyncStatus = "idle" | "syncing" | "ready" | "degraded";
 export type GithubSyncStatus = "idle" | "syncing" | "ready" | "degraded";
 export type DriveSyncStatus = "idle" | "syncing" | "ready" | "degraded";
+export type AutopilotMode = "off" | "observe" | "continuous";
+export type AutopilotProfile = "day_start" | "inbox" | "meetings" | "planning" | "outbound";
+export type AutopilotProfileState = "fresh" | "stale" | "running" | "blocked" | "failed" | "idle";
+export type AutopilotTrigger = "startup" | "interval" | "sync" | "console_open" | "desktop_open" | "manual";
 export type GithubAttentionKind =
   | "github_review_requested"
   | "github_pr_checks_failing"
@@ -1064,6 +1076,10 @@ export interface DraftArtifact extends DraftInput {
   assistant_source_thread_id?: string | undefined;
   assistant_group_id?: string | undefined;
   assistant_why_now?: string | undefined;
+  autopilot_run_id?: string | undefined;
+  autopilot_profile?: AutopilotProfile | undefined;
+  autopilot_trigger?: AutopilotTrigger | undefined;
+  autopilot_prepared_at?: string | undefined;
   mailbox: string;
   status: DraftArtifactStatus;
   review_state: DraftReviewState;
@@ -1480,6 +1496,66 @@ export interface MeetingPrepPacketRecord {
   next_commands: string[];
   generated_at: string;
   updated_at: string;
+  autopilot_run_id?: string | undefined;
+  autopilot_profile?: AutopilotProfile | undefined;
+  autopilot_trigger?: AutopilotTrigger | undefined;
+  autopilot_prepared_at?: string | undefined;
+}
+
+export interface AutopilotProfileStatus {
+  profile: AutopilotProfile;
+  state: AutopilotProfileState;
+  prepared_at?: string | undefined;
+  stale_at?: string | undefined;
+  next_eligible_run_at?: string | undefined;
+  consecutive_failures: number;
+  changed_since_last_run: boolean;
+  summary: string | null;
+}
+
+export type AutopilotRunOutcome = "success" | "failed" | "blocked" | "running";
+
+export interface AutopilotRunRecord {
+  run_id: string;
+  trigger: AutopilotTrigger;
+  requested_profile?: AutopilotProfile | undefined;
+  started_at: string;
+  completed_at?: string | undefined;
+  outcome?: AutopilotRunOutcome | undefined;
+  summary?: string | undefined;
+  error_message?: string | undefined;
+}
+
+export interface AutopilotProfileStateRecord {
+  profile: AutopilotProfile;
+  state: AutopilotProfileState;
+  fingerprint?: string | undefined;
+  prepared_at?: string | undefined;
+  stale_at?: string | undefined;
+  next_eligible_run_at?: string | undefined;
+  last_summary?: string | undefined;
+  last_trigger?: AutopilotTrigger | undefined;
+  last_run_at?: string | undefined;
+  last_success_at?: string | undefined;
+  last_failure_at?: string | undefined;
+  last_run_outcome?: Exclude<AutopilotRunOutcome, "running"> | undefined;
+  consecutive_failures: number;
+  changed_since_last_run: boolean;
+  last_run_id?: string | undefined;
+}
+
+export interface AutopilotStatusReport {
+  enabled: boolean;
+  mode: AutopilotMode;
+  readiness: ServiceState;
+  running: boolean;
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_trigger: AutopilotTrigger | null;
+  top_item_summary: string | null;
+  first_repair_step: string | null;
+  profiles: AutopilotProfileStatus[];
 }
 
 export interface WorkflowBundleSectionItem {
@@ -1918,6 +1994,15 @@ export interface ServiceStatusReport {
   };
   github: GithubStatusReport;
   drive: DriveStatusReport;
+  autopilot: {
+    enabled: boolean;
+    mode: AutopilotMode;
+    readiness: ServiceState;
+    running: boolean;
+    last_success_at: string | null;
+    stale_profile_count: number;
+    top_item_summary: string | null;
+  };
   desktop: DesktopStatusReport;
 }
 

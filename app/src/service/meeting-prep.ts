@@ -558,7 +558,19 @@ export async function getMeetingPrepPacketDetail(service: any, eventId: string):
   return hydratePacket(candidate, candidate.packet_record);
 }
 
-export async function prepareMeetingPrepPacket(service: any, identity: any, eventId: string): Promise<{
+export async function prepareMeetingPrepPacket(
+  service: any,
+  identity: any,
+  eventId: string,
+  options: {
+    autopilotMetadata?: {
+      autopilot_run_id?: string;
+      autopilot_profile?: string;
+      autopilot_trigger?: string;
+      autopilot_prepared_at?: string;
+    };
+  } = {},
+): Promise<{
   summary: string;
   details: string[];
   success: boolean;
@@ -591,6 +603,10 @@ export async function prepareMeetingPrepPacket(service: any, identity: any, even
       next_commands: packet.next_commands,
       generated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      autopilot_run_id: options.autopilotMetadata?.autopilot_run_id,
+      autopilot_profile: options.autopilotMetadata?.autopilot_profile as any,
+      autopilot_trigger: options.autopilotMetadata?.autopilot_trigger as any,
+      autopilot_prepared_at: options.autopilotMetadata?.autopilot_prepared_at,
     });
     storedPacket = persisted;
     details.push(`Prepared packet for ${event.summary?.trim() || event.event_id}.`);
@@ -622,7 +638,18 @@ export async function prepareMeetingPrepPacket(service: any, identity: any, even
   };
 }
 
-export async function maybeAutoPrepareMeetingPackets(service: any, options: { httpReachable: boolean }): Promise<void> {
+export async function maybeAutoPrepareMeetingPackets(
+  service: any,
+  options: {
+    httpReachable: boolean;
+    autopilotMetadata?: {
+      autopilot_run_id?: string;
+      autopilot_profile?: string;
+      autopilot_trigger?: string;
+      autopilot_prepared_at?: string;
+    };
+  },
+): Promise<void> {
   const status = await service.getStatusReport(options);
   if (status.state !== "ready") {
     return;
@@ -643,6 +670,8 @@ export async function maybeAutoPrepareMeetingPackets(service: any, options: { ht
     .filter((candidate) => candidate.state === "proposed" || candidate.state === "failed")
     .slice(0, AUTO_PREP_LIMIT);
   for (const candidate of selected) {
-    await prepareMeetingPrepPacket(service, identity, candidate.event.event_id);
+    await prepareMeetingPrepPacket(service, identity, candidate.event.event_id, options.autopilotMetadata ? {
+      autopilotMetadata: options.autopilotMetadata,
+    } : {});
   }
 }

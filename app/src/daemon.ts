@@ -19,6 +19,7 @@ const systemIdentity = {
 async function runMailboxSync() {
   try {
     await service.syncMailboxMetadata(systemIdentity);
+    service.scheduleAutopilotRun("sync", { httpReachable: true });
   } catch (error) {
     logger.error("mailbox_sync_failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -29,6 +30,7 @@ async function runMailboxSync() {
 async function runCalendarSync() {
   try {
     await service.syncCalendarMetadata(systemIdentity);
+    service.scheduleAutopilotRun("sync", { httpReachable: true });
   } catch (error) {
     logger.error("calendar_sync_failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -39,6 +41,7 @@ async function runCalendarSync() {
 async function runGithubSync() {
   try {
     await service.syncGithub(systemIdentity);
+    service.scheduleAutopilotRun("sync", { httpReachable: true });
   } catch (error) {
     logger.error("github_sync_failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -49,6 +52,7 @@ async function runGithubSync() {
 async function runDriveSync() {
   try {
     await service.syncDrive(systemIdentity);
+    service.scheduleAutopilotRun("sync", { httpReachable: true });
   } catch (error) {
     logger.error("drive_sync_failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -101,6 +105,11 @@ const driveSync = setInterval(() => {
 }, Math.max(1, config.driveSyncIntervalMinutes) * 60_000);
 driveSync.unref();
 
+const autopilotInterval = setInterval(() => {
+  service.scheduleAutopilotRun("interval", { httpReachable: true });
+}, Math.max(1, config.autopilotRunIntervalMinutes) * 60_000);
+autopilotInterval.unref();
+
 server.listen(config.servicePort, config.serviceHost, () => {
   logger.info("daemon_started", {
     host: config.serviceHost,
@@ -133,6 +142,7 @@ server.listen(config.servicePort, config.serviceHost, () => {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    service.scheduleAutopilotRun("startup", { httpReachable: true });
   })();
   process.stdout.write(
     JSON.stringify({
@@ -150,6 +160,7 @@ function shutdown(signal: string) {
   clearInterval(calendarSync);
   clearInterval(githubSync);
   clearInterval(driveSync);
+  clearInterval(autopilotInterval);
   server.close(() => process.exit(0));
 }
 

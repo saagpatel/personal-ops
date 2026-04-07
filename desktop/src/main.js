@@ -58,7 +58,7 @@ function updateStatus(snapshot) {
   awaitingReview.textContent = String(snapshot.awaiting_review_count ?? 0);
   pendingApprovals.textContent = String(snapshot.approval_pending_count ?? 0);
   summary.textContent = snapshot.daemon_available
-    ? "The native shell is connected to the local operator workspace."
+    ? snapshot.autopilot_summary || "The native shell is connected to the local operator workspace."
     : "The daemon is unavailable right now, so the shell is waiting on local repair.";
   repairHint.textContent = snapshot.repair_hint || "";
   setBlockedState(!snapshot.daemon_available, snapshot.repair_hint);
@@ -185,7 +185,9 @@ async function updateTrayText(snapshot) {
   }
   await state.menuItems.readinessItem.setText(`Readiness: ${snapshot.readiness}`);
   const compactNowNext =
-    (snapshot.now_next_summary || "Nothing urgent right now.")
+    ((snapshot.autopilot_stale_profile_count ?? 0) > 0
+      ? `Autopilot stale: ${snapshot.autopilot_stale_profile_count}`
+      : snapshot.now_next_summary || "Nothing urgent right now.")
       .replace(/\s+/g, " ")
       .slice(0, 72);
   await state.menuItems.nowNextItem.setText(`Now next: ${compactNowNext}`);
@@ -229,6 +231,10 @@ async function pollSnapshot() {
       now_next_summary: "Repair the local daemon before continuing.",
       awaiting_review_count: 0,
       approval_pending_count: 0,
+      autopilot_ready: false,
+      autopilot_summary: "Autopilot is unavailable until the daemon is healthy.",
+      autopilot_stale_profile_count: 0,
+      autopilot_last_success_at: null,
       daemon_available: false,
       repair_hint: message,
     });

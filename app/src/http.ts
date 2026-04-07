@@ -391,6 +391,56 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/autopilot/status") {
+        const warmTrigger =
+          auth?.source === "browser_session"
+            ? config.autopilotWarmOnConsoleOpen
+              ? "console_open"
+              : null
+            : request.headers["x-personal-ops-origin"] === "desktop-shell" && config.autopilotWarmOnDesktopOpen
+              ? "desktop_open"
+              : null;
+        sendJson(response, 200, {
+          autopilot: await service.getAutopilotStatusReport({ httpReachable: true, triggerWarm: warmTrigger as any }),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/autopilot/run") {
+        if (!auth || auth.source !== "bearer" || auth.role !== "operator") {
+          throw new HttpError(403, "Autopilot runs require the operator bearer token.");
+        }
+        sendJson(response, 200, {
+          autopilot: await service.runAutopilot(extractIdentity(request, auth?.role ?? "operator"), {
+            trigger: "manual",
+            httpReachable: true,
+            manual: true,
+          }),
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/v1/autopilot/run/")) {
+        const profile = decodeURIComponent(url.pathname.slice("/v1/autopilot/run/".length));
+        if (profile && !profile.includes("/")) {
+          if (!["day_start", "inbox", "meetings", "planning", "outbound"].includes(profile)) {
+            throw new HttpError(400, "Autopilot profile must be day_start, inbox, meetings, planning, or outbound.");
+          }
+          if (!auth || auth.source !== "bearer" || auth.role !== "operator") {
+            throw new HttpError(403, "Autopilot runs require the operator bearer token.");
+          }
+          sendJson(response, 200, {
+            autopilot: await service.runAutopilot(extractIdentity(request, auth?.role ?? "operator"), {
+              trigger: "manual",
+              requestedProfile: profile as any,
+              httpReachable: true,
+              manual: true,
+            }),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/worklist") {
         sendJson(response, 200, {
           worklist: await service.getWorklistReport({ httpReachable: true }),

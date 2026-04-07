@@ -257,6 +257,43 @@ Important outbound rules:
 - reject, reopen, and cancel remain recovery actions in the Approvals section
 - no automatic approval and no automatic send are introduced
 
+### Continuous autopilot and warm start
+
+Assistant-Led Phase 8 consolidates safe background preparation into one coordinator.
+
+Default config lives under:
+
+```toml
+[autopilot]
+enabled = true
+mode = "continuous"
+run_interval_minutes = 5
+warm_on_console_open = true
+warm_on_desktop_open = true
+profiles = ["day_start", "inbox", "meetings", "planning", "outbound"]
+failure_backoff_minutes = 15
+notification_cooldown_minutes = 30
+```
+
+Use:
+
+```bash
+personal-ops autopilot status
+personal-ops autopilot status --json
+personal-ops autopilot run
+personal-ops autopilot run --profile inbox
+personal-ops autopilot run --profile meetings
+```
+
+Important autopilot rules:
+
+- autopilot may prepare safe work in the background
+- autopilot does not request approval, approve, or send automatically
+- autopilot does not change send-window state
+- `GET /v1/autopilot/status` is browser-safe so the console and desktop shell can show freshness
+- manual run routes stay operator-only
+- stale surfaces may trigger warm preparation on console or desktop open without widening trust boundaries
+
 ### Safe re-auth path
 
 If auth is missing, stale, or attached to the wrong mailbox:
@@ -294,6 +331,10 @@ These are the main operator commands after setup:
   Prepared planning bundles with grouped review and explicit apply.
 - `personal-ops outbound autopilot`
   Grouped outbound finish-work for reviewed mail drafts, including request-approval, approve, and send readiness.
+- `personal-ops autopilot status`
+  Shows whether day-start, inbox, meetings, planning, and outbound surfaces are already warm.
+- `personal-ops autopilot run`
+  Triggers the safe warm-start coordinator on demand.
 - `personal-ops now`
   The shortest attention-oriented summary.
 - `personal-ops status`

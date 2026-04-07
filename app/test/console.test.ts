@@ -1000,6 +1000,61 @@ test("assistant-led Phase 7 console sessions can request approval, approve, and 
   }
 });
 
+test("assistant-led Phase 8 console sessions can read autopilot freshness while manual runs stay operator-only", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const statusResponse = await fetch(`${baseUrl}/v1/autopilot/status`, {
+      headers: {
+        cookie,
+      },
+    });
+    assert.equal(statusResponse.status, 200);
+    const statusPayload = (await statusResponse.json()) as {
+      autopilot: { enabled: boolean; profiles: Array<{ profile: string; state: string }> };
+    };
+    assert.equal(statusPayload.autopilot.enabled, true);
+    assert.equal(statusPayload.autopilot.profiles.some((profile) => profile.profile === "inbox"), true);
+
+    const blockedRunResponse = await fetch(`${baseUrl}/v1/autopilot/run`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(blockedRunResponse.status, 403);
+
+    const operatorRunResponse = await fetch(`${baseUrl}/v1/autopilot/run/inbox`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(operatorRunResponse.status, 200);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("Phase 2 console sessions stay blocked from approvals and task mutations", async () => {
   const fixture = await createConsoleFixture();
   try {

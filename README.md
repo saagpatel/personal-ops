@@ -21,6 +21,7 @@ personal-ops runs as a local daemon that gives AI assistants and operator toolin
 - broader Google context inside the existing Drive scope, including narrow Google Sheets previews and richer related-file grouping
 - planning autopilot bundles that stage grouped execution work before you apply it
 - outbound autopilot groups that carry reviewed mail work through request-approval, approve, and send
+- continuous autopilot that warms inbox, meetings, planning, outbound, and day-start surfaces before you ask
 - machine-aware backups and restore guardrails
 
 ## Quick Start
@@ -83,6 +84,7 @@ Today, the repo includes:
 - `personal-ops drive sheet <fileId>` for cached Google Sheets preview context
 - `personal-ops planning autopilot` for prepared planning execution bundles
 - `personal-ops outbound autopilot` for grouped outbound finish-work after review is complete
+- `personal-ops autopilot status` and `personal-ops autopilot run` for warm-start freshness and manual safe prep
 - backup create, inspect, and restore flows with machine-aware provenance
 - end-to-end verification commands for smoke, full-stack, console, and LaunchAgent checks
 - one-command local release verification with `npm run verify:all` from `app/`

@@ -1,4 +1,12 @@
-import type { DoctorCheck, DoctorReport, HealthCheckReport, ServiceStatusReport, VersionReport, WorklistReport } from "../types.js";
+import type {
+  AutopilotStatusReport,
+  DoctorCheck,
+  DoctorReport,
+  HealthCheckReport,
+  ServiceStatusReport,
+  VersionReport,
+  WorklistReport,
+} from "../types.js";
 import {
   formatSeverity,
   formatStateLabel,
@@ -130,6 +138,29 @@ function lastRestoreSummary(report: ServiceStatusReport): string {
   return `${restore.restored_snapshot_id} from ${restore.source_machine_label ?? "unknown machine"}`;
 }
 
+export function formatAutopilotStatusReport(report: AutopilotStatusReport): string {
+  const lines: string[] = [];
+  lines.push(`Autopilot Status: ${formatStateLabel(report.readiness)}`);
+  lines.push(line("Enabled", yesNo(report.enabled)));
+  lines.push(line("Mode", report.mode));
+  lines.push(line("Running", yesNo(report.running)));
+  lines.push(line("Last run", report.last_run_at ?? "never"));
+  lines.push(line("Last success", report.last_success_at ?? "never"));
+  lines.push(line("Last failure", report.last_failure_at ?? "none"));
+  lines.push(line("Last trigger", report.last_trigger ?? "none"));
+  lines.push(line("Top item", topSummary(report.top_item_summary, "nothing urgent")));
+  lines.push(line("First repair step", report.first_repair_step ?? "none"));
+  lines.push("");
+  pushSection(
+    lines,
+    "Profiles",
+    report.profiles.map((profile) =>
+      `- ${profile.profile}: ${profile.state} | prepared ${profile.prepared_at ?? "never"} | stale ${profile.stale_at ?? "unknown"} | ${topSummary(profile.summary, "no summary yet")}`,
+    ),
+  );
+  return lines.join("\n");
+}
+
 export function formatStatusReport(report: ServiceStatusReport): string {
   const lines: string[] = [];
   lines.push(`Personal Ops Status: ${formatStateLabel(report.state)}`);
@@ -225,6 +256,16 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     line("Indexed sheets", String(report.drive.indexed_sheet_count)),
     line("Last synced", report.drive.last_synced_at ?? "never"),
     line("Top Drive item", topSummary(report.drive.top_item_summary, "nothing notable")),
+  ]);
+
+  pushSection(lines, "Autopilot", [
+    line("Enabled", yesNo(report.autopilot.enabled)),
+    line("Mode", report.autopilot.mode),
+    line("Running", yesNo(report.autopilot.running)),
+    line("Readiness", formatStateLabel(report.autopilot.readiness)),
+    line("Last success", report.autopilot.last_success_at ?? "never"),
+    line("Stale profiles", String(report.autopilot.stale_profile_count)),
+    line("Top autopilot item", topSummary(report.autopilot.top_item_summary, "nothing notable")),
   ]);
 
   pushSection(lines, "Desktop", [

@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-This document describes the current `personal-ops` system shape after Phases 1 to 8.
+This document describes the current `personal-ops` system shape after the completed assistant-led phases through Phase 8.
 
 ## Purpose
 
@@ -107,6 +107,8 @@ Recent operator-focused entrypoints:
 - `personal-ops install desktop`
 - `personal-ops desktop open`
 - `personal-ops desktop status`
+- `personal-ops autopilot status`
+- `personal-ops autopilot run`
 
 ### Local HTTP API
 
@@ -134,6 +136,20 @@ It now supports narrow operator-safe execution, including:
 - status, worklist, approvals, drafts, planning, audit, backup, GitHub, and Drive visibility
 
 It still does not replace the CLI for high-trust control surfaces like send-window enablement, restore, auth mutation, or destructive flows.
+
+### Continuous autopilot
+
+Assistant-Led Phase 8 adds one coordinator for safe background preparation.
+
+That coordinator now owns warm-start preparation for:
+
+- day-start workflow summaries
+- inbox autopilot preparation
+- meeting-packet preparation
+- planning autopilot bundle preparation
+- outbound finish-work recomputation
+
+It also publishes freshness state that the console and desktop shell can render without widening mutation scope.
 
 ### Desktop shell
 
@@ -212,6 +228,11 @@ Supporting domain folders now include:
 - `app/src/cli/`
 - `app/src/formatters/`
 - `app/src/service/`
+
+Phase 8 also adds:
+
+- `app/src/service/autopilot.ts`
+  the continuous warm-start coordinator and freshness model
 
 This is not the final modular shape, but it is the stable Phase 2 baseline the later phases now build on.
 

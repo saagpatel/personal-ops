@@ -191,6 +191,14 @@ default_limit = 50
     serviceHost: "127.0.0.1",
     servicePort: 46210,
     allowedOrigins: [],
+    autopilotEnabled: true,
+    autopilotMode: "continuous",
+    autopilotRunIntervalMinutes: 5,
+    autopilotWarmOnConsoleOpen: true,
+    autopilotWarmOnDesktopOpen: true,
+    autopilotProfiles: ["day_start", "inbox", "meetings", "planning", "outbound"],
+    autopilotFailureBackoffMinutes: 15,
+    autopilotNotificationCooldownMinutes: 30,
     gmailAccountEmail: accountEmail,
     gmailReviewUrl: "https://mail.google.com/mail/u/0/#drafts",
     githubEnabled: options.githubEnabled ?? false,
@@ -8171,6 +8179,65 @@ test("assistant-led phase 7 workflows prefer grouped outbound finish-work when i
 
   assert.equal(nowNext.actions[0]?.target_type, "outbound_autopilot_group");
   assert.equal(prepDay.actions.some((action) => action.target_type === "outbound_autopilot_group"), true);
+});
+
+test("assistant-led phase 8 autopilot warms inbox work and exposes freshness in status", async () => {
+  const accountEmail = "machine@example.com";
+  const inbound = buildMessage("msg-phase8-autopilot", accountEmail, {
+    thread_id: "thread-phase8-autopilot",
+    history_id: "phase8-autopilot-1",
+    internal_date: String(Date.now() - 15 * 60 * 1000),
+    label_ids: ["INBOX", "UNREAD"],
+    from_header: "Client <client@example.com>",
+    subject: "Autopilot reply needed",
+  });
+  const { service } = createFixture({
+    accountEmail,
+    profileHistoryId: "phase8-autopilot-ready",
+    listRefsImpl: async () => ({ message_ids: [inbound.message_id] }),
+    metadataImpl: async (messageId) => {
+      assert.equal(messageId, inbound.message_id);
+      return inbound;
+    },
+  });
+  seedMailboxReadyState(service, accountEmail, "phase8-autopilot-ready");
+  service.db.upsertCalendarSyncState(accountEmail, "google", {
+    status: "ready",
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    calendars_refreshed_count: 1,
+    events_refreshed_count: 0,
+  });
+  (service as any).collectDoctorChecks = async () => [];
+
+  await service.syncMailboxMetadata(cliIdentity);
+
+  const initialStatus = await service.getAutopilotStatusReport({ httpReachable: true });
+  assert.equal(initialStatus.profiles.some((profile) => profile.profile === "inbox"), true);
+
+  const report = await service.runAutopilot(cliIdentity, {
+    trigger: "manual",
+    requestedProfile: "inbox",
+    httpReachable: true,
+    manual: true,
+  });
+  const inboxProfile = report.profiles.find((profile) => profile.profile === "inbox");
+  assert.ok(inboxProfile);
+  assert.equal(inboxProfile?.state, "fresh");
+  assert.equal(Boolean(inboxProfile?.prepared_at), true);
+
+  const latestRun = service.db.getLatestAutopilotRun();
+  assert.ok(latestRun);
+  assert.equal(latestRun?.trigger, "manual");
+  const storedProfile = service.db.getAutopilotProfileState("inbox");
+  assert.equal(storedProfile?.state, "fresh");
+  assert.equal(storedProfile?.last_run_id, latestRun?.run_id);
+  assert.equal(Boolean(storedProfile?.last_success_at), true);
+
+  const statusReport = await service.getStatusReport({ httpReachable: true });
+  assert.equal(statusReport.autopilot?.enabled, true);
+  assert.equal(statusReport.autopilot?.running, false);
+  assert.equal(Boolean(statusReport.autopilot?.last_success_at), true);
 });
 
 test("assistant-led phase 5 mcp drive tools are assistant-safe read-only tools", () => {
