@@ -1,9 +1,56 @@
-import type { DoctorReport, ServiceStatusReport } from "../types.js";
+import type {
+  DoctorReport,
+  ReviewCalibrationMetricAssessment,
+  ReviewCalibrationSurfaceSummary,
+  ReviewPackageSurface,
+  ServiceStatusReport,
+} from "../types.js";
 import { getDesktopStatusReport } from "../desktop.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
-import { buildStoredReviewPackageReport, buildStoredReviewReport, buildStoredReviewWeekly } from "./review-intelligence.js";
+import {
+  buildStoredReviewCalibration,
+  buildStoredReviewPackageReport,
+  buildStoredReviewReport,
+  buildStoredReviewWeekly,
+} from "./review-intelligence.js";
+
+const CALIBRATION_METRIC_PRECEDENCE: ReviewCalibrationMetricAssessment["metric"][] = [
+  "notifications_per_7d",
+  "stale_unused_rate",
+  "negative_feedback_rate",
+  "acted_on_rate",
+  "notification_action_conversion_rate",
+];
+
+function calibrationMetricPrecedence(metric: ReviewCalibrationMetricAssessment["metric"]): number {
+  const index = CALIBRATION_METRIC_PRECEDENCE.indexOf(metric);
+  return index === -1 ? CALIBRATION_METRIC_PRECEDENCE.length : index;
+}
+
+function calibrationMetricGap(metric: ReviewCalibrationMetricAssessment): number {
+  if (metric.metric === "acted_on_rate" || metric.metric === "notification_action_conversion_rate") {
+    return Math.max(0, metric.target_value - metric.actual_value) / Math.max(metric.target_value, 0.05);
+  }
+  if (metric.metric === "notifications_per_7d" && metric.target_value === 0) {
+    return metric.actual_value > 0 ? metric.actual_value : 0;
+  }
+  return Math.max(0, metric.actual_value - metric.target_value) / Math.max(metric.target_value, metric.metric === "notifications_per_7d" ? 1 : 0.05);
+}
+
+function topCalibrationSurface(summaries: ReviewCalibrationSurfaceSummary[]): ReviewPackageSurface | null {
+  return (
+    [...summaries]
+      .filter((summary) => Boolean(summary.surface) && summary.status === "off_track")
+      .sort(
+        (left, right) =>
+          calibrationMetricPrecedence(left.worst_metric.metric) - calibrationMetricPrecedence(right.worst_metric.metric) ||
+          calibrationMetricGap(right.worst_metric) - calibrationMetricGap(left.worst_metric) ||
+          (left.surface ?? "").localeCompare(right.surface ?? ""),
+      )[0]?.surface ?? null
+  );
+}
 
 export async function buildStatusReport(
   service: any,
@@ -47,6 +94,9 @@ export async function buildStatusReport(
   const reviewWeeklyReport = skipDerived
     ? await buildStoredReviewWeekly(service, { days: 14 })
     : await service.getReviewWeekly({ days: 14 });
+  const reviewCalibrationReport = skipDerived
+    ? await buildStoredReviewCalibration(service)
+    : await service.getReviewCalibration();
   const desktopStatus = await getDesktopStatusReport(service.paths);
   const topInboxItem =
     worklist.items.find((item: any) =>
@@ -289,6 +339,10 @@ export async function buildStatusReport(
       week_over_week_notification_action_conversion_delta:
         reviewWeeklyReport.week_over_week_notification_action_conversion_delta,
       top_review_trend_surface: reviewWeeklyReport.top_review_trend_surface,
+      calibration_status: reviewCalibrationReport.global.status,
+      surfaces_off_track_count: reviewCalibrationReport.surfaces_off_track_count,
+      notification_budget_pressure_count: reviewCalibrationReport.notification_budget_pressure_count,
+      top_calibration_surface: topCalibrationSurface(reviewCalibrationReport.surfaces),
     },
     desktop: desktopStatus,
   };

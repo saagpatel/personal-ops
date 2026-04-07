@@ -9128,6 +9128,441 @@ test("assistant-led phase 11 weekly review feeds additive status deltas and oper
   assert.ok(status.review.week_over_week_action_rate_delta > 0);
 });
 
+test("assistant-led phase 12 review calibration targets inherit and flag off-track surfaces", async () => {
+  const { service } = createFixture();
+  const now = Date.now();
+  const currentTimes = [
+    new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+  ];
+
+  const makeCycle = (
+    packageId: string,
+    seenAt: string,
+    input: { opened?: boolean; acted?: boolean; stale?: boolean },
+  ) =>
+    service.db.ensureOpenReviewPackageCycle({
+      package_id: packageId,
+      surface: "inbox",
+      source_fingerprint: packageId,
+      summary: packageId,
+      why_now: packageId,
+      score_band: "high",
+      member_ids: [packageId],
+      items: [
+        {
+          package_item_id: `group:${packageId}`,
+          item_type: "inbox_autopilot_group",
+          item_id: packageId,
+          title: packageId,
+          summary: packageId,
+          command: "personal-ops inbox autopilot",
+          underlying_state: input.stale ? "stale" : "awaiting_review",
+        },
+      ],
+      source_keys: ["inbox:calibration-source"],
+      seen_at: seenAt,
+      opened_at: input.opened ? seenAt : null,
+      acted_on_at: input.acted ? seenAt : null,
+      completed_at: input.acted ? seenAt : null,
+      stale_unused_at: input.stale ? seenAt : null,
+    });
+
+  const staleCycleOne = makeCycle("calibration-stale-1", currentTimes[0]!, { stale: true });
+  const staleCycleTwo = makeCycle("calibration-stale-2", currentTimes[1]!, { stale: true });
+  makeCycle("calibration-acted", currentTimes[2]!, { opened: true, acted: true });
+
+  for (const cycle of [staleCycleOne, staleCycleTwo]) {
+    service.db.createReviewFeedbackEvent({
+      package_id: cycle.package_id,
+      package_cycle_id: cycle.package_cycle_id,
+      surface: "inbox",
+      package_item_id: cycle.items[0]!.package_item_id,
+      reason: "not_useful",
+      note: "Still too noisy.",
+      actor: cliIdentity.requested_by ?? null,
+      client_id: cliIdentity.client_id,
+      source_fingerprint: cycle.source_fingerprint,
+    });
+    service.db.createReviewNotificationEvent({
+      kind: "review_package_inbox",
+      decision: "fired",
+      source: "desktop",
+      surface: "inbox",
+      package_id: cycle.package_id,
+      package_cycle_id: cycle.package_cycle_id,
+      current_count: 1,
+      previous_count: 0,
+      cooldown_minutes: 30,
+      client_id: cliIdentity.client_id,
+      actor: cliIdentity.requested_by ?? null,
+    });
+  }
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_inbox",
+    decision: "fired",
+    source: "desktop",
+    surface: "inbox",
+    package_id: staleCycleTwo.package_id,
+    package_cycle_id: staleCycleTwo.package_cycle_id,
+    current_count: 1,
+    previous_count: 0,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+
+  service.updateReviewCalibrationTarget(cliIdentity, "global", {
+    min_acted_on_rate: 0.6,
+    max_stale_unused_rate: 0.2,
+    max_negative_feedback_rate: 0.2,
+    min_notification_action_conversion_rate: 0.5,
+    max_notifications_per_7d: 2,
+  });
+  service.updateReviewCalibrationTarget(cliIdentity, "inbox", {
+    max_notifications_per_7d: 1,
+  });
+
+  const targets = service.getReviewCalibrationTargets();
+  assert.equal(targets.configured_targets.find((target) => target.scope_key === "global")?.min_acted_on_rate, 0.6);
+  assert.equal(targets.effective_targets.find((target) => target.scope_key === "inbox")?.max_notifications_per_7d, 1);
+  assert.equal(targets.effective_targets.find((target) => target.scope_key === "meetings")?.max_notifications_per_7d, 2);
+  assert.equal(targets.effective_targets.find((target) => target.scope_key === "inbox")?.min_acted_on_rate, 0.6);
+
+  const calibration = await service.getReviewCalibration({ surface: "inbox" });
+  const inboxSummary = calibration.surfaces[0];
+  assert.ok(inboxSummary);
+  assert.equal(inboxSummary?.status, "off_track");
+  assert.equal(calibration.surfaces_off_track_count >= 1, true);
+  assert.equal(calibration.notification_budget_pressure_count >= 1, true);
+  assert.equal(inboxSummary?.metrics.find((metric) => metric.metric === "stale_unused_rate")?.status, "off_track");
+  assert.equal(inboxSummary?.metrics.find((metric) => metric.metric === "negative_feedback_rate")?.status, "off_track");
+  assert.equal(inboxSummary?.metrics.find((metric) => metric.metric === "notifications_per_7d")?.status, "off_track");
+  assert.ok(inboxSummary?.recommendations.some((entry) => entry.kind === "tighten_notification_budget"));
+  assert.ok(inboxSummary?.recommendations.some((entry) => entry.kind === "inspect_source_suppression"));
+  assert.ok(inboxSummary?.recommendations.some((entry) => entry.kind === "review_package_composition"));
+  assert.equal(inboxSummary?.top_noisy_sources[0]?.scope_key, "inbox:calibration-source");
+  assert.equal(inboxSummary?.effective_target.max_notifications_per_7d, 1);
+
+  const resetTargets = service.resetReviewCalibrationTarget(cliIdentity, "inbox");
+  assert.equal(resetTargets.effective_targets.find((target) => target.scope_key === "inbox")?.max_notifications_per_7d, 2);
+
+  const status = await service.getStatusReport({ httpReachable: true });
+  assert.equal(status.review.calibration_status, "off_track");
+  assert.equal(status.review.surfaces_off_track_count >= 1, true);
+  assert.equal(status.review.top_calibration_surface, "inbox");
+});
+
+test("assistant-led phase 12 review calibration keeps current tuning when recent impact is positive", async () => {
+  const { service } = createFixture();
+  const now = Date.now();
+  const approvedAt = new Date(now - 16 * 24 * 60 * 60 * 1000).toISOString();
+  const preStart = new Date(Date.parse(approvedAt) - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const preSecond = new Date(Date.parse(approvedAt) - 5 * 24 * 60 * 60 * 1000).toISOString();
+  const postStart = new Date(Date.parse(approvedAt) + 1 * 24 * 60 * 60 * 1000).toISOString();
+  const postSecond = new Date(Date.parse(approvedAt) + 2 * 24 * 60 * 60 * 1000).toISOString();
+  const recentOne = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const recentTwo = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const recentThree = new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString();
+  const future = new Date(now + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  for (const [packageId, startedAt, acted, stale] of [
+    ["phase12-pre-1", preStart, false, true],
+    ["phase12-pre-2", preSecond, false, true],
+    ["phase12-post-1", postStart, true, false],
+    ["phase12-post-2", postSecond, true, false],
+    ["phase12-recent-1", recentOne, true, false],
+    ["phase12-recent-2", recentTwo, true, false],
+    ["phase12-recent-3", recentThree, true, false],
+  ] as const) {
+    service.db.ensureOpenReviewPackageCycle({
+      package_id: packageId,
+      surface: "inbox",
+      source_fingerprint: packageId,
+      summary: packageId,
+      why_now: packageId,
+      score_band: "high",
+      member_ids: [packageId],
+      items: [
+        {
+          package_item_id: `group:${packageId}`,
+          item_type: "inbox_autopilot_group",
+          item_id: packageId,
+          title: packageId,
+          summary: packageId,
+          command: "personal-ops inbox autopilot",
+          underlying_state: acted ? "reviewed" : "stale",
+        },
+      ],
+      source_keys: ["inbox:phase12-positive"],
+      seen_at: startedAt,
+      opened_at: acted ? startedAt : null,
+      acted_on_at: acted ? startedAt : null,
+      completed_at: acted ? startedAt : null,
+      stale_unused_at: stale ? startedAt : null,
+    });
+  }
+
+  const notificationCycle = service.db.getLatestReviewPackageCycleForPackage("phase12-recent-2");
+  assert.ok(notificationCycle);
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_inbox",
+    decision: "fired",
+    source: "desktop",
+    surface: "inbox",
+    package_id: "phase12-recent-2",
+    package_cycle_id: notificationCycle!.package_cycle_id,
+    current_count: 1,
+    previous_count: 0,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+  const notificationCycleTwo = service.db.getLatestReviewPackageCycleForPackage("phase12-recent-3");
+  assert.ok(notificationCycleTwo);
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_inbox",
+    decision: "fired",
+    source: "desktop",
+    surface: "inbox",
+    package_id: "phase12-recent-3",
+    package_cycle_id: notificationCycleTwo!.package_cycle_id,
+    current_count: 1,
+    previous_count: 0,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+
+  service.db.upsertReviewTuningProposal({
+    proposal_id: "review-tuning:phase12-keep",
+    proposal_family_key: "source_suppression:inbox:inbox:phase12-positive",
+    evidence_fingerprint: "phase12-keep",
+    proposal_kind: "source_suppression",
+    surface: "inbox",
+    scope_key: "inbox:phase12-positive",
+    summary: "Keep suppressing the noisiest inbox source",
+    evidence_window_days: 14,
+    evidence_count: 4,
+    positive_count: 0,
+    negative_count: 4,
+    unused_stale_count: 2,
+    status: "approved",
+    evidence_json: JSON.stringify({ scope_key: "inbox:phase12-positive" }),
+    created_at: approvedAt,
+    updated_at: approvedAt,
+    expires_at: future,
+    approved_at: approvedAt,
+    approved_by_client: cliIdentity.client_id,
+    approved_by_actor: cliIdentity.requested_by,
+    approved_note: "Approved for calibration.",
+  });
+  service.updateReviewCalibrationTarget(cliIdentity, "global", {
+    min_acted_on_rate: 0.5,
+    max_stale_unused_rate: 0.5,
+    max_negative_feedback_rate: 0.25,
+    min_notification_action_conversion_rate: 0,
+    max_notifications_per_7d: 5,
+  });
+
+  const calibration = await service.getReviewCalibration({ surface: "inbox" });
+  const inboxSummary = calibration.surfaces[0];
+  assert.ok(inboxSummary);
+  assert.equal(inboxSummary?.status, "on_track");
+  assert.ok((inboxSummary?.recent_tuning_impact.length ?? 0) > 0);
+  assert.ok(inboxSummary?.recommendations.some((entry) => entry.kind === "keep_current_tuning"));
+});
+
+test("assistant-led phase 12 review calibration treats any fired notifications as off-track when the budget is zero", async () => {
+  const { service } = createFixture();
+  const seenAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const cycle = service.db.ensureOpenReviewPackageCycle({
+    package_id: "phase12-zero-budget",
+    surface: "meetings",
+    source_fingerprint: "phase12-zero-budget",
+    summary: "phase12-zero-budget",
+    why_now: "phase12-zero-budget",
+    score_band: "high",
+    member_ids: ["phase12-zero-budget"],
+    items: [
+      {
+        package_item_id: "meeting:phase12-zero-budget",
+        item_type: "meeting_prep_packet",
+        item_id: "phase12-zero-budget",
+        title: "phase12-zero-budget",
+        summary: "phase12-zero-budget",
+        command: "personal-ops workflows prep-meetings",
+        underlying_state: "review_ready",
+      },
+    ],
+    source_keys: ["meetings:phase12-zero-budget"],
+    seen_at: seenAt,
+  });
+  service.db.createReviewNotificationEvent({
+    kind: "review_package_meetings",
+    decision: "fired",
+    source: "desktop",
+    surface: "meetings",
+    package_id: cycle.package_id,
+    package_cycle_id: cycle.package_cycle_id,
+    current_count: 1,
+    previous_count: 0,
+    cooldown_minutes: 30,
+    client_id: cliIdentity.client_id,
+    actor: cliIdentity.requested_by ?? null,
+  });
+
+  service.updateReviewCalibrationTarget(cliIdentity, "meetings", {
+    max_notifications_per_7d: 0,
+    min_acted_on_rate: 0,
+    max_stale_unused_rate: 1,
+    max_negative_feedback_rate: 1,
+    min_notification_action_conversion_rate: 0,
+  });
+
+  const calibration = await service.getReviewCalibration({ surface: "meetings" });
+  const meetings = calibration.surfaces[0];
+  assert.ok(meetings);
+  assert.equal(meetings?.metrics.find((metric) => metric.metric === "notifications_per_7d")?.status, "off_track");
+});
+
+test("assistant-led phase 12 review calibration routes stay operator-only and reject browser target mutation", async () => {
+  const { service, config, policy } = createFixture();
+  const server = createHttpServer(service, config, policy);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  assert.ok(address && typeof address === "object" && "port" in address);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const assistantRead = await fetch(`${baseUrl}/v1/review/calibration`, {
+      headers: {
+        authorization: `Bearer ${config.assistantApiToken}`,
+        "x-personal-ops-client": "phase12-http-test",
+      },
+    });
+    assert.equal(assistantRead.status, 403);
+
+    const operatorRead = await fetch(`${baseUrl}/v1/review/calibration`, {
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "x-personal-ops-client": "phase12-http-test",
+      },
+    });
+    assert.equal(operatorRead.status, 200);
+
+    const operatorTargetRead = await fetch(`${baseUrl}/v1/review/calibration/targets`, {
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "x-personal-ops-client": "phase12-http-test",
+      },
+    });
+    assert.equal(operatorTargetRead.status, 200);
+
+    const operatorWrite = await fetch(`${baseUrl}/v1/review/calibration/targets/global`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "content-type": "application/json",
+        "x-personal-ops-client": "phase12-http-test",
+        "x-personal-ops-requested-by": "operator-http",
+      },
+      body: JSON.stringify({ max_notifications_per_7d: 4 }),
+    });
+    assert.equal(operatorWrite.status, 200);
+    const operatorPayload = (await operatorWrite.json()) as {
+      review_calibration_target?: { max_notifications_per_7d: number };
+    };
+    assert.equal(operatorPayload.review_calibration_target?.max_notifications_per_7d, 4);
+
+    const operatorSurfaceWrite = await fetch(`${baseUrl}/v1/review/calibration/targets/inbox`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "content-type": "application/json",
+        "x-personal-ops-client": "phase12-http-test",
+        "x-personal-ops-requested-by": "operator-http",
+      },
+      body: JSON.stringify({ max_notifications_per_7d: 3 }),
+    });
+    assert.equal(operatorSurfaceWrite.status, 200);
+
+    const sessionGrantResponse = await fetch(`${baseUrl}/v1/console/session`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "x-personal-ops-client": "phase12-http-test",
+      },
+    });
+    assert.equal(sessionGrantResponse.status, 200);
+    const sessionGrant = (await sessionGrantResponse.json()) as {
+      console_session?: { grant: string; launch_url: string };
+    };
+    const sessionLaunchResponse = await fetch(`${baseUrl}/console/session/${sessionGrant.console_session!.grant}`, {
+      redirect: "manual",
+    });
+    const cookie = sessionLaunchResponse.headers.get("set-cookie");
+    assert.ok(cookie);
+    const browserCookie = cookie!.split(";")[0]!;
+
+    const browserRead = await fetch(`${baseUrl}/v1/review/calibration`, {
+      headers: {
+        cookie: browserCookie,
+      },
+    });
+    assert.equal(browserRead.status, 200);
+
+    const browserTargetRead = await fetch(`${baseUrl}/v1/review/calibration/targets`, {
+      headers: {
+        cookie: browserCookie,
+      },
+    });
+    assert.equal(browserTargetRead.status, 200);
+
+    const browserWrite = await fetch(`${baseUrl}/v1/review/calibration/targets/global`, {
+      method: "PUT",
+      headers: {
+        cookie: browserCookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ max_notifications_per_7d: 3 }),
+    });
+    assert.equal(browserWrite.status, 403);
+
+    const browserReset = await fetch(`${baseUrl}/v1/review/calibration/targets/inbox`, {
+      method: "DELETE",
+      headers: {
+        cookie: browserCookie,
+      },
+    });
+    assert.equal(browserReset.status, 403);
+
+    const operatorReset = await fetch(`${baseUrl}/v1/review/calibration/targets/inbox`, {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${config.apiToken}`,
+        "x-personal-ops-client": "phase12-http-test",
+        "x-personal-ops-requested-by": "operator-http",
+      },
+    });
+    assert.equal(operatorReset.status, 200);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("assistant-led phase 12 cli exposes review calibration commands", () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), "src/cli.ts"), "utf8");
+  assert.match(source, /command\("calibration"\)/);
+  assert.match(source, /\/v1\/review\/calibration/);
+  assert.match(source, /command\("targets"\)/);
+  assert.match(source, /command\("set"\)/);
+  assert.match(source, /command\("reset"\)/);
+  assert.match(source, /--min-notification-action-rate/);
+  assert.match(source, /\/v1\/review\/calibration\/targets/);
+});
+
 test("assistant-led phase 8 autopilot warms inbox work and exposes freshness in status", async () => {
   const accountEmail = "machine@example.com";
   const inbound = buildMessage("msg-phase8-autopilot", accountEmail, {

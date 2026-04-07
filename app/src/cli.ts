@@ -49,6 +49,8 @@ import {
   formatOutboundAutopilotActionResult,
   formatOutboundAutopilotGroup,
   formatOutboundAutopilotReport,
+  formatReviewCalibrationReport,
+  formatReviewCalibrationTargetsReport,
   formatReviewDetail,
   formatReviewItems,
   formatReviewOpenResult,
@@ -317,6 +319,98 @@ review
     const suffix = search.size ? `?${search.toString()}` : "";
     const response = await requestJson<{ review_weekly: unknown }>("GET", `/v1/review/weekly${suffix}`);
     printOutput(response, (value) => formatReviewWeeklyReport(value.review_weekly as any), options.json);
+  });
+
+const reviewCalibration = review
+  .command("calibration")
+  .description("Compare review outcomes against explicit calibration targets.")
+  .option("--surface <surface>", "Optional surface filter (inbox, meetings, planning, outbound)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.surface) {
+      search.set("surface", String(options.surface));
+    }
+    const suffix = search.size ? `?${search.toString()}` : "";
+    const response = await requestJson<{ review_calibration: unknown }>("GET", `/v1/review/calibration${suffix}`);
+    printOutput(response, (value) => formatReviewCalibrationReport(value.review_calibration as any), options.json);
+  });
+
+const reviewCalibrationTargets = reviewCalibration
+  .command("targets")
+  .description("List configured and effective review calibration targets.")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const response = await requestJson<{ review_calibration_targets: unknown }>("GET", "/v1/review/calibration/targets");
+    printOutput(
+      response,
+      (value) => formatReviewCalibrationTargetsReport(value.review_calibration_targets as any),
+      options.json,
+    );
+  });
+
+reviewCalibrationTargets
+  .command("set")
+  .description("Update a review calibration target for the global scope or a specific surface.")
+  .requiredOption("--scope <scope>", "Target scope (global, inbox, meetings, planning, outbound)")
+  .option("--min-acted-on-rate <value>", "Minimum acted-on rate target (0 to 1)")
+  .option("--max-stale-unused-rate <value>", "Maximum stale-unused rate target (0 to 1)")
+  .option("--max-negative-feedback-rate <value>", "Maximum negative feedback rate target (0 to 1)")
+  .option("--min-notification-action-rate <value>", "Minimum notification action conversion target (0 to 1)")
+  .option("--max-notifications-per-7d <value>", "Maximum fired notifications per 7-day window")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    if (
+      options.minActedOnRate === undefined &&
+      options.maxStaleUnusedRate === undefined &&
+      options.maxNegativeFeedbackRate === undefined &&
+      options.minNotificationActionRate === undefined &&
+      options.maxNotificationsPer7d === undefined
+    ) {
+      throw new Error("Provide at least one calibration target value to update.");
+    }
+    await requestJson<{ review_calibration_target: unknown }>(
+      "PUT",
+      `/v1/review/calibration/targets/${encodeURIComponent(String(options.scope))}`,
+      {
+        ...(options.minActedOnRate !== undefined ? { min_acted_on_rate: Number(options.minActedOnRate) } : {}),
+        ...(options.maxStaleUnusedRate !== undefined ? { max_stale_unused_rate: Number(options.maxStaleUnusedRate) } : {}),
+        ...(options.maxNegativeFeedbackRate !== undefined
+          ? { max_negative_feedback_rate: Number(options.maxNegativeFeedbackRate) }
+          : {}),
+        ...(options.minNotificationActionRate !== undefined
+          ? {
+              min_notification_action_conversion_rate: Number(options.minNotificationActionRate),
+            }
+          : {}),
+        ...(options.maxNotificationsPer7d !== undefined
+          ? { max_notifications_per_7d: Number(options.maxNotificationsPer7d) }
+          : {}),
+      },
+    );
+    const response = await requestJson<{ review_calibration_targets: unknown }>("GET", "/v1/review/calibration/targets");
+    printOutput(
+      response,
+      (value) => formatReviewCalibrationTargetsReport(value.review_calibration_targets as any),
+      options.json,
+    );
+  });
+
+reviewCalibrationTargets
+  .command("reset")
+  .description("Remove a per-surface review calibration override and fall back to the global target.")
+  .requiredOption("--scope <scope>", "Target scope (inbox, meetings, planning, outbound)")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const response = await requestJson<{ review_calibration_targets: unknown }>(
+      "DELETE",
+      `/v1/review/calibration/targets/${encodeURIComponent(String(options.scope))}`,
+    );
+    printOutput(
+      response,
+      (value) => formatReviewCalibrationTargetsReport(value.review_calibration_targets as any),
+      options.json,
+    );
   });
 
 const approval = program.command("approval").description("Work approval requests for outbound draft sends.");

@@ -89,6 +89,7 @@ import {
 } from "./service/planning-autopilot.js";
 import {
   approveReviewTuningProposal,
+  buildReviewCalibration,
   buildReviewImpact,
   buildReviewReport,
   buildReviewTrends,
@@ -96,12 +97,15 @@ import {
   buildStoredReviewPackageReport,
   buildStoredReviewTuningReport,
   dismissReviewTuningProposal,
+  getReviewCalibrationTargets,
   getReviewNotificationSnapshot,
   getReviewPackageDetail,
   recordReviewNotificationEvents,
   refreshReviewReadModel,
+  resetReviewCalibrationTarget,
   reviewReadModelNeedsRefresh,
   submitReviewPackageFeedback,
+  updateReviewCalibrationTarget,
 } from "./service/review-intelligence.js";
 import {
   createSnapshot as createSnapshotFromModule,
@@ -223,6 +227,9 @@ import {
   OutboundAutopilotReport,
   RelatedDriveDoc,
   RelatedDriveFile,
+  ReviewCalibrationReport,
+  ReviewCalibrationTarget,
+  ReviewCalibrationTargetsReport,
   ReviewDetail,
   ReviewFeedbackReason,
   ReviewNotificationDecision,
@@ -779,6 +786,32 @@ export class PersonalOpsService {
 
   async getReviewWeekly(options: { days?: number } = {}): Promise<ReviewWeeklyReport> {
     return buildReviewWeekly(this, options);
+  }
+
+  async getReviewCalibration(options: { surface?: ReviewPackageSurface } = {}): Promise<ReviewCalibrationReport> {
+    return buildReviewCalibration(this, options);
+  }
+
+  getReviewCalibrationTargets(): ReviewCalibrationTargetsReport {
+    return getReviewCalibrationTargets(this);
+  }
+
+  updateReviewCalibrationTarget(
+    identity: ClientIdentity,
+    scopeKey: string,
+    updates: {
+      min_acted_on_rate?: number;
+      max_stale_unused_rate?: number;
+      max_negative_feedback_rate?: number;
+      min_notification_action_conversion_rate?: number;
+      max_notifications_per_7d?: number;
+    },
+  ): ReviewCalibrationTarget {
+    return updateReviewCalibrationTarget(this, identity, scopeKey, updates);
+  }
+
+  resetReviewCalibrationTarget(identity: ClientIdentity, scopeKey: string): ReviewCalibrationTargetsReport {
+    return resetReviewCalibrationTarget(this, identity, scopeKey);
   }
 
   async approveReviewTuningProposal(identity: ClientIdentity, proposalId: string, note: string): Promise<ReviewTuningProposal> {

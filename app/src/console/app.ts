@@ -24,6 +24,7 @@ import type {
   PlanningRecommendationGroup,
   PlanningRecommendationGroupDetail,
   PlanningRecommendationSummaryReport,
+  ReviewCalibrationReport,
   ReviewImpactReport,
   ReviewPackage,
   ReviewPackageReport,
@@ -63,6 +64,7 @@ interface ConsolePayload {
   planningAutopilot: PlanningAutopilotReport;
   reviewPackages: ReviewPackageReport;
   reviewTuning: ReviewTuningReport;
+  reviewCalibration: ReviewCalibrationReport;
   reviewReport: ReviewReport;
   reviewTrends: ReviewTrendsReport;
   reviewImpact: ReviewImpactReport;
@@ -155,6 +157,10 @@ interface ReviewTuningResponse {
 
 interface ReviewReportResponse {
   review_report: ReviewReport;
+}
+
+interface ReviewCalibrationResponse {
+  review_calibration: ReviewCalibrationReport;
 }
 
 interface ReviewTrendsResponse {
@@ -254,7 +260,7 @@ class SessionLockedError extends Error {}
 
 const SECTIONS: Record<SectionId, string> = {
   overview: "Overview",
-  review: "Review Trends",
+  review: "Review Calibration",
   worklist: "Worklist",
   approvals: "Approvals",
   drafts: "Drafts",
@@ -445,6 +451,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     planningAutopilotResponse,
     reviewPackagesResponse,
     reviewTuningResponse,
+    reviewCalibrationResponse,
     reviewReportResponse,
     reviewTrendsResponse,
     reviewImpactResponse,
@@ -471,6 +478,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
     fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
     fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
+    fetchJson<ReviewCalibrationResponse>("/v1/review/calibration"),
     fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
     fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
     fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
@@ -499,6 +507,7 @@ async function loadPayload(): Promise<ConsolePayload> {
     planningAutopilot: planningAutopilotResponse.planning_autopilot,
     reviewPackages: reviewPackagesResponse.review_packages,
     reviewTuning: reviewTuningResponse.review_tuning,
+    reviewCalibration: reviewCalibrationResponse.review_calibration,
     reviewReport: reviewReportResponse.review_report,
     reviewTrends: reviewTrendsResponse.review_trends,
     reviewImpact: reviewImpactResponse.review_impact,
@@ -781,12 +790,146 @@ function renderReviewReport(report: ReviewReport): string {
   `;
 }
 
+function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
+  const calibration = payload.reviewCalibration;
+  return `
+    <section class="detail-stack">
+      <section class="hero">
+        <p class="eyebrow">Review calibration</p>
+        <h3>Calibration turns the review reports into explicit operator targets instead of “looks better” guesswork.</h3>
+        <p>${escapeHtml(`Global status: ${calibration.global.status.replaceAll("_", " ")} · off-track surfaces ${calibration.surfaces_off_track_count} · notification budget pressure ${calibration.notification_budget_pressure_count}`)}</p>
+      </section>
+      <section class="stats-grid">
+        ${metricCard("Global status", calibration.global.status.replaceAll("_", " "), calibration.global.reason)}
+        ${metricCard("Surfaces off track", String(calibration.surfaces_off_track_count), "Surfaces that are outside at least one calibration target")}
+        ${metricCard("Budget pressure", String(calibration.notification_budget_pressure_count), "Surfaces where notification volume is above budget or too close for comfort")}
+        ${metricCard("Acted on", asPercent(calibration.global.metrics.find((metric) => metric.metric === "acted_on_rate")?.actual_value ?? 0), `Target ${asPercent(calibration.global.effective_target.min_acted_on_rate)}`)}
+        ${metricCard("Stale-unused", asPercent(calibration.global.metrics.find((metric) => metric.metric === "stale_unused_rate")?.actual_value ?? 0), `Target ${asPercent(calibration.global.effective_target.max_stale_unused_rate)}`)}
+        ${metricCard("Notification action", asPercent(calibration.global.metrics.find((metric) => metric.metric === "notification_action_conversion_rate")?.actual_value ?? 0), `Target ${asPercent(calibration.global.effective_target.min_notification_action_conversion_rate)}`)}
+      </section>
+      <section class="columns columns--wide-right">
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Surface scorecard</h3>
+            ${
+              calibration.surfaces.length === 0
+                ? `<div class="empty">No calibration surface summaries are available yet.</div>`
+                : calibration.surfaces
+                    .map(
+                      (surface) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(surface.label)}</h4>
+                            <span class="pill ${surface.status === "on_track" ? "pill--good" : surface.status === "watch" ? "pill--warn" : "pill--critical"}">${escapeHtml(surface.status.replaceAll("_", " "))}</span>
+                          </div>
+                          <p>${escapeHtml(surface.reason)}</p>
+                          <div class="detail-list detail-list--spaced">
+                            ${surface.metrics
+                              .map(
+                                (metric) => `
+                                  <div class="detail-row">
+                                    <dt>${escapeHtml(metric.label)}</dt>
+                                    <dd>${escapeHtml(
+                                      metric.metric === "notifications_per_7d"
+                                        ? `${metric.actual_value.toFixed(0)} / ${metric.target_value.toFixed(0)}`
+                                        : `${asPercent(metric.actual_value)} / ${asPercent(metric.target_value)}`,
+                                    )}</dd>
+                                  </div>
+                                `,
+                              )
+                              .join("")}
+                          </div>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+          <section class="detail-card">
+            <h3>Top noisy sources</h3>
+            ${
+              calibration.global.top_noisy_sources.length === 0
+                ? `<div class="empty">No noisy sources are currently dominating the review loop.</div>`
+                : calibration.global.top_noisy_sources
+                    .map(
+                      (source) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(source.scope_key)}</h4>
+                            <span class="pill pill--warn">${escapeHtml(source.surface)}</span>
+                          </div>
+                          <p>${escapeHtml(source.latest_summary ?? "No latest summary is available for this source.")}</p>
+                          <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+        </div>
+        <div class="detail-stack">
+          <section class="detail-card">
+            <h3>Recommended manual actions</h3>
+            ${
+              calibration.recommendations.length === 0
+                ? `<div class="empty">No calibration moves are recommended right now.</div>`
+                : calibration.recommendations
+                    .map(
+                      (recommendation) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(recommendation.kind.replaceAll("_", " "))}</h4>
+                            ${recommendation.surface ? `<span class="pill pill--warn">${escapeHtml(recommendation.surface)}</span>` : ""}
+                          </div>
+                          <p>${escapeHtml(recommendation.message)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+            <div class="list-item__actions list-item__actions--stack">
+              ${commandStack([
+                "personal-ops review calibration",
+                "personal-ops review calibration targets",
+                "personal-ops review calibration targets set --scope inbox --max-notifications-per-7d 5",
+                "personal-ops review calibration targets reset --scope inbox",
+              ])}
+            </div>
+          </section>
+          <section class="detail-card">
+            <h3>Recent tuning effect</h3>
+            ${
+              calibration.global.recent_tuning_impact.length === 0
+                ? `<div class="empty">No recent approved tuning impact is available yet.</div>`
+                : calibration.global.recent_tuning_impact
+                    .map(
+                      (comparison) => `
+                        <article class="list-item">
+                          <div class="list-item__top">
+                            <h4>${escapeHtml(comparison.proposal_kind)}</h4>
+                            <span class="pill ${comparison.confidence === "strong" ? "pill--good" : comparison.confidence === "directional" ? "pill--warn" : "pill--critical"}">${escapeHtml(comparison.confidence)}</span>
+                          </div>
+                          <p>${escapeHtml(comparison.summary)}</p>
+                          <p class="subtle subtle--body">${escapeHtml(`Action ${asPercent(comparison.acted_on_rate_delta)} · stale-unused ${asPercent(comparison.stale_unused_rate_delta)} · notification action ${asPercent(comparison.notification_action_conversion_delta)}`)}</p>
+                        </article>
+                      `,
+                    )
+                    .join("")
+            }
+          </section>
+        </div>
+      </section>
+    </section>
+  `;
+}
+
 function renderReviewTrendsDashboard(payload: ConsolePayload): string {
   const weekly = payload.reviewWeekly;
   const trends = payload.reviewTrends;
   const impact = payload.reviewImpact;
   return `
     <section class="detail-stack">
+      ${renderReviewCalibrationDashboard(payload)}
       <section class="hero">
         <p class="eyebrow">Review trends</p>
         <h3>The review loop now shows direction, impact, and where operator attention still matters most.</h3>
