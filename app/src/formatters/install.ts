@@ -90,6 +90,8 @@ export function formatSnapshotPruneResult(result: SnapshotPruneResult): string {
 }
 
 export function formatInstallManifest(manifest: InstallManifest): string {
+  const desktopBuild = manifest.desktop?.build_provenance;
+  const desktopToolchain = manifest.desktop?.toolchain;
   return [
     "Install updated",
     line("Generated", manifest.generated_at),
@@ -106,26 +108,26 @@ export function formatInstallManifest(manifest: InstallManifest): string {
     ...(manifest.desktop
       ? [
           line("Desktop app", manifest.desktop.app_path),
-          line("Desktop support", manifest.desktop.support_contract),
+          line("Desktop support", manifest.desktop.support_contract ?? "not recorded"),
           line("Desktop installed", yesNo(manifest.desktop.installed)),
           line("Desktop reinstall", manifest.desktop.reinstall_recommended ? "recommended" : "not needed"),
           line("Desktop reason", manifest.desktop.reinstall_reason ?? "current or not installed"),
           line("Launcher repair", manifest.desktop.launcher_repair_recommended ? "recommended" : "not needed"),
           line("Launcher reason", manifest.desktop.launcher_repair_reason ?? "current"),
-          line("Desktop built", manifest.desktop.build_provenance.built_at ?? "not recorded"),
+          line("Desktop built", desktopBuild?.built_at ?? "not recorded"),
           line(
             "Desktop source",
-            manifest.desktop.build_provenance.source_commit ? manifest.desktop.build_provenance.source_commit.slice(0, 8) : "not recorded",
+            desktopBuild?.source_commit ? desktopBuild.source_commit.slice(0, 8) : "not recorded",
           ),
-          line("Desktop Vite", manifest.desktop.build_provenance.vite_version ?? "unknown"),
+          line("Desktop Vite", desktopBuild?.vite_version ?? "unknown"),
           line(
             "Desktop Tauri",
-            [manifest.desktop.build_provenance.tauri_cli_version, manifest.desktop.build_provenance.tauri_runtime_version]
+            [desktopBuild?.tauri_cli_version, desktopBuild?.tauri_runtime_version]
               .filter(Boolean)
               .join(" / ") || "unknown",
           ),
-          line("Desktop toolchain", manifest.desktop.toolchain.summary),
-          line("Desktop dependencies", manifest.desktop.toolchain.dependency_posture.summary),
+          line("Desktop toolchain", desktopToolchain?.summary ?? "not recorded"),
+          line("Desktop dependencies", desktopToolchain?.dependency_posture?.summary ?? "not recorded"),
           line("Desktop handoff", yesNo(manifest.desktop.daemon_session_handoff_ready)),
         ]
       : []),
@@ -135,11 +137,13 @@ export function formatInstallManifest(manifest: InstallManifest): string {
 }
 
 export function formatDesktopStatus(report: DesktopStatusReport): string {
+  const build = report.build_provenance;
+  const toolchain = report.toolchain;
   return [
     "Desktop Status",
-    line("Support contract", report.support_contract),
+    line("Support contract", report.support_contract ?? "not recorded"),
     line("Supported", yesNo(report.supported)),
-    line("Unsupported reason", report.toolchain.unsupported_reason ?? "supported"),
+    line("Unsupported reason", toolchain?.unsupported_reason ?? "supported"),
     line("Installed", yesNo(report.installed)),
     line("Bundle exists", yesNo(report.bundle_exists)),
     line("Launcher repair recommended", yesNo(report.launcher_repair_recommended)),
@@ -149,16 +153,16 @@ export function formatDesktopStatus(report: DesktopStatusReport): string {
     line("App path", report.app_path),
     line("Build bundle", report.build_bundle_path),
     line("Project", report.project_path),
-    line("Built at", report.build_provenance.built_at ?? "not recorded"),
-    line("Source commit", report.build_provenance.source_commit ? report.build_provenance.source_commit.slice(0, 8) : "not recorded"),
-    line("Vite", report.build_provenance.vite_version ?? "unknown"),
+    line("Built at", build?.built_at ?? "not recorded"),
+    line("Source commit", build?.source_commit ? build.source_commit.slice(0, 8) : "not recorded"),
+    line("Vite", build?.vite_version ?? "unknown"),
     line(
       "Tauri",
-      [report.build_provenance.tauri_cli_version, report.build_provenance.tauri_runtime_version].filter(Boolean).join(" / ") || "unknown",
+      [build?.tauri_cli_version, build?.tauri_runtime_version].filter(Boolean).join(" / ") || "unknown",
     ),
-    line("Toolchain ready", yesNo(report.toolchain.ready)),
-    line("Toolchain summary", report.toolchain.summary),
-    line("Dependency posture", report.toolchain.dependency_posture.summary),
+    line("Toolchain ready", yesNo(toolchain?.ready ?? false)),
+    line("Toolchain summary", toolchain?.summary ?? "not recorded"),
+    line("Dependency posture", toolchain?.dependency_posture?.summary ?? "not recorded"),
     line("Session handoff", yesNo(report.daemon_session_handoff_ready)),
     line("Launch URL", report.launch_url ?? "not available"),
   ].join("\n");

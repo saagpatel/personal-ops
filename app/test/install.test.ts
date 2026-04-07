@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
-import { formatDoctorReport } from "../src/formatters.js";
+import { formatDoctorReport, formatInstallManifest } from "../src/formatters.js";
 import { buildInstallCheckReport, fixInstallPermissions, getInstallArtifactPaths, installAll, installWrapper, installWrappers, writeInstallManifest } from "../src/install.js";
 import { getLaunchAgentLabel, renderLaunchAgentPlist } from "../src/launchagent.js";
 import { Logger } from "../src/logger.js";
@@ -338,6 +338,56 @@ test("install wrappers refreshes wrapper provenance without touching desktop sta
   } finally {
     fixture.restoreEnv();
   }
+});
+
+test("install manifest formatter tolerates legacy desktop metadata while wrappers are refreshed", () => {
+  const formatted = formatInstallManifest({
+    generated_at: "2026-04-07T00:00:00.000Z",
+    node_executable: process.execPath,
+    app_dir: "/tmp/app",
+    machine_id: "machine-1",
+    machine_label: "Test Mac",
+    launch_agent_label: "com.d.personal-ops",
+    launch_agent_plist_path: "/tmp/com.d.personal-ops.plist",
+    assistant_wrappers: ["codex", "claude"],
+    wrapper_paths: {
+      cli: "/tmp/personal-ops",
+      daemon: "/tmp/personal-opsd",
+      codex_mcp: "/tmp/codex-mcp",
+      claude_mcp: "/tmp/claude-mcp",
+    },
+    wrapper_provenance: {
+      generated_at: "2026-04-07T00:00:00.000Z",
+      source_commit: "current-commit-1234",
+      node_executable: process.execPath,
+      cli_target: "/tmp/cli.js",
+      daemon_target: "/tmp/daemon.js",
+      codex_mcp_target: "/tmp/mcp.js",
+      claude_mcp_target: "/tmp/mcp.js",
+    },
+    desktop: {
+      support_contract: "macos_only",
+      supported: true,
+      installed: true,
+      bundle_exists: true,
+      app_path: "/tmp/Personal Ops.app",
+      build_bundle_path: "/tmp/build/Personal Ops.app",
+      project_path: "/tmp/desktop",
+      build_provenance: undefined as any,
+      reinstall_recommended: false,
+      reinstall_reason: null,
+      launcher_repair_recommended: false,
+      launcher_repair_reason: null,
+      toolchain: {
+        summary: "legacy",
+      } as any,
+      daemon_session_handoff_ready: false,
+      launch_url: null,
+    },
+  });
+
+  assert.match(formatted, /Desktop built: not recorded/);
+  assert.match(formatted, /Desktop dependencies: not recorded/);
 });
 
 test("install check reports placeholder oauth, missing LaunchAgent, and stale wrappers", () => {
