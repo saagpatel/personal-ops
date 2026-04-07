@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "./config.js";
+import { evaluateWrapperHealth, resolveCurrentSourceCommit } from "./install-artifacts.js";
 import type { DesktopBuildProvenance, DesktopStatusReport, DesktopToolchainReport, InstallManifest, Paths } from "./types.js";
 import {
   buildDesktopToolchainReport,
@@ -127,18 +128,6 @@ function readDesktopTauriRuntimeVersion(desktopPaths: DesktopPaths): string | nu
   return dependency?.version ?? readDesktopCargoDependencyVersion(desktopPaths, "tauri");
 }
 
-function resolveCurrentSourceCommit(paths: Paths): string | null {
-  if (process.env.PERSONAL_OPS_SOURCE_COMMIT) {
-    return process.env.PERSONAL_OPS_SOURCE_COMMIT;
-  }
-  const result = probeCommand("git", ["-C", paths.appDir, "rev-parse", "HEAD"]);
-  if (!result.available) {
-    return null;
-  }
-  const firstLine = result.output.split("\n")[0] ?? "";
-  return firstLine.trim() || null;
-}
-
 function currentDesktopBuildProvenance(paths: Paths): DesktopBuildProvenance {
   const desktopPaths = getDesktopPaths(paths);
   const packageJson = readDesktopPackageJson(desktopPaths);
@@ -147,7 +136,7 @@ function currentDesktopBuildProvenance(paths: Paths): DesktopBuildProvenance {
     readDesktopPackageLockVersion(desktopPaths, "@tauri-apps/cli") ?? String(packageJson?.devDependencies?.["@tauri-apps/cli"] ?? "").trim();
   return {
     built_at: null,
-    source_commit: resolveCurrentSourceCommit(paths),
+    source_commit: resolveCurrentSourceCommit(paths.appDir),
     vite_version: viteVersion || null,
     tauri_cli_version: tauriCliVersion || null,
     tauri_runtime_version: readDesktopTauriRuntimeVersion(desktopPaths),
@@ -188,6 +177,17 @@ function buildDesktopStatusReport(
     xcodeSelectAvailable: xcodeSelect.available,
   });
   const storedDesktop = readStoredDesktopStatus(paths);
+  let installManifest: InstallManifest | null = null;
+  if (fs.existsSync(paths.installManifestFile)) {
+    try {
+      installManifest = JSON.parse(fs.readFileSync(paths.installManifestFile, "utf8")) as InstallManifest;
+    } catch {
+      installManifest = null;
+    }
+  }
+  const launcherHealth = installManifest
+    ? (evaluateWrapperHealth(paths, installManifest).find((wrapper) => wrapper.key === "cli") ?? null)
+    : null;
   const buildProvenance = options.buildProvenanceOverride ?? storedDesktop?.build_provenance ?? {
     built_at: null,
     source_commit: null,
@@ -210,6 +210,8 @@ function buildDesktopStatusReport(
     build_provenance: buildProvenance,
     reinstall_recommended: reinstallState.reinstallRecommended,
     reinstall_reason: reinstallState.reinstallReason,
+    launcher_repair_recommended: launcherHealth ? !launcherHealth.current : false,
+    launcher_repair_reason: launcherHealth && !launcherHealth.current ? launcherHealth.reason : null,
     toolchain,
     daemon_session_handoff_ready: false,
     launch_url: null,
@@ -319,6 +321,11 @@ export function openDesktopApp(paths: Paths): void {
   const desktopStatus = getDesktopLocalStatusReport(paths);
   if (!desktopStatus.supported) {
     throw new Error(desktopStatus.toolchain.unsupported_reason ?? "Desktop shell is supported only on macOS in this phase.");
+  }
+  if (desktopStatus.launcher_repair_recommended) {
+    throw new Error(
+      `${desktopStatus.launcher_repair_reason ?? "Local launcher scripts need to be refreshed."} Run \`personal-ops install wrappers\` first.`,
+    );
   }
   if (desktopStatus.reinstall_recommended) {
     throw new Error(

@@ -267,10 +267,28 @@ Delivered shape:
   - LaunchAgent remains the startup path
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 14
+
+Phase 14 is now complete.
+
+Delivered shape:
+
+- explicit wrapper provenance in the install manifest, including source commit, pinned Node executable, and wrapper targets
+- `personal-ops install wrappers` for focused launcher repair without reinstalling the full local stack
+- install check and doctor guidance that distinguishes wrapper drift from desktop-app drift
+- desktop status and desktop open behavior that separates launcher repair from desktop reinstall
+- platform-aware desktop test helpers so non-macOS CI keeps validating the macOS-only contract without reintroducing stale assumptions
+- refreshed desktop support guidance that explains when to use wrapper repair, desktop reinstall, or full install refresh
+- unchanged trust boundaries:
+  - desktop shell remains optional and macOS-only
+  - no new browser mutation authority
+  - no new HTTP or MCP API surface
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, and 13 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and 14 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

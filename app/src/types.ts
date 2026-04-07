@@ -2215,6 +2215,7 @@ export interface InstallManifest {
     codex_mcp: string;
     claude_mcp: string;
   };
+  wrapper_provenance?: WrapperProvenance | undefined;
   desktop?: DesktopStatusReport | undefined;
 }
 
@@ -2246,6 +2247,16 @@ export interface DesktopBuildProvenance {
   tauri_runtime_version: string | null;
 }
 
+export interface WrapperProvenance {
+  generated_at: string;
+  source_commit: string | null;
+  node_executable: string;
+  cli_target: string;
+  daemon_target: string;
+  codex_mcp_target: string;
+  claude_mcp_target: string;
+}
+
 export interface DesktopToolchainReport {
   support_contract: DesktopSupportContract;
   platform_supported: boolean;
@@ -2270,6 +2281,8 @@ export interface DesktopStatusReport {
   build_provenance: DesktopBuildProvenance;
   reinstall_recommended: boolean;
   reinstall_reason: string | null;
+  launcher_repair_recommended: boolean;
+  launcher_repair_reason: string | null;
   toolchain: DesktopToolchainReport;
   daemon_session_handoff_ready: boolean;
   launch_url: string | null;

@@ -99,6 +99,9 @@ export function formatInstallManifest(manifest: InstallManifest): string {
     line("Daemon wrapper", manifest.wrapper_paths.daemon),
     line("Codex MCP wrapper", manifest.wrapper_paths.codex_mcp),
     line("Claude MCP wrapper", manifest.wrapper_paths.claude_mcp),
+    line("Wrapper generated", manifest.wrapper_provenance?.generated_at ?? "not recorded"),
+    line("Wrapper source", manifest.wrapper_provenance?.source_commit ? manifest.wrapper_provenance.source_commit.slice(0, 8) : "not recorded"),
+    line("Wrapper Node", manifest.wrapper_provenance?.node_executable ?? manifest.node_executable),
     line("LaunchAgent", manifest.launch_agent_plist_path),
     ...(manifest.desktop
       ? [
@@ -107,6 +110,8 @@ export function formatInstallManifest(manifest: InstallManifest): string {
           line("Desktop installed", yesNo(manifest.desktop.installed)),
           line("Desktop reinstall", manifest.desktop.reinstall_recommended ? "recommended" : "not needed"),
           line("Desktop reason", manifest.desktop.reinstall_reason ?? "current or not installed"),
+          line("Launcher repair", manifest.desktop.launcher_repair_recommended ? "recommended" : "not needed"),
+          line("Launcher reason", manifest.desktop.launcher_repair_reason ?? "current"),
           line("Desktop built", manifest.desktop.build_provenance.built_at ?? "not recorded"),
           line(
             "Desktop source",
@@ -137,6 +142,8 @@ export function formatDesktopStatus(report: DesktopStatusReport): string {
     line("Unsupported reason", report.toolchain.unsupported_reason ?? "supported"),
     line("Installed", yesNo(report.installed)),
     line("Bundle exists", yesNo(report.bundle_exists)),
+    line("Launcher repair recommended", yesNo(report.launcher_repair_recommended)),
+    line("Launcher repair reason", report.launcher_repair_reason ?? "not needed"),
     line("Reinstall recommended", yesNo(report.reinstall_recommended)),
     line("Reinstall reason", report.reinstall_reason ?? "not needed"),
     line("App path", report.app_path),
@@ -181,6 +188,11 @@ export function formatInstallCheckReport(report: InstallCheckReport): string {
   for (const check of notableChecks) {
     lines.push(`[${formatSeverity(check.severity)}] ${check.title}`);
     lines.push(`  ${check.message}`);
+  }
+  if (notableChecks.some((check) => check.id.includes("wrapper") || check.id.includes("_mcp_launcher"))) {
+    lines.push("");
+    lines.push("Recommended repair");
+    lines.push("- Run `personal-ops install wrappers` to refresh the local launcher scripts.");
   }
   return lines.join("\n");
 }

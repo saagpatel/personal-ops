@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
-import { buildInstallCheckReport, fixInstallPermissions, getInstallArtifactPaths, installAll, installWrapper } from "../src/install.js";
+import { formatDoctorReport } from "../src/formatters.js";
+import { buildInstallCheckReport, fixInstallPermissions, getInstallArtifactPaths, installAll, installWrapper, installWrappers, writeInstallManifest } from "../src/install.js";
 import { getLaunchAgentLabel, renderLaunchAgentPlist } from "../src/launchagent.js";
 import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, readRestoreProvenance, writeRestoreProvenance } from "../src/machine.js";
@@ -172,7 +173,7 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
     setConfiguredMailbox(fixture.paths, "machine@example.com");
     setConfiguredOauth(fixture.paths);
 
-    const manifest = await installAll(fixture.paths, "/custom/node", {
+    const manifest = await installAll(fixture.paths, process.execPath, {
       launchAgentDependencies: { execFileSyncImpl: launchctl.execFileSyncImpl },
       waitForDaemonReadyImpl: async (host, port, timeoutMs) => {
         waitCalls.push({ host, port, timeoutMs });
@@ -184,7 +185,7 @@ test("install all creates runtime files, generated artifacts, and a healthy inst
     const artifacts = getInstallArtifactPaths(fixture.paths);
     const machineIdentity = ensureMachineIdentity(fixture.paths);
 
-    assert.equal(manifest.node_executable, "/custom/node");
+    assert.equal(manifest.node_executable, process.execPath);
     assert.equal(manifest.machine_id, machineIdentity.machine_id);
     assert.equal(manifest.machine_label, machineIdentity.machine_label);
     assert.equal(fs.existsSync(artifacts.cliWrapperPath), true);
@@ -267,6 +268,78 @@ test("wrapper generation writes the expected targets and assistant env vars", ()
   }
 });
 
+test("install wrappers refreshes wrapper provenance without touching desktop state", () => {
+  const fixture = createFixture();
+  try {
+    const artifacts = getInstallArtifactPaths(fixture.paths);
+    fs.mkdirSync(path.dirname(artifacts.launchAgentPlistPath), { recursive: true });
+    fs.writeFileSync(artifacts.launchAgentPlistPath, "launch-agent-placeholder", "utf8");
+    writeInstallManifest(fixture.paths, {
+      generated_at: "2026-04-07T00:00:00.000Z",
+      node_executable: "/old/node",
+      app_dir: fixture.paths.appDir,
+      machine_id: "machine-1",
+      machine_label: "Test Mac",
+      launch_agent_label: "com.d.personal-ops",
+      launch_agent_plist_path: artifacts.launchAgentPlistPath,
+      assistant_wrappers: ["codex", "claude"],
+      wrapper_paths: {
+        cli: artifacts.cliWrapperPath,
+        daemon: artifacts.daemonWrapperPath,
+        codex_mcp: artifacts.codexMcpWrapperPath,
+        claude_mcp: artifacts.claudeMcpWrapperPath,
+      },
+      desktop: {
+        support_contract: "macos_only",
+        supported: true,
+        installed: false,
+        bundle_exists: false,
+        app_path: "/tmp/Personal Ops.app",
+        build_bundle_path: "/tmp/build/Personal Ops.app",
+        project_path: "/tmp/desktop",
+        build_provenance: {
+          built_at: null,
+          source_commit: null,
+          vite_version: null,
+          tauri_cli_version: null,
+          tauri_runtime_version: null,
+        },
+        reinstall_recommended: false,
+        reinstall_reason: null,
+        launcher_repair_recommended: false,
+        launcher_repair_reason: null,
+        toolchain: {
+          support_contract: "macos_only",
+          platform_supported: true,
+          npm_available: true,
+          cargo_available: true,
+          rustc_available: true,
+          xcode_select_available: true,
+          unsupported_reason: null,
+          dependency_posture: {
+            status: "supported_path_clear",
+            summary: "ok",
+            unsupported_platform_notes: [],
+          },
+          ready: true,
+          summary: "macOS desktop toolchain is ready.",
+        },
+        daemon_session_handoff_ready: false,
+        launch_url: null,
+      },
+    });
+
+    const manifest = installWrappers(fixture.paths, "/custom/node");
+
+    assert.equal(manifest.wrapper_provenance?.node_executable, "/custom/node");
+    assert.equal(manifest.wrapper_provenance?.cli_target.endsWith("/dist/src/cli.js"), true);
+    assert.equal(manifest.desktop?.support_contract, "macos_only");
+    assert.equal(fs.readFileSync(artifacts.launchAgentPlistPath, "utf8"), "launch-agent-placeholder");
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
 test("install check reports placeholder oauth, missing LaunchAgent, and stale wrappers", () => {
   const fixture = createFixture();
   try {
@@ -279,7 +352,34 @@ test("install check reports placeholder oauth, missing LaunchAgent, and stale wr
     assert.equal(report.checks.some((check) => check.id === "oauth_client_configured" && check.severity === "warn"), true);
     assert.equal(report.checks.some((check) => check.id === "oauth_client_file_valid" && check.severity === "warn"), true);
     assert.equal(report.checks.some((check) => check.id === "launch_agent_exists" && check.severity === "fail"), true);
-    assert.equal(report.checks.some((check) => check.id === "cli_wrapper_exists" && check.severity === "fail"), true);
+    assert.equal(report.checks.some((check) => check.id === "cli_wrapper_target_valid" && check.severity === "fail"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("install check distinguishes missing wrapper Node executables and stale wrapper provenance", () => {
+  const fixture = createFixture();
+  try {
+    installWrappers(fixture.paths, "/missing/node");
+    const manifest = JSON.parse(fs.readFileSync(fixture.paths.installManifestFile, "utf8")) as Record<string, any>;
+    manifest.wrapper_provenance.source_commit = "old-commit-9999";
+    fs.writeFileSync(fixture.paths.installManifestFile, JSON.stringify(manifest, null, 2), "utf8");
+
+    const previousCommit = process.env.PERSONAL_OPS_SOURCE_COMMIT;
+    process.env.PERSONAL_OPS_SOURCE_COMMIT = "current-commit-1234";
+    try {
+      const report = buildInstallCheckReport(fixture.paths);
+      assert.equal(report.checks.some((check) => check.id === "cli_wrapper_node_executable" && check.severity === "fail"), true);
+      assert.equal(report.checks.some((check) => check.id === "cli_wrapper_current" && check.severity === "warn"), true);
+      assert.equal(report.checks.some((check) => check.id === "cli_wrapper_provenance_present" && check.severity === "pass"), true);
+    } finally {
+      if (previousCommit === undefined) {
+        delete process.env.PERSONAL_OPS_SOURCE_COMMIT;
+      } else {
+        process.env.PERSONAL_OPS_SOURCE_COMMIT = previousCommit;
+      }
+    }
   } finally {
     fixture.restoreEnv();
   }
@@ -618,6 +718,39 @@ test("service doctor recognizes wrapper-based installs and both assistant wrappe
     assert.equal(doctor.checks.some((check) => check.id === "launch_agent_target_valid" && check.severity === "pass"), true);
     assert.equal(doctor.checks.some((check) => check.id === "codex_mcp_launcher_exists" && check.severity === "pass"), true);
     assert.equal(doctor.checks.some((check) => check.id === "claude_mcp_launcher_exists" && check.severity === "pass"), true);
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
+test("doctor formatter prefers install wrappers when wrapper drift is the main repair", async () => {
+  const fixture = createFixture();
+  try {
+    setConfiguredMailbox(fixture.paths, "machine@example.com");
+    setConfiguredOauth(fixture.paths);
+    installWrappers(fixture.paths, "/missing/node");
+
+    const config = loadConfig(fixture.paths);
+    const policy = loadPolicy(fixture.paths);
+    const logger = new Logger(fixture.paths);
+    const service = new PersonalOpsService(fixture.paths, config, policy, logger, {
+      inspectLaunchAgent: () => ({
+        exists: false,
+        loaded: false,
+        running: false,
+        label: "com.d.personal-ops",
+        plistPath: "/tmp/missing.plist",
+        programPath: null,
+        workingDirectory: null,
+        stdoutPath: null,
+        stderrPath: null,
+      }),
+    });
+
+    const doctor = await service.runDoctor({ deep: false, httpReachable: true });
+    const formatted = formatDoctorReport(doctor);
+
+    assert.match(formatted, /install wrappers/);
   } finally {
     fixture.restoreEnv();
   }

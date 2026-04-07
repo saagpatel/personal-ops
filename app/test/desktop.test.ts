@@ -7,8 +7,10 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 import { getDesktopLocalStatusReport, getDesktopPaths, getDesktopStatusReport, openDesktopApp } from "../src/desktop.js";
+import { getInstallArtifactPaths } from "../src/install.js";
 import { resolvePaths } from "../src/paths.js";
 import type { Paths } from "../src/types.js";
+import { expectedMissingDesktopOpenMessage } from "./desktop-platform-expectations.js";
 
 function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
   const keys = [
@@ -17,6 +19,7 @@ function withRuntimeEnv<T>(env: Record<string, string>, fn: () => T): T {
     "PERSONAL_OPS_STATE_DIR",
     "PERSONAL_OPS_LOG_DIR",
     "PERSONAL_OPS_APP_DIR",
+    "PERSONAL_OPS_SOURCE_COMMIT",
   ];
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) {
@@ -155,10 +158,205 @@ test("assistant-led phase 4 desktop status reports the optional app path and liv
 
 test("assistant-led phase 4 desktop open fails clearly when the native app is missing", () => {
   const { env, paths } = createDesktopEnv("open-missing");
-  const expectedMessage =
-    process.platform === "darwin" ? /install desktop/i : /supported only on macOS/i;
   assert.throws(
     () => withRuntimeEnv(env, () => openDesktopApp(paths)),
+    expectedMissingDesktopOpenMessage(),
+  );
+});
+
+test("assistant-led phase 14 desktop status separates launcher drift from desktop app drift", () => {
+  const { env, paths } = createDesktopEnv("launcher-stale");
+  const report = withRuntimeEnv(
+    {
+      ...env,
+      PERSONAL_OPS_SOURCE_COMMIT: "current-commit-1234",
+    },
+    () => {
+      const desktopPaths = getDesktopPaths(paths);
+      const artifacts = getInstallArtifactPaths(paths);
+      fs.mkdirSync(path.dirname(artifacts.cliWrapperPath), { recursive: true });
+      fs.writeFileSync(
+        artifacts.cliWrapperPath,
+        `#!/bin/sh\nset -eu\n\nexec "${process.execPath}" "${artifacts.distCliPath}" "$@"\n`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+      fs.mkdirSync(desktopPaths.installedAppPath, { recursive: true });
+      fs.writeFileSync(
+        paths.installManifestFile,
+        JSON.stringify(
+          {
+            generated_at: new Date().toISOString(),
+            node_executable: process.execPath,
+            app_dir: paths.appDir,
+            machine_id: "machine-1",
+            machine_label: "Test Mac",
+            launch_agent_label: "com.d.personal-ops",
+            launch_agent_plist_path: "/tmp/com.d.personal-ops.plist",
+            assistant_wrappers: ["codex", "claude"],
+            wrapper_paths: {
+              cli: artifacts.cliWrapperPath,
+              daemon: "/tmp/personal-opsd",
+              codex_mcp: "/tmp/codex-mcp",
+              claude_mcp: "/tmp/claude-mcp",
+            },
+            wrapper_provenance: {
+              generated_at: "2026-04-07T00:00:00.000Z",
+              source_commit: "old-commit-9999",
+              node_executable: process.execPath,
+              cli_target: artifacts.distCliPath,
+              daemon_target: artifacts.distDaemonPath,
+              codex_mcp_target: artifacts.distMcpPath,
+              claude_mcp_target: artifacts.distMcpPath,
+            },
+            desktop: {
+              support_contract: "macos_only",
+              supported: true,
+              installed: true,
+              bundle_exists: false,
+              app_path: desktopPaths.installedAppPath,
+              build_bundle_path: desktopPaths.buildBundlePath,
+              project_path: desktopPaths.projectPath,
+              build_provenance: {
+                built_at: "2026-04-07T00:00:00.000Z",
+                source_commit: "current-commit-1234",
+                vite_version: "7.3.2",
+                tauri_cli_version: "2.10.1",
+                tauri_runtime_version: "2.10.3",
+              },
+              reinstall_recommended: false,
+              reinstall_reason: null,
+              launcher_repair_recommended: false,
+              launcher_repair_reason: null,
+              toolchain: {
+                support_contract: "macos_only",
+                platform_supported: true,
+                npm_available: true,
+                cargo_available: true,
+                rustc_available: true,
+                xcode_select_available: true,
+                unsupported_reason: null,
+                dependency_posture: {
+                  status: "supported_path_clear",
+                  summary: "ok",
+                  unsupported_platform_notes: [],
+                },
+                ready: true,
+                summary: "macOS desktop toolchain is ready.",
+              },
+              daemon_session_handoff_ready: false,
+              launch_url: null,
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      return getDesktopLocalStatusReport(paths);
+    },
+  );
+
+  assert.equal(report.installed, true);
+  assert.equal(report.reinstall_recommended, false);
+  assert.equal(report.launcher_repair_recommended, true);
+  assert.match(report.launcher_repair_reason ?? "", /older checkout/i);
+});
+
+test("assistant-led phase 14 desktop open prefers wrapper repair hints when the launcher is stale", () => {
+  const { env, paths } = createDesktopEnv("launcher-open-stale");
+  const expectedMessage = process.platform === "darwin" ? /install wrappers/i : /supported only on macOS/i;
+
+  assert.throws(
+    () =>
+      withRuntimeEnv(
+        {
+          ...env,
+          PERSONAL_OPS_SOURCE_COMMIT: "current-commit-1234",
+        },
+        () => {
+          const desktopPaths = getDesktopPaths(paths);
+          const artifacts = getInstallArtifactPaths(paths);
+          fs.mkdirSync(path.dirname(artifacts.cliWrapperPath), { recursive: true });
+          fs.writeFileSync(
+            artifacts.cliWrapperPath,
+            `#!/bin/sh\nset -eu\n\nexec "${process.execPath}" "${artifacts.distCliPath}" "$@"\n`,
+            { encoding: "utf8", mode: 0o755 },
+          );
+          fs.mkdirSync(desktopPaths.installedAppPath, { recursive: true });
+          fs.writeFileSync(
+            paths.installManifestFile,
+            JSON.stringify(
+              {
+                generated_at: new Date().toISOString(),
+                node_executable: process.execPath,
+                app_dir: paths.appDir,
+                machine_id: "machine-1",
+                machine_label: "Test Mac",
+                launch_agent_label: "com.d.personal-ops",
+                launch_agent_plist_path: "/tmp/com.d.personal-ops.plist",
+                assistant_wrappers: ["codex", "claude"],
+                wrapper_paths: {
+                  cli: artifacts.cliWrapperPath,
+                  daemon: "/tmp/personal-opsd",
+                  codex_mcp: "/tmp/codex-mcp",
+                  claude_mcp: "/tmp/claude-mcp",
+                },
+                wrapper_provenance: {
+                  generated_at: "2026-04-07T00:00:00.000Z",
+                  source_commit: "old-commit-9999",
+                  node_executable: process.execPath,
+                  cli_target: artifacts.distCliPath,
+                  daemon_target: artifacts.distDaemonPath,
+                  codex_mcp_target: artifacts.distMcpPath,
+                  claude_mcp_target: artifacts.distMcpPath,
+                },
+                desktop: {
+                  support_contract: "macos_only",
+                  supported: true,
+                  installed: true,
+                  bundle_exists: false,
+                  app_path: desktopPaths.installedAppPath,
+                  build_bundle_path: desktopPaths.buildBundlePath,
+                  project_path: desktopPaths.projectPath,
+                  build_provenance: {
+                    built_at: "2026-04-07T00:00:00.000Z",
+                    source_commit: "current-commit-1234",
+                    vite_version: "7.3.2",
+                    tauri_cli_version: "2.10.1",
+                    tauri_runtime_version: "2.10.3",
+                  },
+                  reinstall_recommended: false,
+                  reinstall_reason: null,
+                  launcher_repair_recommended: false,
+                  launcher_repair_reason: null,
+                  toolchain: {
+                    support_contract: "macos_only",
+                    platform_supported: true,
+                    npm_available: true,
+                    cargo_available: true,
+                    rustc_available: true,
+                    xcode_select_available: true,
+                    unsupported_reason: null,
+                    dependency_posture: {
+                      status: "supported_path_clear",
+                      summary: "ok",
+                      unsupported_platform_notes: [],
+                    },
+                    ready: true,
+                    summary: "macOS desktop toolchain is ready.",
+                  },
+                  daemon_session_handoff_ready: false,
+                  launch_url: null,
+                },
+              },
+              null,
+              2,
+            ),
+            "utf8",
+          );
+          openDesktopApp(paths);
+        },
+      ),
     expectedMessage,
   );
 });
@@ -208,6 +406,8 @@ test("assistant-led phase 13 desktop status marks stale installed apps for reins
               },
               reinstall_recommended: false,
               reinstall_reason: null,
+              launcher_repair_recommended: false,
+              launcher_repair_reason: null,
               toolchain: {
                 support_contract: "macos_only",
                 platform_supported: true,

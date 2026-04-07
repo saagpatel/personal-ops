@@ -31,7 +31,8 @@ import {
   verifyGoogleDriveAccess,
   verifyGoogleDriveScopes,
 } from "./drive.js";
-import { getInstallArtifactPaths } from "./install.js";
+import { evaluateWrapperHealth } from "./install-artifacts.js";
+import { getInstallArtifactPaths, readInstallManifest } from "./install.js";
 import { getLaunchAgentLabel, inspectLaunchAgent as inspectInstalledLaunchAgent } from "./launchagent.js";
 import {
   createGmailDraft,
@@ -4318,6 +4319,8 @@ export class PersonalOpsService {
     const mailAccount = this.db.getMailAccount();
     const launchAgent = this.inspectLaunchAgent();
     const installArtifacts = getInstallArtifactPaths(this.paths);
+    const installManifest = readInstallManifest(this.paths);
+    const wrapperHealth = evaluateWrapperHealth(this.paths, installManifest);
     const oauthValidation = validateOAuthClientFile(this.config.oauthClientFile);
     const oauthPermissions = validateSecretFilePermissions(this.config.oauthClientFile, "OAuth client file");
     const localApiToken = validateSecretTextFile(this.paths.apiTokenFile, "Local API token");
@@ -4335,6 +4338,20 @@ export class PersonalOpsService {
     const driveToken = mailAccount
       ? this.dependencies.getKeychainSecret(this.config.keychainService, mailAccount.email)
       : null;
+    const wrapperCheck = (
+      severity: "pass" | "warn" | "fail",
+      id: string,
+      title: string,
+      message: string,
+    ): DoctorCheck => {
+      if (severity === "fail") {
+        return this.failCheck(id, title, message, "integration");
+      }
+      if (severity === "warn") {
+        return this.warnCheck(id, title, message, "integration");
+      }
+      return this.passCheck(id, title, message, "integration");
+    };
 
     checks.push(this.fileCheck("config_file_valid", "Config file", this.paths.configFile, true));
     checks.push(this.fileCheck("policy_file_valid", "Policy file", this.paths.policyFile, true));
@@ -4639,11 +4656,69 @@ export class PersonalOpsService {
         ? this.passCheck("launch_agent_running", "LaunchAgent state", "LaunchAgent is loaded and running.", "runtime")
         : this.failCheck("launch_agent_running", "LaunchAgent state", "LaunchAgent is not loaded or not running.", "runtime"),
     );
-    checks.push(
-      fs.existsSync(installArtifacts.daemonWrapperPath)
-        ? this.passCheck("daemon_wrapper_exists", "Daemon wrapper", "Daemon wrapper exists.", "integration")
-        : this.failCheck("daemon_wrapper_exists", "Daemon wrapper", "Daemon wrapper is missing.", "integration"),
-    );
+    for (const wrapper of wrapperHealth) {
+      const label = wrapper.label;
+      checks.push(
+        wrapperCheck(
+          wrapper.exists ? "pass" : wrapper.severity,
+          wrapper.key === "codex_mcp" || wrapper.key === "claude_mcp"
+            ? `${wrapper.key}_launcher_exists`
+            : `${wrapper.key}_wrapper_exists`,
+          label,
+          wrapper.exists ? `${label} exists at ${wrapper.wrapperPath}.` : wrapper.reason,
+        ),
+      );
+      checks.push(
+        wrapperCheck(
+          wrapper.nodeExecutable && wrapper.nodeExecutableExists ? "pass" : wrapper.severity,
+          `${wrapper.key}_wrapper_node_executable`,
+          `${label} Node`,
+          wrapper.nodeExecutable && wrapper.nodeExecutableExists
+            ? `${label} uses ${wrapper.nodeExecutable}.`
+            : wrapper.reason,
+        ),
+      );
+      checks.push(
+        wrapperCheck(
+          wrapper.targetFile && wrapper.targetExists && wrapper.targetFile === wrapper.expectedTarget ? "pass" : wrapper.severity,
+          `${wrapper.key}_wrapper_target_valid`,
+          `${label} target`,
+          wrapper.targetFile && wrapper.targetExists && wrapper.targetFile === wrapper.expectedTarget
+            ? `${label} points to ${wrapper.targetFile}.`
+            : wrapper.reason,
+        ),
+      );
+      checks.push(
+        wrapper.provenancePresent
+          ? this.passCheck(
+              `${wrapper.key}_wrapper_provenance_present`,
+              `${label} provenance`,
+              `${label} provenance is recorded in the install manifest.`,
+              "integration",
+            )
+          : this.warnCheck(
+              `${wrapper.key}_wrapper_provenance_present`,
+              `${label} provenance`,
+              wrapper.reason,
+              "integration",
+            ),
+      );
+      checks.push(
+        wrapper.current
+          ? this.passCheck(
+              `${wrapper.key}_wrapper_current`,
+              `${label} freshness`,
+              `${label} matches the current checkout.`,
+              "integration",
+            )
+          : this.warnCheck(
+              `${wrapper.key}_wrapper_current`,
+              `${label} freshness`,
+              wrapper.reason,
+              "integration",
+            ),
+      );
+    }
     if (launchAgent.exists) {
       checks.push(
         launchAgent.programPath === installArtifacts.daemonWrapperPath
@@ -5203,18 +5278,6 @@ export class PersonalOpsService {
         );
       }
     }
-
-    checks.push(
-      fs.existsSync(installArtifacts.codexMcpWrapperPath)
-        ? this.passCheck("codex_mcp_launcher_exists", "Codex MCP launcher", "Codex MCP launcher exists.", "integration")
-        : this.warnCheck("codex_mcp_launcher_exists", "Codex MCP launcher", "Codex MCP launcher is missing.", "integration"),
-    );
-    checks.push(
-      fs.existsSync(installArtifacts.claudeMcpWrapperPath)
-        ? this.passCheck("claude_mcp_launcher_exists", "Claude MCP launcher", "Claude MCP launcher exists.", "integration")
-        : this.warnCheck("claude_mcp_launcher_exists", "Claude MCP launcher", "Claude MCP launcher is missing.", "integration"),
-    );
-
     if (options.deep) {
       if (!mailAccount) {
         checks.push(
