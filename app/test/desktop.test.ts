@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { getDesktopPaths, getDesktopStatusReport, openDesktopApp } from "../src/desktop.js";
+import { getDesktopLocalStatusReport, getDesktopPaths, getDesktopStatusReport, openDesktopApp } from "../src/desktop.js";
 import { resolvePaths } from "../src/paths.js";
 import type { Paths } from "../src/types.js";
 
@@ -139,10 +139,13 @@ test("assistant-led phase 4 desktop status reports the optional app path and liv
   try {
     const report = await withRuntimeEnv(env, () => getDesktopStatusReport(paths));
     const desktopPaths = withRuntimeEnv(env, () => getDesktopPaths(paths));
+    assert.equal(report.support_contract, "macos_only");
     assert.equal(report.supported, process.platform === "darwin");
     assert.equal(report.installed, false);
     assert.equal(report.app_path, desktopPaths.installedAppPath);
     assert.equal(report.project_path.endsWith("/desktop"), true);
+    assert.equal(report.reinstall_recommended, false);
+    assert.equal(report.build_provenance.source_commit, null);
     assert.equal(report.daemon_session_handoff_ready, true);
     assert.match(report.launch_url ?? "", /\/console\/session\//);
   } finally {
@@ -156,4 +159,83 @@ test("assistant-led phase 4 desktop open fails clearly when the native app is mi
     () => withRuntimeEnv(env, () => openDesktopApp(paths)),
     /install desktop/i,
   );
+});
+
+test("assistant-led phase 13 desktop status marks stale installed apps for reinstall", () => {
+  const { env, paths } = createDesktopEnv("stale");
+  const report = withRuntimeEnv(
+    {
+      ...env,
+      PERSONAL_OPS_SOURCE_COMMIT: "current-commit-1234",
+    },
+    () => {
+      const desktopPaths = getDesktopPaths(paths);
+      fs.mkdirSync(desktopPaths.installedAppPath, { recursive: true });
+      fs.writeFileSync(
+        paths.installManifestFile,
+        JSON.stringify(
+          {
+            generated_at: new Date().toISOString(),
+            node_executable: process.execPath,
+            app_dir: paths.appDir,
+            machine_id: "machine-1",
+            machine_label: "Test Mac",
+            launch_agent_label: "com.d.personal-ops",
+            launch_agent_plist_path: "/tmp/com.d.personal-ops.plist",
+            assistant_wrappers: ["codex", "claude"],
+            wrapper_paths: {
+              cli: "/tmp/personal-ops",
+              daemon: "/tmp/personal-opsd",
+              codex_mcp: "/tmp/codex-mcp",
+              claude_mcp: "/tmp/claude-mcp",
+            },
+            desktop: {
+              support_contract: "macos_only",
+              supported: true,
+              installed: true,
+              bundle_exists: false,
+              app_path: desktopPaths.installedAppPath,
+              build_bundle_path: desktopPaths.buildBundlePath,
+              project_path: desktopPaths.projectPath,
+              build_provenance: {
+                built_at: "2026-04-07T00:00:00.000Z",
+                source_commit: "old-commit-9999",
+                vite_version: "7.3.2",
+                tauri_cli_version: "2.10.1",
+                tauri_runtime_version: "2.10.3",
+              },
+              reinstall_recommended: false,
+              reinstall_reason: null,
+              toolchain: {
+                support_contract: "macos_only",
+                platform_supported: true,
+                npm_available: true,
+                cargo_available: true,
+                rustc_available: true,
+                xcode_select_available: true,
+                unsupported_reason: null,
+                dependency_posture: {
+                  status: "supported_path_clear",
+                  summary: "ok",
+                  unsupported_platform_notes: [],
+                },
+                ready: true,
+                summary: "macOS desktop toolchain is ready.",
+              },
+              daemon_session_handoff_ready: false,
+              launch_url: null,
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      return getDesktopLocalStatusReport(paths);
+    },
+  );
+
+  assert.equal(report.installed, true);
+  assert.equal(report.reinstall_recommended, true);
+  assert.match(report.reinstall_reason ?? "", /built from old-comm/i);
 });
