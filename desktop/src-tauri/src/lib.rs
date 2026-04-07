@@ -4,12 +4,18 @@ use std::{env, fs, path::PathBuf};
 #[derive(Debug, Deserialize)]
 struct ConfigFile {
     service: Option<ServiceSection>,
+    autopilot: Option<AutopilotSection>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ServiceSection {
     host: Option<String>,
     port: Option<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutopilotSection {
+    notification_cooldown_minutes: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,6 +38,11 @@ struct DesktopSnapshot {
     autopilot_summary: String,
     autopilot_stale_profile_count: usize,
     autopilot_last_success_at: Option<String>,
+    review_ready_inbox_count: usize,
+    apply_ready_planning_count: usize,
+    outbound_approval_ready_count: usize,
+    outbound_send_ready_count: usize,
+    notification_cooldown_minutes: u64,
     daemon_available: bool,
     repair_hint: String,
 }
@@ -86,6 +97,51 @@ struct AssistantAction {
 }
 
 #[derive(Debug, Deserialize)]
+struct InboxAutopilotEnvelope {
+    inbox_autopilot: InboxAutopilotPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct InboxAutopilotPayload {
+    groups: Vec<InboxAutopilotGroup>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InboxAutopilotGroup {
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlanningAutopilotEnvelope {
+    planning_autopilot: PlanningAutopilotPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlanningAutopilotPayload {
+    bundles: Vec<PlanningAutopilotBundle>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlanningAutopilotBundle {
+    apply_ready: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundAutopilotEnvelope {
+    outbound_autopilot: OutboundAutopilotPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundAutopilotPayload {
+    groups: Vec<OutboundAutopilotGroup>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundAutopilotGroup {
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct WorkflowEnvelope {
     workflow: WorkflowPayload,
 }
@@ -117,12 +173,15 @@ fn api_token_file_path() -> Result<PathBuf, String> {
         .join("local-api-token"))
 }
 
-fn service_base_url() -> Result<String, String> {
+fn load_config_file() -> Result<ConfigFile, String> {
     let config_path = config_file_path()?;
     let raw = fs::read_to_string(&config_path)
         .map_err(|error| format!("Could not read {}: {}", config_path.display(), error))?;
-    let parsed: ConfigFile =
-        toml::from_str(&raw).map_err(|error| format!("Could not parse {}: {}", config_path.display(), error))?;
+    toml::from_str(&raw).map_err(|error| format!("Could not parse {}: {}", config_path.display(), error))
+}
+
+fn service_base_url() -> Result<String, String> {
+    let parsed = load_config_file()?;
     let host = parsed
         .service
         .as_ref()
@@ -134,6 +193,15 @@ fn service_base_url() -> Result<String, String> {
         .and_then(|service| service.port)
         .unwrap_or(4312);
     Ok(format!("http://{}:{}", host, port))
+}
+
+fn notification_cooldown_minutes() -> Result<u64, String> {
+    let parsed = load_config_file()?;
+    Ok(parsed
+        .autopilot
+        .as_ref()
+        .and_then(|autopilot| autopilot.notification_cooldown_minutes)
+        .unwrap_or(30))
 }
 
 fn operator_token() -> Result<String, String> {
@@ -218,12 +286,40 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
     let autopilot = get_json::<AutopilotEnvelope>("/v1/autopilot/status").await?;
     let now_next = get_json::<WorkflowEnvelope>("/v1/workflows/now-next").await?;
     let assistant = get_json::<AssistantQueueEnvelope>("/v1/assistant/actions").await?;
+    let inbox = get_json::<InboxAutopilotEnvelope>("/v1/inbox/autopilot").await?;
+    let planning = get_json::<PlanningAutopilotEnvelope>("/v1/planning/autopilot").await?;
+    let outbound = get_json::<OutboundAutopilotEnvelope>("/v1/outbound/autopilot").await?;
+    let cooldown = notification_cooldown_minutes()?;
 
     let awaiting_review_count = assistant
         .assistant_queue
         .actions
         .iter()
         .filter(|action| action.state == "awaiting_review")
+        .count();
+    let review_ready_inbox_count = inbox
+        .inbox_autopilot
+        .groups
+        .iter()
+        .filter(|group| group.state == "awaiting_review")
+        .count();
+    let apply_ready_planning_count = planning
+        .planning_autopilot
+        .bundles
+        .iter()
+        .filter(|bundle| bundle.apply_ready)
+        .count();
+    let outbound_approval_ready_count = outbound
+        .outbound_autopilot
+        .groups
+        .iter()
+        .filter(|group| group.state == "approval_ready")
+        .count();
+    let outbound_send_ready_count = outbound
+        .outbound_autopilot
+        .groups
+        .iter()
+        .filter(|group| group.state == "send_ready")
         .count();
 
     let readiness = status.status.state.clone();
@@ -252,6 +348,11 @@ async fn get_desktop_snapshot() -> Result<DesktopSnapshot, String> {
             .unwrap_or_else(|| "Autopilot is warming the workspace.".to_string()),
         autopilot_stale_profile_count,
         autopilot_last_success_at: autopilot.autopilot.last_success_at,
+        review_ready_inbox_count,
+        apply_ready_planning_count,
+        outbound_approval_ready_count,
+        outbound_send_ready_count,
+        notification_cooldown_minutes: cooldown,
         daemon_available: true,
         repair_hint,
     })

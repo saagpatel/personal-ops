@@ -4,16 +4,16 @@ import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { TrayIcon } from "@tauri-apps/api/tray";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import {
+  computeDesktopNotificationUpdate,
+  initialDesktopNotificationState,
+} from "../../app/src/desktop-notification-policy.ts";
 
 const state = {
   tray: null,
   menuItems: null,
   lastSnapshot: null,
-  notificationState: {
-    readiness: "ready",
-    awaitingReviewCount: 0,
-    approvalPendingCount: 0,
-  },
+  notificationState: initialDesktopNotificationState(),
 };
 
 const frame = document.querySelector("#console-frame");
@@ -76,48 +76,21 @@ async function ensureNotificationPermission() {
 }
 
 async function maybeSendNotifications(snapshot) {
+  const update = computeDesktopNotificationUpdate(state.notificationState, snapshot);
   const granted = await ensureNotificationPermission();
   if (!granted) {
-    state.notificationState = {
-      readiness: snapshot.readiness,
-      awaitingReviewCount: snapshot.awaiting_review_count ?? 0,
-      approvalPendingCount: snapshot.approval_pending_count ?? 0,
-    };
+    state.notificationState = update.state;
     return;
   }
 
-  if (
-    snapshot.readiness !== "ready" &&
-    snapshot.readiness !== state.notificationState.readiness
-  ) {
+  for (const notification of update.notifications) {
     await sendNotification({
-      title: "Personal Ops attention",
-      body: snapshot.repair_hint || "The local control plane moved away from ready.",
+      title: notification.title,
+      body: notification.body,
     });
   }
 
-  if ((snapshot.awaiting_review_count ?? 0) > state.notificationState.awaitingReviewCount) {
-    await sendNotification({
-      title: "Assistant review ready",
-      body: `${snapshot.awaiting_review_count} assistant item(s) are ready for review.`,
-    });
-  }
-
-  if (
-    state.notificationState.approvalPendingCount === 0 &&
-    (snapshot.approval_pending_count ?? 0) > 0
-  ) {
-    await sendNotification({
-      title: "Approval queue waiting",
-      body: `${snapshot.approval_pending_count} approval item(s) are pending.`,
-    });
-  }
-
-  state.notificationState = {
-    readiness: snapshot.readiness,
-    awaitingReviewCount: snapshot.awaiting_review_count ?? 0,
-    approvalPendingCount: snapshot.approval_pending_count ?? 0,
-  };
+  state.notificationState = update.state;
 }
 
 async function createTrayMenuItems() {
@@ -235,6 +208,11 @@ async function pollSnapshot() {
       autopilot_summary: "Autopilot is unavailable until the daemon is healthy.",
       autopilot_stale_profile_count: 0,
       autopilot_last_success_at: null,
+      review_ready_inbox_count: 0,
+      apply_ready_planning_count: 0,
+      outbound_approval_ready_count: 0,
+      outbound_send_ready_count: 0,
+      notification_cooldown_minutes: 30,
       daemon_available: false,
       repair_hint: message,
     });
