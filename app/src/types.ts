@@ -1683,6 +1683,23 @@ export type ReviewWeeklyRecommendationKind =
   | "revisit_tuning"
   | "investigate_source"
   | "insufficient_evidence";
+export type ReviewCalibrationTargetScopeType = "global" | "surface";
+export type ReviewCalibrationTargetScopeKey = "global" | ReviewPackageSurface;
+export type ReviewCalibrationStatus = "on_track" | "watch" | "off_track";
+export type ReviewCalibrationOverallStatus = ReviewCalibrationStatus;
+export type ReviewCalibrationMetricKey =
+  | "acted_on_rate"
+  | "stale_unused_rate"
+  | "negative_feedback_rate"
+  | "notification_action_conversion_rate"
+  | "notifications_per_7d";
+export type ReviewCalibrationRecommendationKind =
+  | "keep_current_tuning"
+  | "tighten_notification_budget"
+  | "inspect_source_suppression"
+  | "revisit_surface_priority"
+  | "review_package_composition"
+  | "insufficient_evidence";
 
 export interface ReviewMetricSnapshotMetrics {
   created_count: number;
@@ -1791,6 +1808,91 @@ export interface ReviewWeeklyReport {
   top_noisy_sources: ReviewNoisySourceReport[];
   recent_tuning_impact: ReviewImpactComparison[];
   recommendations: ReviewWeeklyRecommendation[];
+}
+
+export interface ReviewCalibrationTarget {
+  scope_type: ReviewCalibrationTargetScopeType;
+  scope_key: ReviewCalibrationTargetScopeKey;
+  min_acted_on_rate: number;
+  max_stale_unused_rate: number;
+  max_negative_feedback_rate: number;
+  min_notification_action_conversion_rate: number;
+  max_notifications_per_7d: number;
+  created_at: string;
+  updated_at: string;
+  updated_by_client: string;
+  updated_by_actor?: string | undefined;
+}
+
+export interface ReviewCalibrationMetricStatus {
+  metric: ReviewCalibrationMetricKey;
+  label: string;
+  status: ReviewCalibrationStatus;
+  actual_value: number;
+  previous_value: number;
+  target_value: number;
+  summary: string;
+}
+
+export type ReviewCalibrationMetricAssessment = ReviewCalibrationMetricStatus;
+
+export interface ReviewCalibrationWindowValues {
+  created_count: number;
+  fired_notification_count: number;
+  open_rate: number;
+  acted_on_rate: number;
+  stale_unused_rate: number;
+  negative_feedback_rate: number;
+  notification_action_conversion_rate: number;
+  notifications_per_7d: number;
+}
+
+export interface ReviewCalibrationRecommendation {
+  kind: ReviewCalibrationRecommendationKind;
+  surface?: ReviewPackageSurface | undefined;
+  scope_key?: string | undefined;
+  message: string;
+}
+
+export interface ReviewCalibrationSurfaceSummary {
+  scope_type: ReviewCalibrationTargetScopeType;
+  scope_key: ReviewCalibrationTargetScopeKey;
+  surface?: ReviewPackageSurface | undefined;
+  label: string;
+  status: ReviewCalibrationOverallStatus;
+  overall_status: ReviewCalibrationStatus;
+  effective_target: ReviewCalibrationTarget;
+  target: ReviewCalibrationTarget;
+  current: ReviewCalibrationWindowValues;
+  previous: ReviewCalibrationWindowValues;
+  open_rate_14d: number;
+  previous_open_rate_14d: number;
+  metrics: ReviewCalibrationMetricStatus[];
+  worst_metric: ReviewCalibrationMetricStatus;
+  reason: string;
+  primary_reason: string;
+  recent_tuning_impact: ReviewImpactComparison[];
+  top_noisy_sources: ReviewNoisySourceReport[];
+  recommendations: ReviewCalibrationRecommendation[];
+}
+
+export interface ReviewCalibrationReport {
+  generated_at: string;
+  window_days: 14;
+  calibration_window_days: 14;
+  notification_budget_window_days: 7;
+  notification_window_days: 7;
+  global: ReviewCalibrationSurfaceSummary;
+  surfaces: ReviewCalibrationSurfaceSummary[];
+  surfaces_off_track_count: number;
+  notification_budget_pressure_count: number;
+  recommendations: ReviewCalibrationRecommendation[];
+}
+
+export interface ReviewCalibrationTargetsReport {
+  generated_at: string;
+  configured_targets: ReviewCalibrationTarget[];
+  effective_targets: ReviewCalibrationTarget[];
 }
 
 export interface MeetingPrepThreadSummary {
@@ -2389,6 +2491,10 @@ export interface ServiceStatusReport {
     week_over_week_action_rate_delta: number;
     week_over_week_notification_action_conversion_delta: number;
     top_review_trend_surface: ReviewPackageSurface | null;
+    calibration_status: ReviewCalibrationStatus;
+    surfaces_off_track_count: number;
+    notification_budget_pressure_count: number;
+    top_calibration_surface: ReviewPackageSurface | null;
   };
   desktop: DesktopStatusReport;
 }

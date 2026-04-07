@@ -107,6 +107,8 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/review/trends" ||
       pathname === "/v1/review/impact" ||
       pathname === "/v1/review/weekly" ||
+      pathname === "/v1/review/calibration" ||
+      pathname === "/v1/review/calibration/targets" ||
       pathname === "/v1/planning-recommendations/summary" ||
       pathname === "/v1/planning-recommendations/next" ||
       pathname.startsWith("/v1/planning-recommendations/") ||

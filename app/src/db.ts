@@ -66,6 +66,9 @@ import {
   ReviewNotificationEvent,
   ReviewNotificationKind,
   ReviewNotificationSuppressionReason,
+  ReviewCalibrationTarget,
+  ReviewCalibrationTargetScopeKey,
+  ReviewCalibrationTargetScopeType,
   ReviewMetricSnapshot,
   ReviewMetricSnapshotMetrics,
   ReviewMetricSnapshotScopeKey,
@@ -92,7 +95,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 23;
+export const CURRENT_SCHEMA_VERSION = 24;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -3728,6 +3731,103 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapReviewMetricSnapshot(row));
   }
 
+  getReviewCalibrationTarget(
+    scopeType: ReviewCalibrationTargetScopeType,
+    scopeKey: ReviewCalibrationTargetScopeKey,
+  ): ReviewCalibrationTarget | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM review_calibration_targets
+         WHERE scope_type = ? AND scope_key = ?`,
+      )
+      .get(scopeType, scopeKey) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewCalibrationTarget(row) : null;
+  }
+
+  listReviewCalibrationTargets(options: {
+    scope_type?: ReviewCalibrationTargetScopeType;
+    scope_key?: ReviewCalibrationTargetScopeKey;
+  } = {}): ReviewCalibrationTarget[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.scope_type) {
+      clauses.push(`scope_type = ?`);
+      params.push(options.scope_type);
+    }
+    if (options.scope_key) {
+      clauses.push(`scope_key = ?`);
+      params.push(options.scope_key);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_calibration_targets ${whereClause} ORDER BY scope_type ASC, scope_key ASC`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewCalibrationTarget(row));
+  }
+
+  upsertReviewCalibrationTarget(input: {
+    scope_type: ReviewCalibrationTargetScopeType;
+    scope_key: ReviewCalibrationTargetScopeKey;
+    min_acted_on_rate: number;
+    max_stale_unused_rate: number;
+    max_negative_feedback_rate: number;
+    min_notification_action_conversion_rate: number;
+    max_notifications_per_7d: number;
+    created_at?: string;
+    updated_by_client: string;
+    updated_by_actor?: string | null;
+    updated_at?: string;
+  }): ReviewCalibrationTarget {
+    const createdAt =
+      input.created_at ??
+      this.getReviewCalibrationTarget(input.scope_type, input.scope_key)?.created_at ??
+      nowIso();
+    const updatedAt = input.updated_at ?? nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO review_calibration_targets (
+          scope_type, scope_key, min_acted_on_rate, max_stale_unused_rate, max_negative_feedback_rate,
+          min_notification_action_conversion_rate, max_notifications_per_7d, created_at, updated_at, updated_by_client, updated_by_actor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_type, scope_key) DO UPDATE SET
+          min_acted_on_rate = excluded.min_acted_on_rate,
+          max_stale_unused_rate = excluded.max_stale_unused_rate,
+          max_negative_feedback_rate = excluded.max_negative_feedback_rate,
+          min_notification_action_conversion_rate = excluded.min_notification_action_conversion_rate,
+          max_notifications_per_7d = excluded.max_notifications_per_7d,
+          updated_at = excluded.updated_at,
+          updated_by_client = excluded.updated_by_client,
+          updated_by_actor = excluded.updated_by_actor`,
+      )
+      .run(
+        input.scope_type,
+        input.scope_key,
+        input.min_acted_on_rate,
+        input.max_stale_unused_rate,
+        input.max_negative_feedback_rate,
+        input.min_notification_action_conversion_rate,
+        input.max_notifications_per_7d,
+        createdAt,
+        updatedAt,
+        input.updated_by_client,
+        input.updated_by_actor ?? null,
+      );
+    return this.getReviewCalibrationTarget(input.scope_type, input.scope_key)!;
+  }
+
+  deleteReviewCalibrationTarget(
+    scopeType: ReviewCalibrationTargetScopeType,
+    scopeKey: ReviewCalibrationTargetScopeKey,
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `DELETE FROM review_calibration_targets
+         WHERE scope_type = ? AND scope_key = ?`,
+      )
+      .run(scopeType, scopeKey);
+    return result.changes > 0;
+  }
+
   upsertReviewTuningProposal(input: ReviewTuningProposal & { evidence_json: string }): ReviewTuningProposal {
     this.db
       .prepare(
@@ -4663,6 +4763,24 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_review_metric_snapshots_scope_date
         ON review_metric_snapshots(scope_type, scope_key, snapshot_date DESC);
 
+      CREATE TABLE IF NOT EXISTS review_calibration_targets (
+        scope_type TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        min_acted_on_rate REAL NOT NULL,
+        max_stale_unused_rate REAL NOT NULL,
+        max_negative_feedback_rate REAL NOT NULL,
+        min_notification_action_conversion_rate REAL NOT NULL,
+        max_notifications_per_7d INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by_client TEXT NOT NULL,
+        updated_by_actor TEXT,
+        PRIMARY KEY (scope_type, scope_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_calibration_targets_scope
+        ON review_calibration_targets(scope_type, scope_key);
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -4789,7 +4907,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("review_metric_snapshots")
+      const inferred = this.tableExists("review_calibration_targets")
+        ? 24
+        : this.tableExists("review_metric_snapshots")
         ? 23
         : this.tableExists("review_package_cycles") || this.tableExists("review_notification_events")
         ? 22
@@ -4927,6 +5047,10 @@ export class PersonalOpsDb {
       } else if (version === 22) {
         this.migrateToV23();
         version = 23;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 23) {
+        this.migrateToV24();
+        version = 24;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -5880,6 +6004,28 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV24() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS review_calibration_targets (
+        scope_type TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        min_acted_on_rate REAL NOT NULL,
+        max_stale_unused_rate REAL NOT NULL,
+        max_negative_feedback_rate REAL NOT NULL,
+        min_notification_action_conversion_rate REAL NOT NULL,
+        max_notifications_per_7d INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by_client TEXT NOT NULL,
+        updated_by_actor TEXT,
+        PRIMARY KEY (scope_type, scope_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_calibration_targets_scope
+        ON review_calibration_targets(scope_type, scope_key);
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6248,6 +6394,22 @@ export class PersonalOpsDb {
       scope_key: String(row.scope_key) as ReviewMetricSnapshotScopeKey,
       metrics: JSON.parse(String(row.metrics_json ?? "{}")),
       generated_at: String(row.generated_at),
+    };
+  }
+
+  private mapReviewCalibrationTarget(row: Record<string, unknown>): ReviewCalibrationTarget {
+    return {
+      scope_type: String(row.scope_type) as ReviewCalibrationTargetScopeType,
+      scope_key: String(row.scope_key) as ReviewCalibrationTargetScopeKey,
+      min_acted_on_rate: Number(row.min_acted_on_rate ?? 0),
+      max_stale_unused_rate: Number(row.max_stale_unused_rate ?? 0),
+      max_negative_feedback_rate: Number(row.max_negative_feedback_rate ?? 0),
+      min_notification_action_conversion_rate: Number(row.min_notification_action_conversion_rate ?? 0),
+      max_notifications_per_7d: Number(row.max_notifications_per_7d ?? 0),
+      created_at: String(row.created_at ?? row.updated_at ?? nowIso()),
+      updated_at: String(row.updated_at),
+      updated_by_client: String(row.updated_by_client),
+      updated_by_actor: row.updated_by_actor ? String(row.updated_by_actor) : undefined,
     };
   }
 

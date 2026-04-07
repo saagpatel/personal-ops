@@ -229,10 +229,28 @@ Delivered shape:
   - no new core workflow ranking source
   - no widening of browser mutation authority
 
+## Phase 12
+
+Phase 12 is now complete.
+
+Delivered shape:
+
+- persisted review calibration targets with global defaults and optional per-surface overrides
+- `personal-ops review calibration` plus `GET /v1/review/calibration`
+- operator-only calibration target reads and edits through CLI and HTTP
+- console Review Calibration surface with target-vs-actual scorecards, noisy sources, recent tuning effect, and manual recommendations
+- additive compact status for calibration posture, off-track surfaces, notification budget pressure, and top calibration surface
+- deterministic calibration recommendations without automatic proposal generation or policy mutation
+- unchanged trust boundaries:
+  - no automatic tuning approval or rollback
+  - no new review source in the core workflow ranking engine
+  - no browser mutation path for calibration targets
+  - no widening of send, approval, auth, or restore controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, and 12 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

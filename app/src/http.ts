@@ -1111,6 +1111,90 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/review/calibration") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read review calibration.");
+        }
+        const surfaceParam = url.searchParams.get("surface");
+        const surface =
+          surfaceParam === "inbox" ||
+          surfaceParam === "meetings" ||
+          surfaceParam === "planning" ||
+          surfaceParam === "outbound"
+            ? surfaceParam
+            : undefined;
+        sendJson(response, 200, {
+          review_calibration: await service.getReviewCalibration({
+            ...(surface ? { surface } : {}),
+          }),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/review/calibration/targets") {
+        const identity = extractIdentity(request, auth?.role ?? "operator");
+        if (identity.auth_role !== "operator") {
+          throw new HttpError(403, "Only the operator can read review calibration targets.");
+        }
+        sendJson(response, 200, {
+          review_calibration_targets: service.getReviewCalibrationTargets(),
+        });
+        return;
+      }
+
+      if (request.method === "PUT" && url.pathname.startsWith("/v1/review/calibration/targets/")) {
+        const scopeKey = decodeURIComponent(url.pathname.slice("/v1/review/calibration/targets/".length));
+        if (scopeKey && !scopeKey.includes("/")) {
+          if (auth?.role !== "operator" || auth.source !== "bearer") {
+            throw new HttpError(403, "Only bearer-authenticated operator clients can update review calibration targets.");
+          }
+          const body = await readJsonBody(request);
+          sendJson(response, 200, {
+            review_calibration_target: service.updateReviewCalibrationTarget(
+              extractIdentity(request, auth?.role ?? "operator"),
+              scopeKey,
+              {
+                ...(body.min_acted_on_rate !== undefined
+                  ? { min_acted_on_rate: Number(body.min_acted_on_rate) }
+                  : {}),
+                ...(body.max_stale_unused_rate !== undefined
+                  ? { max_stale_unused_rate: Number(body.max_stale_unused_rate) }
+                  : {}),
+                ...(body.max_negative_feedback_rate !== undefined
+                  ? { max_negative_feedback_rate: Number(body.max_negative_feedback_rate) }
+                  : {}),
+                ...(body.min_notification_action_conversion_rate !== undefined
+                  ? {
+                      min_notification_action_conversion_rate: Number(body.min_notification_action_conversion_rate),
+                    }
+                  : {}),
+                ...(body.max_notifications_per_7d !== undefined
+                  ? { max_notifications_per_7d: Number(body.max_notifications_per_7d) }
+                  : {}),
+              },
+            ),
+          });
+          return;
+        }
+      }
+
+      if (request.method === "DELETE" && url.pathname.startsWith("/v1/review/calibration/targets/")) {
+        const scopeKey = decodeURIComponent(url.pathname.slice("/v1/review/calibration/targets/".length));
+        if (scopeKey && !scopeKey.includes("/")) {
+          if (auth?.role !== "operator" || auth.source !== "bearer") {
+            throw new HttpError(403, "Only bearer-authenticated operator clients can reset review calibration targets.");
+          }
+          sendJson(response, 200, {
+            review_calibration_targets: service.resetReviewCalibrationTarget(
+              extractIdentity(request, auth?.role ?? "operator"),
+              scopeKey,
+            ),
+          });
+          return;
+        }
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/review/notifications") {
         sendJson(response, 200, {
           review_notifications: service.getReviewNotificationSnapshot(),

@@ -1,4 +1,6 @@
 import type {
+  ReviewCalibrationReport,
+  ReviewCalibrationTargetsReport,
   ReviewImpactReport,
   ReviewPackage,
   ReviewPackageReport,
@@ -244,6 +246,80 @@ export function formatReviewWeeklyReport(report: ReviewWeeklyReport): string {
     for (const recommendation of report.recommendations) {
       lines.push(`- ${recommendation.kind}: ${recommendation.message}`);
     }
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewCalibrationReport(report: ReviewCalibrationReport): string {
+  const lines: string[] = [];
+  lines.push("Review Calibration");
+  lines.push(line("Generated", report.generated_at));
+  lines.push(line("Calibration window", `${report.window_days} days`));
+  lines.push(line("Notification budget window", `${report.notification_budget_window_days} days`));
+  lines.push(line("Global status", report.global.status.replaceAll("_", " ")));
+  lines.push(line("Surfaces off track", String(report.surfaces_off_track_count)));
+  lines.push(line("Notification budget pressure", String(report.notification_budget_pressure_count)));
+  lines.push("");
+  lines.push("Global");
+  lines.push(line("Reason", report.global.reason));
+  lines.push(line("Open rate (14d)", asPercent(report.global.current.open_rate)));
+  for (const metric of report.global.metrics) {
+    lines.push(
+      line(
+        `${metric.label} (${metric.status})`,
+        metric.metric === "notifications_per_7d"
+          ? `${metric.actual_value.toFixed(0)} vs target ${metric.target_value.toFixed(0)}`
+          : `${asPercent(metric.actual_value)} vs target ${asPercent(metric.target_value)}`,
+      ),
+    );
+  }
+  lines.push("");
+  lines.push("Surfaces");
+  for (const surface of report.surfaces) {
+    lines.push(`- ${surface.label}: ${surface.status.replaceAll("_", " ")} | ${surface.reason}`);
+    for (const metric of surface.metrics) {
+      lines.push(
+        `  ${metric.label}: ${
+          metric.metric === "notifications_per_7d"
+            ? `${metric.actual_value.toFixed(0)} vs target ${metric.target_value.toFixed(0)}`
+            : `${asPercent(metric.actual_value)} vs target ${asPercent(metric.target_value)}`
+        } | ${metric.status.replaceAll("_", " ")}`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push("Recommendations");
+  if (report.recommendations.length === 0) {
+    lines.push("No calibration recommendations are available yet.");
+  } else {
+    for (const recommendation of report.recommendations) {
+      lines.push(`- ${recommendation.kind}: ${recommendation.message}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatReviewCalibrationTargetsReport(report: ReviewCalibrationTargetsReport): string {
+  const lines: string[] = [];
+  lines.push("Review Calibration Targets");
+  lines.push(line("Generated", report.generated_at));
+  lines.push("");
+  lines.push("Configured");
+  if (report.configured_targets.length === 0) {
+    lines.push("No calibration targets are configured.");
+  } else {
+    for (const target of report.configured_targets) {
+      lines.push(
+        `- ${target.scope_key}: acted>=${asPercent(target.min_acted_on_rate)} | stale<=${asPercent(target.max_stale_unused_rate)} | negative<=${asPercent(target.max_negative_feedback_rate)} | notif action>=${asPercent(target.min_notification_action_conversion_rate)} | notif/7d<=${target.max_notifications_per_7d}`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push("Effective");
+  for (const target of report.effective_targets) {
+    lines.push(
+      `- ${target.scope_key}: acted>=${asPercent(target.min_acted_on_rate)} | stale<=${asPercent(target.max_stale_unused_rate)} | negative<=${asPercent(target.max_negative_feedback_rate)} | notif action>=${asPercent(target.min_notification_action_conversion_rate)} | notif/7d<=${target.max_notifications_per_7d}`,
+    );
   }
   return lines.join("\n");
 }

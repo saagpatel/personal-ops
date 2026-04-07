@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import type {
   ClientIdentity,
+  ReviewCalibrationMetricKey,
+  ReviewCalibrationMetricStatus,
+  ReviewCalibrationRecommendation,
+  ReviewCalibrationReport,
+  ReviewCalibrationStatus,
+  ReviewCalibrationSurfaceSummary,
+  ReviewCalibrationTarget,
+  ReviewCalibrationTargetScopeKey,
+  ReviewCalibrationTargetScopeType,
+  ReviewCalibrationTargetsReport,
   ReviewFeedbackReason,
   ReviewImpactComparison,
   ReviewImpactConfidence,
@@ -27,7 +37,6 @@ import type {
   ReviewTuningProposalKind,
   ReviewTuningReport,
   ReviewWeeklyRecommendation,
-  ReviewWeeklyRecommendationKind,
   ReviewWeeklyReport,
   ReviewWeeklySurfaceSummary,
   ServiceState,
@@ -47,8 +56,29 @@ type InternalReviewPackage = ReviewPackage & {
 const REVIEW_WINDOW_DAYS = 14;
 const UNUSED_WINDOW_DAYS = 7;
 const TREND_WINDOW_DAYS = 7;
+const CALIBRATION_WINDOW_DAYS = 14;
+const CALIBRATION_NOTIFICATION_WINDOW_DAYS = 7;
 const NOTIFICATION_ATTRIBUTION_HOURS = 24;
 const SURFACES: ReviewPackageSurface[] = ["inbox", "meetings", "planning", "outbound"];
+const CALIBRATION_DEFAULT_CLIENT = "review-calibration-defaults";
+const CALIBRATION_WATCH_BUFFER = 0.1;
+const DEFAULT_CALIBRATION_TARGETS = {
+  min_acted_on_rate: 0.4,
+  max_stale_unused_rate: 0.3,
+  max_negative_feedback_rate: 0.25,
+  min_notification_action_conversion_rate: 0.15,
+  max_notifications_per_7d: 7,
+} satisfies Omit<
+  ReviewCalibrationTarget,
+  "scope_type" | "scope_key" | "created_at" | "updated_at" | "updated_by_client" | "updated_by_actor"
+>;
+const CALIBRATION_METRIC_PRECEDENCE: ReviewCalibrationMetricKey[] = [
+  "notifications_per_7d",
+  "stale_unused_rate",
+  "negative_feedback_rate",
+  "acted_on_rate",
+  "notification_action_conversion_rate",
+];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -1680,6 +1710,499 @@ function buildWeeklyRecommendations(input: {
   return recommendations.slice(0, 6);
 }
 
+function defaultCalibrationTarget(
+  scopeType: ReviewCalibrationTargetScopeType,
+  scopeKey: ReviewCalibrationTargetScopeKey,
+): ReviewCalibrationTarget {
+  const createdAt = nowIso();
+  return {
+    scope_type: scopeType,
+    scope_key: scopeKey,
+    ...DEFAULT_CALIBRATION_TARGETS,
+    created_at: createdAt,
+    updated_at: createdAt,
+    updated_by_client: CALIBRATION_DEFAULT_CLIENT,
+    updated_by_actor: "system",
+  };
+}
+
+function ensureGlobalCalibrationTarget(service: any): ReviewCalibrationTarget {
+  const existing = service.db.getReviewCalibrationTarget("global", "global");
+  if (existing) {
+    return existing;
+  }
+  return service.db.upsertReviewCalibrationTarget(defaultCalibrationTarget("global", "global"));
+}
+
+function effectiveCalibrationTarget(service: any, surface?: ReviewPackageSurface): ReviewCalibrationTarget {
+  const globalTarget = ensureGlobalCalibrationTarget(service);
+  if (!surface) {
+    return globalTarget;
+  }
+  const surfaceOverride = service.db.getReviewCalibrationTarget("surface", surface);
+  return {
+    ...globalTarget,
+    ...(surfaceOverride ?? {}),
+    scope_type: "surface",
+    scope_key: surface,
+  };
+}
+
+function buildCalibrationTargetsReport(service: any): ReviewCalibrationTargetsReport {
+  ensureGlobalCalibrationTarget(service);
+  const configuredTargets = service.db.listReviewCalibrationTargets();
+  const effectiveTargets = [
+    effectiveCalibrationTarget(service),
+    ...SURFACES.map((surface) => effectiveCalibrationTarget(service, surface)),
+  ];
+  return {
+    generated_at: nowIso(),
+    configured_targets: configuredTargets,
+    effective_targets: effectiveTargets,
+  };
+}
+
+type CalibrationWindowMetrics = {
+  report: ReviewReport;
+  created_count: number;
+  fired_notification_count: number;
+  acted_on_rate: number;
+  stale_unused_rate: number;
+  negative_feedback_rate: number;
+  notification_action_conversion_rate: number;
+  notifications_per_7d: number;
+  open_rate: number;
+  top_noisy_sources: ReviewNoisySourceReport[];
+};
+
+function filterFeedbackEventsForWindow(
+  service: any,
+  startIso: string,
+  endIso: string,
+  surface?: ReviewPackageSurface,
+): Array<{ surface: ReviewPackageSurface; reason: ReviewFeedbackReason }> {
+  return service.db
+    .listReviewFeedbackEvents()
+    .filter(
+      (event: any) =>
+        (!surface || event.surface === surface) &&
+        withinWindow(event.created_at, startIso, endIso),
+    )
+    .map((event: any) => ({
+      surface: event.surface,
+      reason: event.reason,
+    }));
+}
+
+function filterNotificationEventsForWindow(
+  service: any,
+  startIso: string,
+  endIso: string,
+  surface?: ReviewPackageSurface,
+): ReviewNotificationEvent[] {
+  const cyclesById = new Map<string, ReviewPackageCycle>(
+    service.db.listReviewPackageCycles({ include_open: true }).map((cycle: ReviewPackageCycle) => [cycle.package_cycle_id, cycle]),
+  );
+  const proposalsById = new Map<string, ReviewTuningProposal>(
+    service.db.listReviewTuningProposals({ include_expired: true }).map((proposal: ReviewTuningProposal) => [proposal.proposal_id, proposal]),
+  );
+  return service.db
+    .listReviewNotificationEvents()
+    .filter(
+      (event: ReviewNotificationEvent) =>
+        withinWindow(event.created_at, startIso, endIso) &&
+        (!surface || surfaceForNotificationEvent(event, cyclesById, proposalsById) === surface),
+    );
+}
+
+async function buildCalibrationWindowMetrics(
+  service: any,
+  options: { reference_now?: string; surface?: ReviewPackageSurface },
+): Promise<CalibrationWindowMetrics> {
+  const referenceNowIso = options.reference_now ?? nowIso();
+  const report = await buildStoredReviewReportAt(service, {
+    window_days: CALIBRATION_WINDOW_DAYS,
+    ...(options.surface ? { surface: options.surface } : {}),
+    reference_now: referenceNowIso,
+  });
+  const surfaceReport = options.surface ? report.surfaces.find((entry) => entry.surface === options.surface) : undefined;
+  const feedbackEvents = filterFeedbackEventsForWindow(
+    service,
+    windowStartIsoAt(CALIBRATION_WINDOW_DAYS, referenceNowIso),
+    referenceNowIso,
+    options.surface,
+  );
+  const notificationEvents = filterNotificationEventsForWindow(
+    service,
+    windowStartIsoAt(CALIBRATION_NOTIFICATION_WINDOW_DAYS, referenceNowIso),
+    referenceNowIso,
+    options.surface,
+  );
+  const firedNotificationCount = notificationEvents.filter((event) => event.decision === "fired").length;
+  return {
+    report,
+    created_count: surfaceReport?.created_count ?? report.summary.created_count,
+    fired_notification_count: firedNotificationCount,
+    acted_on_rate: surfaceReport?.acted_on_rate ?? report.summary.acted_on_rate,
+    stale_unused_rate: surfaceReport?.stale_unused_rate ?? report.summary.stale_unused_rate,
+    negative_feedback_rate: surfaceReport?.negative_feedback_rate ?? rate(feedbackEvents.filter((event) => negativeReason(event.reason)).length, feedbackEvents.length),
+    notification_action_conversion_rate:
+      surfaceReport?.notification_action_conversion_rate ?? report.summary.notification_action_conversion_rate,
+    notifications_per_7d: firedNotificationCount,
+    open_rate: surfaceReport?.open_rate ?? report.summary.open_rate,
+    top_noisy_sources: (options.surface
+      ? report.top_noisy_sources.filter((entry) => entry.surface === options.surface)
+      : report.top_noisy_sources
+    ).slice(0, 5),
+  };
+}
+
+function calibrationMetricLabel(metric: ReviewCalibrationMetricKey): string {
+  if (metric === "acted_on_rate") {
+    return "Acted-on rate";
+  }
+  if (metric === "stale_unused_rate") {
+    return "Stale-unused rate";
+  }
+  if (metric === "negative_feedback_rate") {
+    return "Negative feedback rate";
+  }
+  if (metric === "notification_action_conversion_rate") {
+    return "Notification action conversion";
+  }
+  return "Notifications per 7d";
+}
+
+function calibrationSeverityValue(status: ReviewCalibrationStatus): number {
+  if (status === "off_track") {
+    return 2;
+  }
+  if (status === "watch") {
+    return 1;
+  }
+  return 0;
+}
+
+function calibrationMetricPrecedence(metric: ReviewCalibrationMetricKey): number {
+  const index = CALIBRATION_METRIC_PRECEDENCE.indexOf(metric);
+  return index === -1 ? CALIBRATION_METRIC_PRECEDENCE.length : index;
+}
+
+function classifyMinimum(actual: number, target: number): ReviewCalibrationStatus {
+  if (actual >= target) {
+    return "on_track";
+  }
+  if (actual >= Math.max(0, target * (1 - CALIBRATION_WATCH_BUFFER))) {
+    return "watch";
+  }
+  return "off_track";
+}
+
+function classifyMaximum(actual: number, target: number): ReviewCalibrationStatus {
+  if (actual <= target) {
+    return "on_track";
+  }
+  if (actual <= target * (1 + CALIBRATION_WATCH_BUFFER)) {
+    return "watch";
+  }
+  return "off_track";
+}
+
+function classifyMaximumCount(actual: number, target: number): ReviewCalibrationStatus {
+  if (target === 0) {
+    return actual > 0 ? "off_track" : "on_track";
+  }
+  if (actual <= target) {
+    return "on_track";
+  }
+  if (actual <= target * (1 + CALIBRATION_WATCH_BUFFER)) {
+    return "watch";
+  }
+  return "off_track";
+}
+
+function calibrationMetricGap(metric: ReviewCalibrationMetricStatus): number {
+  if (metric.metric === "acted_on_rate" || metric.metric === "notification_action_conversion_rate") {
+    return Math.max(0, metric.target_value - metric.actual_value) / Math.max(metric.target_value, 0.05);
+  }
+  if (metric.metric === "notifications_per_7d" && metric.target_value === 0) {
+    return metric.actual_value > 0 ? metric.actual_value : 0;
+  }
+  return Math.max(0, metric.actual_value - metric.target_value) / Math.max(metric.target_value, metric.metric === "notifications_per_7d" ? 1 : 0.05);
+}
+
+function calibrationMetricStatus(
+  metric: ReviewCalibrationMetricKey,
+  actualValue: number,
+  previousValue: number,
+  targetValue: number,
+): ReviewCalibrationMetricStatus {
+  const status =
+    metric === "acted_on_rate" || metric === "notification_action_conversion_rate"
+      ? classifyMinimum(actualValue, targetValue)
+      : metric === "notifications_per_7d"
+        ? classifyMaximumCount(actualValue, targetValue)
+        : classifyMaximum(actualValue, targetValue);
+  const targetDescription =
+    metric === "acted_on_rate" || metric === "notification_action_conversion_rate"
+      ? `minimum ${(targetValue * 100).toFixed(1)}%`
+      : metric === "notifications_per_7d"
+        ? `maximum ${targetValue.toFixed(0)}`
+        : `maximum ${(targetValue * 100).toFixed(1)}%`;
+  const actualDescription =
+    metric === "notifications_per_7d" ? `${actualValue.toFixed(0)}` : `${(actualValue * 100).toFixed(1)}%`;
+  const previousDescription =
+    metric === "notifications_per_7d" ? `${previousValue.toFixed(0)}` : `${(previousValue * 100).toFixed(1)}%`;
+  return {
+    metric,
+    label: calibrationMetricLabel(metric),
+    status,
+    actual_value: actualValue,
+    previous_value: previousValue,
+    target_value: targetValue,
+    summary: `${calibrationMetricLabel(metric)} is ${actualDescription} now versus ${previousDescription} previously, with a ${targetDescription}.`,
+  };
+}
+
+function worstCalibrationMetric(metrics: ReviewCalibrationMetricStatus[]): ReviewCalibrationMetricStatus {
+  return [...metrics].sort(
+    (left, right) =>
+      calibrationSeverityValue(right.status) - calibrationSeverityValue(left.status) ||
+      calibrationMetricPrecedence(left.metric) - calibrationMetricPrecedence(right.metric) ||
+      calibrationMetricGap(right) - calibrationMetricGap(left) ||
+      left.metric.localeCompare(right.metric),
+  )[0]!;
+}
+
+function overallCalibrationStatus(metrics: ReviewCalibrationMetricStatus[]): ReviewCalibrationStatus {
+  if (metrics.some((metric) => metric.status === "off_track")) {
+    return "off_track";
+  }
+  if (metrics.some((metric) => metric.status === "watch")) {
+    return "watch";
+  }
+  return "on_track";
+}
+
+function positiveImpact(comparison: ReviewImpactComparison): boolean {
+  return (
+    comparison.confidence !== "insufficient_data" &&
+    (comparison.acted_on_rate_delta > 0 ||
+      comparison.open_rate_delta > 0 ||
+      comparison.notification_action_conversion_delta > 0 ||
+      comparison.stale_unused_rate_delta < 0 ||
+      comparison.notification_fire_rate_delta < 0 ||
+      comparison.noisy_source_delta < 0)
+  );
+}
+
+function improvingDirection(metric: ReviewCalibrationMetricStatus): boolean {
+  if (metric.metric === "acted_on_rate" || metric.metric === "notification_action_conversion_rate") {
+    return metric.actual_value >= metric.previous_value;
+  }
+  return metric.actual_value <= metric.previous_value;
+}
+
+function dominantNoisySource(summary: ReviewCalibrationSurfaceSummary): ReviewNoisySourceReport | null {
+  const topSource = summary.top_noisy_sources[0];
+  if (!topSource) {
+    return null;
+  }
+  const totalNegative = summary.top_noisy_sources.reduce((sum, source) => sum + source.negative_feedback_count, 0);
+  const totalStaleUnused = summary.top_noisy_sources.reduce((sum, source) => sum + source.stale_unused_count, 0);
+  const negativeShare = totalNegative > 0 ? topSource.negative_feedback_count / totalNegative : 0;
+  const staleShare = totalStaleUnused > 0 ? topSource.stale_unused_count / totalStaleUnused : 0;
+  return negativeShare >= 0.5 || staleShare >= 0.5 ? topSource : null;
+}
+
+function openRateLooksHealthy(summary: ReviewCalibrationSurfaceSummary): boolean {
+  return summary.current.open_rate >= summary.effective_target.min_acted_on_rate;
+}
+
+function buildCalibrationRecommendations(input: {
+  summary: ReviewCalibrationSurfaceSummary;
+  current: CalibrationWindowMetrics;
+}): ReviewCalibrationRecommendation[] {
+  const recommendations: ReviewCalibrationRecommendation[] = [];
+  const metricsByKey = new Map(input.summary.metrics.map((metric) => [metric.metric, metric]));
+  const positiveImpacts = input.summary.recent_tuning_impact.filter(
+    (comparison) => comparison.confidence !== "insufficient_data" && positiveImpact(comparison),
+  );
+  if (input.current.created_count < 3 && input.current.fired_notification_count < 2) {
+    recommendations.push({
+      kind: "insufficient_evidence",
+      surface: input.summary.surface,
+      scope_key: String(input.summary.scope_key),
+      message: `${input.summary.label} does not have enough recent review volume to support a confident calibration decision yet.`,
+    });
+    return recommendations;
+  }
+  if (
+    input.current.notifications_per_7d > input.summary.effective_target.max_notifications_per_7d &&
+    input.current.notification_action_conversion_rate < input.summary.effective_target.min_notification_action_conversion_rate
+  ) {
+    recommendations.push({
+      kind: "tighten_notification_budget",
+      surface: input.summary.surface,
+      scope_key: String(input.summary.scope_key),
+      message: `${input.summary.label} is firing too many notifications for the action conversion it is returning, so the notification budget should be tightened manually.`,
+    });
+  }
+  if (
+    metricsByKey.get("stale_unused_rate")?.status === "off_track" &&
+    metricsByKey.get("negative_feedback_rate")?.status === "off_track"
+  ) {
+    recommendations.push({
+      kind: "review_package_composition",
+      surface: input.summary.surface,
+      scope_key: String(input.summary.scope_key),
+      message: `${input.summary.label} is packaging work that is not landing well, so package composition should be reviewed manually.`,
+    });
+  }
+  const dominantSource = dominantNoisySource(input.summary);
+  if (input.summary.status === "off_track" && dominantSource) {
+    recommendations.push({
+      kind: "inspect_source_suppression",
+      surface: input.summary.surface,
+      scope_key: dominantSource.scope_key,
+      message: `${dominantSource.scope_key} is dominating review noise for ${input.summary.label}, so source suppression should be inspected manually.`,
+    });
+  }
+  if (
+    metricsByKey.get("acted_on_rate")?.status === "off_track" &&
+    openRateLooksHealthy(input.summary)
+  ) {
+    recommendations.push({
+      kind: "revisit_surface_priority",
+      surface: input.summary.surface,
+      scope_key: String(input.summary.scope_key),
+      message: `${input.summary.label} is still being opened but not acted on enough, so surface ordering or priority should be revisited before visibility rules are changed.`,
+    });
+  }
+  if (
+    positiveImpacts.some((comparison) => comparison.confidence === "directional" || comparison.confidence === "strong") &&
+    input.summary.metrics.every(
+      (metric) => metric.status !== "off_track" && (metric.status === "on_track" || improvingDirection(metric)),
+    )
+  ) {
+    recommendations.push({
+      kind: "keep_current_tuning",
+      surface: input.summary.surface,
+      scope_key: String(input.summary.scope_key),
+      message: `${input.summary.label} is within target and recent tuning impact is positive, so the current tuning looks worth keeping.`,
+    });
+  }
+  return recommendations.slice(0, 3);
+}
+
+function calibrationReason(summary: ReviewCalibrationSurfaceSummary): string {
+  if (summary.status === "on_track") {
+    return `${summary.label} is inside all current calibration targets.`;
+  }
+  const worst = summary.worst_metric;
+  return `${summary.label} is ${summary.status.replaceAll("_", " ")} because ${worst.label.toLowerCase()} is outside its target.`;
+}
+
+function summaryForCalibrationScope(
+  service: any,
+  input: {
+    label: string;
+    scope_key: ReviewCalibrationTargetScopeKey;
+    surface?: ReviewPackageSurface;
+    current: CalibrationWindowMetrics;
+    previous: CalibrationWindowMetrics;
+    recent_tuning_impact: ReviewImpactComparison[];
+  },
+): ReviewCalibrationSurfaceSummary {
+  const target = effectiveCalibrationTarget(service, input.surface);
+  const metrics: ReviewCalibrationMetricStatus[] = [
+    calibrationMetricStatus("acted_on_rate", input.current.acted_on_rate, input.previous.acted_on_rate, target.min_acted_on_rate),
+    calibrationMetricStatus(
+      "stale_unused_rate",
+      input.current.stale_unused_rate,
+      input.previous.stale_unused_rate,
+      target.max_stale_unused_rate,
+    ),
+    calibrationMetricStatus(
+      "negative_feedback_rate",
+      input.current.negative_feedback_rate,
+      input.previous.negative_feedback_rate,
+      target.max_negative_feedback_rate,
+    ),
+    calibrationMetricStatus(
+      "notification_action_conversion_rate",
+      input.current.notification_action_conversion_rate,
+      input.previous.notification_action_conversion_rate,
+      target.min_notification_action_conversion_rate,
+    ),
+    calibrationMetricStatus(
+      "notifications_per_7d",
+      input.current.notifications_per_7d,
+      input.previous.notifications_per_7d,
+      target.max_notifications_per_7d,
+    ),
+  ];
+  const summary: ReviewCalibrationSurfaceSummary = {
+    scope_type: input.surface ? "surface" : "global",
+    scope_key: input.scope_key,
+    surface: input.surface,
+    label: input.label,
+    status: overallCalibrationStatus(metrics),
+    overall_status: overallCalibrationStatus(metrics),
+    effective_target: target,
+    target,
+    current: {
+      created_count: input.current.created_count,
+      fired_notification_count: input.current.fired_notification_count,
+      open_rate: input.current.open_rate,
+      acted_on_rate: input.current.acted_on_rate,
+      stale_unused_rate: input.current.stale_unused_rate,
+      negative_feedback_rate: input.current.negative_feedback_rate,
+      notification_action_conversion_rate: input.current.notification_action_conversion_rate,
+      notifications_per_7d: input.current.notifications_per_7d,
+    },
+    previous: {
+      created_count: input.previous.created_count,
+      fired_notification_count: input.previous.fired_notification_count,
+      open_rate: input.previous.open_rate,
+      acted_on_rate: input.previous.acted_on_rate,
+      stale_unused_rate: input.previous.stale_unused_rate,
+      negative_feedback_rate: input.previous.negative_feedback_rate,
+      notification_action_conversion_rate: input.previous.notification_action_conversion_rate,
+      notifications_per_7d: input.previous.notifications_per_7d,
+    },
+    open_rate_14d: input.current.open_rate,
+    previous_open_rate_14d: input.previous.open_rate,
+    metrics,
+    worst_metric: worstCalibrationMetric(metrics),
+    reason: "",
+    primary_reason: "",
+    recent_tuning_impact: input.recent_tuning_impact.slice(0, 3),
+    top_noisy_sources: input.current.top_noisy_sources.slice(0, 3),
+    recommendations: [],
+  };
+  summary.reason = calibrationReason(summary);
+  summary.primary_reason = summary.reason;
+  summary.recommendations = buildCalibrationRecommendations({
+    summary,
+    current: input.current,
+  });
+  return summary;
+}
+
+function topCalibrationSurface(summaries: ReviewCalibrationSurfaceSummary[]): ReviewPackageSurface | null {
+  return (
+    [...summaries]
+      .filter((summary) => Boolean(summary.surface) && summary.status === "off_track")
+      .sort(
+        (left, right) =>
+          calibrationMetricPrecedence(left.worst_metric.metric) - calibrationMetricPrecedence(right.worst_metric.metric) ||
+          calibrationMetricGap(right.worst_metric) - calibrationMetricGap(left.worst_metric) ||
+          (left.surface ?? "").localeCompare(right.surface ?? ""),
+      )[0]?.surface ?? null
+  );
+}
+
 async function buildScopedReviewMetrics(
   service: any,
   options: {
@@ -1997,6 +2520,176 @@ export async function buildStoredReviewWeekly(
       recentImpact,
     }),
   };
+}
+
+export async function buildStoredReviewCalibration(
+  service: any,
+  options: { surface?: ReviewPackageSurface } = {},
+): Promise<ReviewCalibrationReport> {
+  const impactReport = await buildStoredReviewImpact(service, { days: 30 });
+  const currentGlobal = await buildCalibrationWindowMetrics(service, {});
+  const previousGlobal = await buildCalibrationWindowMetrics(service, {
+    reference_now: subtractDays(nowIso(), CALIBRATION_WINDOW_DAYS),
+  });
+  const globalSummary = summaryForCalibrationScope(service, {
+    label: "Global review loop",
+    scope_key: "global",
+    current: currentGlobal,
+    previous: previousGlobal,
+    recent_tuning_impact: impactReport.comparisons.slice(0, 5),
+  });
+
+  const surfaceSummaries: ReviewCalibrationSurfaceSummary[] = [];
+  const surfaces = options.surface ? [options.surface] : SURFACES;
+  for (const surface of surfaces) {
+    const current = await buildCalibrationWindowMetrics(service, { surface });
+    const previous = await buildCalibrationWindowMetrics(service, {
+      surface,
+      reference_now: subtractDays(nowIso(), CALIBRATION_WINDOW_DAYS),
+    });
+    surfaceSummaries.push(
+      summaryForCalibrationScope(service, {
+        label: surface,
+        scope_key: surface,
+        surface,
+        current,
+        previous,
+        recent_tuning_impact: impactReport.comparisons.filter((comparison) => comparison.surface === surface),
+      }),
+    );
+  }
+
+  const surfacesOffTrackCount = surfaceSummaries.filter((summary) => summary.status === "off_track").length;
+  const notificationBudgetPressureCount = surfaceSummaries.filter(
+    (summary) => summary.metrics.find((metric) => metric.metric === "notifications_per_7d")?.status !== "on_track",
+  ).length;
+
+  return {
+    generated_at: nowIso(),
+    window_days: CALIBRATION_WINDOW_DAYS,
+    calibration_window_days: CALIBRATION_WINDOW_DAYS,
+    notification_budget_window_days: CALIBRATION_NOTIFICATION_WINDOW_DAYS,
+    notification_window_days: CALIBRATION_NOTIFICATION_WINDOW_DAYS,
+    global: globalSummary,
+    surfaces: surfaceSummaries,
+    surfaces_off_track_count: surfacesOffTrackCount,
+    notification_budget_pressure_count: notificationBudgetPressureCount,
+    recommendations: [
+      ...globalSummary.recommendations,
+      ...surfaceSummaries.flatMap((summary) => summary.recommendations),
+    ].slice(0, 8),
+  };
+}
+
+export function getStoredReviewCalibrationTargets(service: any): ReviewCalibrationTargetsReport {
+  return buildCalibrationTargetsReport(service);
+}
+
+export async function buildReviewCalibration(
+  service: any,
+  options: { surface?: ReviewPackageSurface } = {},
+): Promise<ReviewCalibrationReport> {
+  await service.ensureReviewReadModel({ trigger: "review_calibration_read" });
+  return buildStoredReviewCalibration(service, options);
+}
+
+export function getReviewCalibrationTargets(service: any): ReviewCalibrationTargetsReport {
+  return buildCalibrationTargetsReport(service);
+}
+
+function assertCalibrationScopeKey(scopeKey: string): ReviewCalibrationTargetScopeKey {
+  if (scopeKey === "global" || SURFACES.includes(scopeKey as ReviewPackageSurface)) {
+    return scopeKey as ReviewCalibrationTargetScopeKey;
+  }
+  throw new Error("scope must be one of global, inbox, meetings, planning, or outbound.");
+}
+
+function assertRateValue(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`${label} must be a number between 0 and 1.`);
+  }
+  return parsed;
+}
+
+function assertNotificationBudget(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error("max_notifications_per_7d must be a non-negative number.");
+  }
+  return Math.floor(parsed);
+}
+
+export function updateReviewCalibrationTarget(
+  service: any,
+  identity: ClientIdentity,
+  scopeKeyRaw: string,
+  updates: {
+    min_acted_on_rate?: number;
+    max_stale_unused_rate?: number;
+    max_negative_feedback_rate?: number;
+    min_notification_action_conversion_rate?: number;
+    max_notifications_per_7d?: number;
+  },
+): ReviewCalibrationTarget {
+  service.assertOperatorOnly(identity, "update review calibration targets");
+  const scopeKey = assertCalibrationScopeKey(scopeKeyRaw);
+  const scopeType: ReviewCalibrationTargetScopeType = scopeKey === "global" ? "global" : "surface";
+  if (Object.keys(updates).length === 0) {
+    throw new Error("Provide at least one calibration target value to update.");
+  }
+  const baseTarget =
+    service.db.getReviewCalibrationTarget(scopeType, scopeKey) ??
+    effectiveCalibrationTarget(service, scopeKey === "global" ? undefined : scopeKey);
+  const nextTarget = {
+    ...baseTarget,
+    ...(updates.min_acted_on_rate !== undefined
+      ? { min_acted_on_rate: assertRateValue(updates.min_acted_on_rate, "min_acted_on_rate") }
+      : {}),
+    ...(updates.max_stale_unused_rate !== undefined
+      ? { max_stale_unused_rate: assertRateValue(updates.max_stale_unused_rate, "max_stale_unused_rate") }
+      : {}),
+    ...(updates.max_negative_feedback_rate !== undefined
+      ? { max_negative_feedback_rate: assertRateValue(updates.max_negative_feedback_rate, "max_negative_feedback_rate") }
+      : {}),
+    ...(updates.min_notification_action_conversion_rate !== undefined
+      ? {
+          min_notification_action_conversion_rate: assertRateValue(
+            updates.min_notification_action_conversion_rate,
+            "min_notification_action_conversion_rate",
+          ),
+        }
+      : {}),
+    ...(updates.max_notifications_per_7d !== undefined
+      ? { max_notifications_per_7d: assertNotificationBudget(updates.max_notifications_per_7d) }
+      : {}),
+  };
+  return service.db.upsertReviewCalibrationTarget({
+    scope_type: scopeType,
+    scope_key: scopeKey,
+    min_acted_on_rate: nextTarget.min_acted_on_rate,
+    max_stale_unused_rate: nextTarget.max_stale_unused_rate,
+    max_negative_feedback_rate: nextTarget.max_negative_feedback_rate,
+    min_notification_action_conversion_rate: nextTarget.min_notification_action_conversion_rate,
+    max_notifications_per_7d: nextTarget.max_notifications_per_7d,
+    created_at: baseTarget.created_at,
+    updated_by_client: identity.client_id,
+    updated_by_actor: identity.requested_by ?? null,
+  });
+}
+
+export function resetReviewCalibrationTarget(
+  service: any,
+  identity: ClientIdentity,
+  scopeKeyRaw: string,
+): ReviewCalibrationTargetsReport {
+  service.assertOperatorOnly(identity, "reset review calibration targets");
+  const scopeKey = assertCalibrationScopeKey(scopeKeyRaw);
+  if (scopeKey === "global") {
+    throw new Error("Only per-surface calibration targets can be reset.");
+  }
+  service.db.deleteReviewCalibrationTarget("surface", scopeKey);
+  return buildCalibrationTargetsReport(service);
 }
 
 export async function buildReviewReport(
