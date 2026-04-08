@@ -31,7 +31,13 @@ interface WorkflowCandidate extends WorkflowBundleAction {
 }
 
 interface WorkflowContext {
-  status: any;
+  status: {
+    state: ServiceState;
+    mailbox: {
+      configured: string | null;
+      connected: string | null;
+    };
+  };
   worklist: WorklistReport;
   planningAutopilot: PlanningAutopilotReport;
   outboundAutopilot: OutboundAutopilotReport;
@@ -771,8 +777,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
           },
           groups: [],
         });
-  const [status, worklist, recommendations, planningAutopilot, outboundAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
-    service.getStatusReport(options),
+  const [worklist, recommendations, planningAutopilot, outboundAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
     planningAutopilotPromise,
@@ -783,6 +788,22 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     Promise.resolve(service.listUpcomingCalendarEvents(1, 20)),
     listMeetingPrepCandidates(service, { scope: "next_24h" }),
   ]);
+  const fallbackStatus =
+    (!worklist.state || !["ready", "setup_required", "degraded"].includes(worklist.state))
+      && typeof service.getStatusReport === "function"
+      ? await service.getStatusReport({ httpReachable: options.httpReachable })
+      : null;
+  const mailAccount =
+    typeof service.db?.getMailAccount === "function"
+      ? service.db.getMailAccount()
+      : null;
+  const status = {
+    state: (worklist.state ?? fallbackStatus?.state ?? "ready") as ServiceState,
+    mailbox: {
+      configured: service.config?.gmailAccountEmail || fallbackStatus?.mailbox.configured || null,
+      connected: mailAccount?.email ?? fallbackStatus?.mailbox.connected ?? null,
+    },
+  };
 
   const orderedRecommendations = [...recommendations].sort((left, right) => service.compareNextActionableRecommendations(left, right));
   const recommendationDetails = orderedRecommendations
@@ -936,6 +957,22 @@ function buildPrepDayTimeSensitive(
   );
 }
 
+function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSectionItem[] {
+  if (!worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
+    return [];
+  }
+  return worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
+    label: recommendation.title,
+    summary: recommendation.reason,
+    command: recommendation.suggested_command,
+    target_type: "system",
+    target_id: `maintenance:${recommendation.step_id}`,
+    why_now: "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
+    score_band: recommendation.urgency === "recommended" ? "medium" : "high",
+    signals: ["maintenance_window", recommendation.step_id],
+  }));
+}
+
 export async function buildNowNextWorkflowReport(service: any, options: { httpReachable: boolean }): Promise<WorkflowBundleReport> {
   const context = await loadWorkflowContext(service, options);
   const candidates = buildIntelligenceCandidates(service, context);
@@ -1039,6 +1076,7 @@ export async function buildPrepDayWorkflowReport(service: any, options: { httpRe
     topAttentionExcluded.add(uniqueItemKey(item));
   }
   const timeSensitive = buildPrepDayTimeSensitive(candidates, topScore, topAttentionExcluded);
+  const maintenanceWindow = buildMaintenanceWindowItems(context.worklist);
 
   return buildWorkflowReport({
     workflow: "prep-day",
@@ -1051,6 +1089,7 @@ export async function buildPrepDayWorkflowReport(service: any, options: { httpRe
       { title: "Overall State", items: overall },
       { title: "Top Attention", items: topAttention },
       { title: "Time-Sensitive Items", items: timeSensitive },
+      { title: "Maintenance Window", items: maintenanceWindow },
       { title: "Next Commands", items: [] },
     ],
     worklist: context.worklist,

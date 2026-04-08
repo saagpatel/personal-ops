@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { createRequestJson } from "../src/cli/http-client.js";
 import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
@@ -258,6 +258,38 @@ function parseJsonOutput<T>(raw: string, label: string): T {
 
 function tailLines(lines: string[], count = 20): string {
   return lines.slice(-count).join("\n");
+}
+
+async function waitForFunctionLabeled(
+  page: Page,
+  label: string,
+  pageFunction: Parameters<Page["waitForFunction"]>[0],
+  arg?: Parameters<Page["waitForFunction"]>[1],
+  options?: Parameters<Page["waitForFunction"]>[2],
+): Promise<void> {
+  try {
+    await page.waitForFunction(pageFunction, arg, options);
+  } catch (error) {
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    throw new Error(
+      `Console verifier timed out while waiting for: ${label}\n${error instanceof Error ? error.message : String(error)}${
+        bodyText ? `\nVisible body:\n${bodyText}` : ""
+      }`,
+    );
+  }
+}
+
+async function waitForSelectorLabeled(
+  page: Page,
+  label: string,
+  selector: string,
+  options?: { timeout?: number },
+): Promise<void> {
+  try {
+    await page.waitForSelector(selector, options);
+  } catch (error) {
+    throw new Error(`Console verifier timed out while waiting for selector: ${label}\n${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function waitForHealth(config: Config, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
@@ -839,33 +871,40 @@ export async function runConsoleVerification(): Promise<void> {
       snapshotPage.on("dialog", async (dialog) => {
         await dialog.accept();
       });
-      await snapshotPage.goto(launchUrl, { waitUntil: "domcontentloaded" });
-      await snapshotPage.waitForSelector("text=Local operator console");
-      await snapshotPage.waitForSelector("text=Top-level readiness");
-      await snapshotPage.waitForSelector("text=What to do right now");
-      await snapshotPage.waitForSelector("text=Day-start workflow");
-      await snapshotPage.waitForSelector("text=Version");
-      await snapshotPage.waitForFunction(() => {
+      await snapshotPage.goto(launchUrl, { waitUntil: "commit" });
+      await waitForSelectorLabeled(snapshotPage, "console shell title", "text=Local operator console");
+      await waitForFunctionLabeled(
+        snapshotPage,
+        "console interactive shell",
+        () => document.documentElement.dataset.consoleReady === "1",
+      );
+      await waitForSelectorLabeled(snapshotPage, "overview readiness card", "text=Top-level readiness");
+      await waitForSelectorLabeled(snapshotPage, "overview next steps card", "text=What to do right now");
+      await waitForSelectorLabeled(snapshotPage, "overview prep-day card", "text=Day-start workflow");
+      await waitForSelectorLabeled(snapshotPage, "overview version card", "text=Version");
+      await waitForFunctionLabeled(snapshotPage, "overview readiness body text", () => {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
       });
       await snapshotPage.getByRole("button", { name: "Open related detail", exact: true }).first().click();
-      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Worklist");
+      await waitForFunctionLabeled(snapshotPage, "worklist section title", () => document.querySelector("#section-title")?.textContent === "Worklist");
       await snapshotPage.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();
-      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Overview");
+      await waitForFunctionLabeled(snapshotPage, "overview section title", () => document.querySelector("#section-title")?.textContent === "Overview");
       for (const sectionName of ["Worklist", "Approvals", "Drafts", "Planning", "Audit", "Backups", "Overview"]) {
         await snapshotPage.locator(".nav").getByRole("button", { name: sectionName, exact: true }).click();
-        await snapshotPage.waitForFunction(
+        await waitForFunctionLabeled(
+          snapshotPage,
+          `section title ${sectionName}`,
           (expected) => document.querySelector("#section-title")?.textContent === expected,
           sectionName,
         );
       }
       await snapshotPage.locator(".nav").getByRole("button", { name: "Backups", exact: true }).click();
-      await snapshotPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Backups");
-      await snapshotPage.waitForSelector(`text=${new Date().getUTCFullYear()}`);
-      await snapshotPage.waitForSelector("text=Source machine");
+      await waitForFunctionLabeled(snapshotPage, "backups section title", () => document.querySelector("#section-title")?.textContent === "Backups");
+      await waitForSelectorLabeled(snapshotPage, "backup year listing", `text=${new Date().getUTCFullYear()}`);
+      await waitForSelectorLabeled(snapshotPage, "backup source machine detail", "text=Source machine");
       await snapshotPage.getByRole("button", { name: "Create snapshot" }).click();
-      await snapshotPage.waitForSelector("text=Created snapshot");
+      await waitForSelectorLabeled(snapshotPage, "backup created flash", "text=Created snapshot", { timeout: 60_000 });
       await snapshotContext.close();
 
       const planningConsoleCommand = await runCommand(
@@ -885,14 +924,20 @@ export async function runConsoleVerification(): Promise<void> {
       planningPage.on("dialog", async (dialog) => {
         await dialog.accept();
       });
-      await planningPage.goto(planningLaunchUrl, { waitUntil: "domcontentloaded" });
+      await planningPage.goto(planningLaunchUrl, { waitUntil: "commit" });
+      await waitForSelectorLabeled(planningPage, "planning console shell title", "text=Local operator console");
+      await waitForFunctionLabeled(
+        planningPage,
+        "planning console interactive shell",
+        () => document.documentElement.dataset.consoleReady === "1",
+      );
       await planningPage.locator(".nav").getByRole("button", { name: "Planning", exact: true }).click();
-      await planningPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Planning");
-      await planningPage.waitForFunction(() => {
+      await waitForFunctionLabeled(planningPage, "planning section title", () => document.querySelector("#section-title")?.textContent === "Planning");
+      await waitForFunctionLabeled(planningPage, "planning body text", () => {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Open recommendations") && !bodyText.includes("NaN");
       });
-      await planningPage.waitForSelector("#planning-snooze-note");
+      await waitForSelectorLabeled(planningPage, "planning snooze note input", "#planning-snooze-note");
       await planningPage.evaluate(() => {
         const note = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note");
         if (!note) {
@@ -903,17 +948,20 @@ export async function runConsoleVerification(): Promise<void> {
         note.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await planningPage.getByRole("button", { name: "Snooze recommendation", exact: true }).click();
-      await planningPage.waitForTimeout(1_500);
-      const planningBody = await planningPage.locator("body").innerText();
-      assert.match(
-        planningBody,
-        /Recommendation snoozed\.|Status\s+snoozed/,
-        "console planning action should update the visible planning state.",
+      await waitForFunctionLabeled(
+        planningPage,
+        "planning snooze result",
+        () => {
+          const bodyText = document.body.textContent ?? "";
+          return /Recommendation snoozed\.|Status\s+snoozed/.test(bodyText);
+        },
+        undefined,
+        { timeout: 60_000 },
       );
 
       await planningPage.locator(".nav").getByRole("button", { name: "Approvals", exact: true }).click();
-      await planningPage.waitForFunction(() => document.querySelector("#section-title")?.textContent === "Approvals");
-      await planningPage.waitForFunction(() => {
+      await waitForFunctionLabeled(planningPage, "approvals section title", () => document.querySelector("#section-title")?.textContent === "Approvals");
+      await waitForFunctionLabeled(planningPage, "approvals body text", () => {
         const bodyText = document.body.textContent ?? "";
         return (
           (bodyText.includes("This section is intentionally read-only.") && bodyText.includes("personal-ops approval approve")) ||
@@ -927,10 +975,10 @@ export async function runConsoleVerification(): Promise<void> {
       const lockedContext = await browser.newContext();
       const lockedPage = await lockedContext.newPage();
       await lockedPage.goto(`http://${env.config.serviceHost}:${env.config.servicePort}/console`, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "commit",
       });
-      await lockedPage.waitForSelector("text=Console locked");
-      await lockedPage.waitForSelector("text=personal-ops console");
+      await waitForSelectorLabeled(lockedPage, "console locked notice", "text=Console locked");
+      await waitForSelectorLabeled(lockedPage, "console lock CLI hint", "text=personal-ops console");
       await lockedContext.close();
     } finally {
       await browser.close();

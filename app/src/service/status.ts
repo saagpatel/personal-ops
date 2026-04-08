@@ -10,7 +10,7 @@ import { buildInstallCheckReport } from "../install.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
-import { buildRepairPlan } from "../repair-plan.js";
+import { buildMaintenanceWindowSummary, buildRepairPlan, summarizeRepairPlan } from "../repair-plan.js";
 import { pruneSnapshots, readRecoveryRehearsalStamp, snapshotAgeHours, SNAPSHOT_WARN_HOURS } from "../recovery.js";
 import {
   buildStoredReviewCalibration,
@@ -164,27 +164,28 @@ export async function buildStatusReport(
     machine_state_origin: describeStateOrigin(provenance),
     recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
   });
+  const maintenanceWindow = worklist.maintenance_window ?? buildMaintenanceWindowSummary({
+    generated_at: new Date().toISOString(),
+    state: classifiedState,
+    worklist_items: worklist.items,
+    repair_plan: repairPlan,
+    recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+  });
+  const repairPlanWithMaintenance = {
+    ...repairPlan,
+    maintenance_window: maintenanceWindow,
+  };
   const desktopStatus = {
     ...rawDesktopStatus,
-    repair_plan_summary: {
-      first_step_id: repairPlan.first_step_id,
-      first_repair_step: repairPlan.first_repair_step,
-      step_count: repairPlan.steps.length,
-      last_step_id: repairPlan.last_execution?.step_id ?? null,
-      last_outcome: repairPlan.last_execution?.outcome ?? null,
-      top_recurring_step_id: repairPlan.top_recurring_issue?.step_id ?? null,
-      preventive_maintenance_count: repairPlan.preventive_maintenance.count,
-      top_preventive_step_id: repairPlan.preventive_maintenance.top_step_id,
-      last_repair: repairPlan.last_repair,
-      recurring_issue: repairPlan.recurring_issue,
-    },
+    repair_plan_summary: summarizeRepairPlan(repairPlanWithMaintenance),
   };
   return {
     generated_at: new Date().toISOString(),
     service_version: service.getServiceVersion(),
     state: classifiedState,
-    first_repair_step: repairPlan.first_repair_step,
-    repair_plan: repairPlan,
+    first_repair_step: repairPlanWithMaintenance.first_repair_step,
+    repair_plan: repairPlanWithMaintenance,
+    maintenance_window: maintenanceWindow,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

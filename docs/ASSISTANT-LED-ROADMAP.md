@@ -339,10 +339,28 @@ Delivered shape:
   - no new HTTP or MCP APIs
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 18
+
+Phase 18 is now complete.
+
+Delivered shape:
+
+- a derived calm-window `maintenance_window` summary on top of Phase 17 preventive-maintenance guidance
+- bounded preventive maintenance bundles across `worklist`, `now`, `prep-day`, status payloads, and the console repair area
+- deterministic suppression when active repair is pending, the system is not ready, the quiet period is still active, or concrete operator work is already present
+- `prep-day` maintenance bundles that stay separate from `Next Commands` so repair and concrete work still lead
+- unchanged trust boundaries:
+  - preventive maintenance remains guidance only
+  - no new CLI repair commands were added
+  - repair execution stays CLI-only
+  - browser and console remain read-only for maintenance guidance
+  - no new HTTP or MCP APIs
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, and 17 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, and 18 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

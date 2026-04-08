@@ -84,6 +84,16 @@ function formatRepairPlan(plan: RepairPlan): string[] {
           (recommendation) =>
             `- Preventive maintenance (${recommendation.urgency}): ${recommendation.title}. ${recommendation.reason} Last resolved: ${recommendation.last_resolved_at}. Next: \`${recommendation.suggested_command}\`.`,
         );
+  const maintenanceRows =
+    !plan.maintenance_window.eligible_now || !plan.maintenance_window.bundle
+      ? []
+      : [
+          `- Maintenance window: ${plan.maintenance_window.bundle.summary}`,
+          ...plan.maintenance_window.bundle.recommendations.map(
+            (recommendation) =>
+              `- Calm window (${recommendation.urgency}): ${recommendation.title}. ${recommendation.reason} Next: \`${recommendation.suggested_command}\`.`,
+          ),
+        ];
   if (plan.last_repair) {
     lines.push(
       `- Last repair: ${plan.last_repair.step_id} finished ${plan.last_repair.completed_at} with ${plan.last_repair.outcome}. ${plan.last_repair.message}`,
@@ -97,6 +107,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
     lines.push(...preventiveRows);
+    lines.push(...maintenanceRows);
     return lines;
   }
   lines.push(
@@ -106,6 +117,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
     ),
   );
   lines.push(...preventiveRows);
+  lines.push(...maintenanceRows);
   return lines;
 }
 
@@ -118,6 +130,14 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
   lines.push(line("Recurring drift", plan.recurring_issue ? plan.recurring_issue.step_id : "none"));
   lines.push(
     line("Preventive maintenance", plan.preventive_maintenance.top_step_id ? plan.preventive_maintenance.top_step_id : "none"),
+  );
+  lines.push(
+    line(
+      "Maintenance window",
+      plan.maintenance_window.eligible_now
+        ? plan.maintenance_window.top_step_id ?? "ready"
+        : plan.maintenance_window.deferred_reason ?? "none",
+    ),
   );
   lines.push("");
   lines.push("Steps");
@@ -501,6 +521,15 @@ export function formatSendWindowStatus(status: SendWindowStatus): string {
 
 export function formatWorklistReport(report: WorklistReport): string {
   const lines: string[] = [];
+  const maintenanceRows =
+    report.maintenance_window.eligible_now && report.maintenance_window.bundle
+      ? [
+          `- ${report.maintenance_window.bundle.summary}`,
+          ...report.maintenance_window.bundle.recommendations.map(
+            (recommendation) => `- ${recommendation.title}: ${recommendation.suggested_command}`,
+          ),
+        ]
+      : [];
   lines.push(`Worklist: ${formatStateLabel(report.state)}`);
   lines.push(line("Generated", report.generated_at));
   lines.push(
@@ -521,7 +550,12 @@ export function formatWorklistReport(report: WorklistReport): string {
 
   if (report.items.length === 0) {
     lines.push("Start Here");
-    lines.push("- Nothing needs attention right now.");
+    lines.push(`- ${maintenanceRows.length > 0 ? "Nothing urgent needs attention right now." : "Nothing needs attention right now."}`);
+    if (maintenanceRows.length > 0) {
+      lines.push("- A calm-window maintenance bundle is available below.");
+      lines.push("");
+      pushSection(lines, "Preventive Maintenance", maintenanceRows);
+    }
     return lines.join("\n");
   }
 
@@ -538,6 +572,10 @@ export function formatWorklistReport(report: WorklistReport): string {
         (group) => `- ${group.group_summary} (${group.pending_count} pending, top score ${group.top_rank_score})`,
       ),
     );
+  }
+
+  if (maintenanceRows.length > 0) {
+    pushSection(lines, "Preventive Maintenance", maintenanceRows);
   }
 
   lines.push("Items");
@@ -677,6 +715,7 @@ export function formatVersionReport(report: VersionReport): string {
 
 export function formatNowReport(status: ServiceStatusReport, worklist: WorklistReport): string {
   const lines: string[] = [];
+  const maintenanceWindow = worklist.maintenance_window.eligible_now ? worklist.maintenance_window.bundle : null;
   lines.push(`Personal Ops Now: ${formatStateLabel(status.state)}`);
   lines.push(line("Next attention", topSummary(worklist.items[0]?.summary, "nothing urgent right now")));
   lines.push(
@@ -691,7 +730,17 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
   lines.push("");
 
   if (worklist.items.length === 0) {
-    lines.push("Nothing urgent is waiting right now.");
+    lines.push(maintenanceWindow ? "Nothing urgent is waiting right now." : "Nothing urgent is waiting right now.");
+    if (maintenanceWindow) {
+      lines.push("");
+      lines.push("Calm Window");
+      lines.push(`- ${maintenanceWindow.summary}`);
+      for (const recommendation of maintenanceWindow.recommendations) {
+        lines.push(`- ${recommendation.title}`);
+        lines.push(`  ${recommendation.suggested_command}`);
+      }
+      lines.push("");
+    }
     lines.push("Run `personal-ops status` for a full health summary.");
     return lines.join("\n");
   }
@@ -700,6 +749,15 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
   for (const item of worklist.items.slice(0, 3)) {
     lines.push(`- ${item.title}`);
     lines.push(`  ${item.suggested_command}`);
+  }
+  if (maintenanceWindow) {
+    lines.push("");
+    lines.push("Calm Window");
+    lines.push(`- ${maintenanceWindow.summary}`);
+    for (const recommendation of maintenanceWindow.recommendations) {
+      lines.push(`- ${recommendation.title}`);
+      lines.push(`  ${recommendation.suggested_command}`);
+    }
   }
   lines.push("");
   lines.push("Use `personal-ops worklist` for the full queue.");

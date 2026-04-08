@@ -428,6 +428,80 @@ test("Phase 6 console session grants are single-use and allow browser-safe workf
   }
 });
 
+test("phase 18 console browser-safe status includes the calm-window maintenance bundle", async () => {
+  const fixture = await createConsoleFixture();
+  try {
+    const originalGetStatusReport = fixture.service.getStatusReport.bind(fixture.service);
+    fixture.service.getStatusReport = async (options: { httpReachable: boolean }) => {
+      const status = await originalGetStatusReport(options);
+      const maintenanceWindow = {
+        eligible_now: true,
+        deferred_reason: null,
+        count: 1,
+        top_step_id: "install_wrappers" as const,
+        bundle: {
+          bundle_id: "maintenance-window:install_wrappers",
+          title: "Preventive maintenance window",
+          summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+          recommended_commands: ["personal-ops install wrappers"],
+          recommendations: [
+            {
+              step_id: "install_wrappers" as const,
+              title: "Refresh wrappers before the next drift",
+              reason: "Wrapper drift has repeated on this machine.",
+              suggested_command: "personal-ops install wrappers",
+              urgency: "watch" as const,
+              last_resolved_at: "2026-04-06T18:05:00.000Z",
+              repeat_count_30d: 2,
+            },
+          ],
+        },
+      };
+      return {
+        ...status,
+        maintenance_window: maintenanceWindow,
+        repair_plan: {
+          ...status.repair_plan,
+          maintenance_window: maintenanceWindow,
+        },
+      };
+    };
+
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    assert.equal(grantResponse.status, 200);
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const statusResponse = await fetch(`${baseUrl}/v1/status`, {
+      headers: { cookie },
+    });
+    assert.equal(statusResponse.status, 200);
+    const payload = (await statusResponse.json()) as {
+      status?: {
+        maintenance_window?: {
+          eligible_now?: boolean;
+          bundle?: { title?: string; recommended_commands?: string[] };
+        };
+      };
+    };
+
+    assert.equal(payload.status?.maintenance_window?.eligible_now, true);
+    assert.equal(payload.status?.maintenance_window?.bundle?.title, "Preventive maintenance window");
+    assert.equal(payload.status?.maintenance_window?.bundle?.recommended_commands?.[0], "personal-ops install wrappers");
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("assistant-led Phase 4 console session route is operator-only and stays blocked for browser sessions", async () => {
   const fixture = await createConsoleFixture();
   try {

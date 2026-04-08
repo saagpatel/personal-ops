@@ -254,6 +254,8 @@ interface ConsoleState {
   planningGroupDetail: PlanningRecommendationGroupDetail | null;
   outboundGroupDetail: OutboundAutopilotGroup | null;
   worklistDetail: WorklistDetail | null;
+  deferredPayloadLoaded: boolean;
+  snapshotsLoaded: boolean;
 }
 
 class SessionLockedError extends Error {}
@@ -290,7 +292,16 @@ const state: ConsoleState = {
   planningGroupDetail: null,
   outboundGroupDetail: null,
   worklistDetail: null,
+  deferredPayloadLoaded: false,
+  snapshotsLoaded: false,
 };
+
+let deferredPayloadPromise: Promise<void> | null = null;
+let corePayloadPromise: Promise<void> | null = null;
+let corePayloadLoaded = false;
+let corePayloadGeneration = 0;
+let corePayloadTimer: number | null = null;
+let planningActionTargetPromise: Promise<void> | null = null;
 
 const content = document.querySelector<HTMLElement>("#content");
 const banner = document.querySelector<HTMLElement>("#banner");
@@ -432,90 +443,765 @@ async function fetchAudit(limit: number, category: AuditEventCategory | ""): Pro
   return fetchJson<AuditResponse>(`/v1/audit/events?${query.toString()}`);
 }
 
-async function loadPayload(): Promise<ConsolePayload> {
+function emptyWorkflowReport(
+  generatedAt: string,
+  workflow: WorkflowBundleReport["workflow"],
+  readiness: ServiceStatusReport["state"],
+  summary: string,
+): WorkflowBundleReport {
+  return {
+    workflow,
+    generated_at: generatedAt,
+    readiness,
+    summary,
+    sections: [],
+    actions: [],
+    first_repair_step: null,
+  };
+}
+
+function emptyMaintenanceWindowSummary(): ServiceStatusReport["maintenance_window"] {
+  return {
+    eligible_now: false,
+    deferred_reason: "no_preventive_work",
+    count: 0,
+    top_step_id: null,
+    bundle: null,
+  };
+}
+
+function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"] {
+  const maintenanceWindow = emptyMaintenanceWindowSummary();
+  return {
+    generated_at: generatedAt,
+    first_step_id: null,
+    first_repair_step: null,
+    last_execution: null,
+    top_recurring_issue: null,
+    preventive_maintenance: {
+      recommendations: [],
+      count: 0,
+      top_step_id: null,
+    },
+    maintenance_window: maintenanceWindow,
+    last_repair: null,
+    recurring_issue: null,
+    steps: [],
+  };
+}
+
+function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
+  const maintenanceWindow = emptyMaintenanceWindowSummary();
+  return {
+    support_contract: "macos_only",
+    supported: false,
+    installed: false,
+    bundle_exists: false,
+    app_path: "",
+    build_bundle_path: "",
+    project_path: "",
+    build_provenance: {
+      built_at: null,
+      source_commit: null,
+      vite_version: null,
+      tauri_cli_version: null,
+      tauri_runtime_version: null,
+    },
+    reinstall_recommended: false,
+    reinstall_reason: null,
+    launcher_repair_recommended: false,
+    launcher_repair_reason: null,
+    toolchain: {
+      support_contract: "macos_only",
+      platform_supported: false,
+      npm_available: false,
+      cargo_available: false,
+      rustc_available: false,
+      xcode_select_available: false,
+      unsupported_reason: "Loading desktop support details.",
+      dependency_posture: {
+        status: "project_missing",
+        summary: "Loading desktop dependency posture.",
+        unsupported_platform_notes: [],
+      },
+      ready: false,
+      summary: "Loading desktop toolchain status.",
+    },
+    daemon_session_handoff_ready: false,
+    launch_url: null,
+    repair_plan_summary: {
+      first_step_id: null,
+      first_repair_step: null,
+      step_count: 0,
+      last_step_id: null,
+      last_outcome: null,
+      top_recurring_step_id: null,
+      preventive_maintenance_count: 0,
+      top_preventive_step_id: null,
+      maintenance_window: maintenanceWindow,
+      last_repair: null,
+      recurring_issue: null,
+    },
+  };
+}
+
+function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
+  const maintenanceWindow = emptyMaintenanceWindowSummary();
+  const repairPlan = emptyRepairPlan(generatedAt);
+  return {
+    generated_at: generatedAt,
+    service_version: "Loading…",
+    state: "degraded",
+    first_repair_step: null,
+    repair_plan: repairPlan,
+    maintenance_window: maintenanceWindow,
+    daemon_reachable: true,
+    send_enabled: false,
+    send_policy: {
+      permanent_enabled: false,
+      window_active: false,
+      window_expires_at: null,
+      effective_enabled: false,
+    },
+    mailbox: {
+      configured: null,
+      connected: null,
+      matches_configuration: false,
+      oauth_client_configured: false,
+      keychain_token_present: false,
+    },
+    launch_agent: {
+      exists: false,
+      loaded: false,
+      label: "Loading…",
+    },
+    machine: {
+      machine_id: null,
+      machine_label: null,
+      hostname: null,
+      state_origin: "native",
+      last_restore: null,
+      last_snapshot_source_machine: null,
+    },
+    schema: {
+      current_version: 0,
+      expected_version: 0,
+      compatible: true,
+      compatibility_message: "Loading schema status.",
+    },
+    review_queue: {
+      pending_count: 0,
+      opened_count: 0,
+      total_count: 0,
+    },
+    approval_queue: {
+      pending_count: 0,
+      approved_count: 0,
+      sending_count: 0,
+      send_failed_count: 0,
+      total_count: 0,
+    },
+    tasks: {
+      pending_count: 0,
+      in_progress_count: 0,
+      completed_count: 0,
+      canceled_count: 0,
+      active_count: 0,
+      historical_count: 0,
+      total_count: 0,
+      top_item_summary: null,
+    },
+    task_suggestions: {
+      pending_count: 0,
+      accepted_count: 0,
+      rejected_count: 0,
+      active_count: 0,
+      historical_count: 0,
+      total_count: 0,
+      top_item_summary: null,
+    },
+    planning_recommendations: {
+      pending_count: 0,
+      snoozed_count: 0,
+      applied_count: 0,
+      rejected_count: 0,
+      expired_count: 0,
+      superseded_count: 0,
+      scheduled_count: 0,
+      completed_count: 0,
+      canceled_count: 0,
+      dismissed_count: 0,
+      handled_elsewhere_count: 0,
+      source_resolved_count: 0,
+      manual_scheduling_count: 0,
+      stale_pending_count: 0,
+      stale_scheduled_count: 0,
+      resurfaced_source_count: 0,
+      closed_last_7d: 0,
+      closed_last_30d: 0,
+      completed_last_30d: 0,
+      handled_elsewhere_last_30d: 0,
+      median_time_to_first_action_minutes: null,
+      median_time_to_close_minutes: null,
+      active_count: 0,
+      historical_count: 0,
+      total_count: 0,
+      top_group_summary: null,
+      top_item_summary: null,
+      top_next_action_summary: null,
+      blocked_group_summary: null,
+      top_backlog_summary: null,
+      top_closure_summary: null,
+      top_hygiene_summary: null,
+      dominant_backlog_summary: null,
+      top_suppression_candidate_summary: null,
+      review_needed_count: 0,
+      top_review_needed_summary: null,
+      reviewed_fresh_count: 0,
+      reviewed_stale_count: 0,
+      proposal_open_count: 0,
+      proposal_stale_count: 0,
+      proposal_dismissed_count: 0,
+      top_reviewed_stale_summary: null,
+      top_proposal_open_summary: null,
+      top_proposal_stale_summary: null,
+      policy_attention_kind: "none",
+      top_policy_attention_summary: null,
+      pending_by_group: {
+        urgent_unscheduled_tasks: 0,
+        urgent_inbox_followups: 0,
+        near_term_meeting_prep: 0,
+      },
+    },
+    snapshot_latest: undefined,
+    checks_summary: {
+      pass: 0,
+      warn: 1,
+      fail: 0,
+    },
+    worklist_summary: {
+      critical_count: 0,
+      warn_count: 0,
+      info_count: 0,
+      top_item_summary: "The console shell is loading local operator state.",
+    },
+    inbox: {
+      sync_status: "not_configured",
+      last_history_id: null,
+      last_synced_at: null,
+      unread_thread_count: 0,
+      followup_thread_count: 0,
+      total_thread_count: 0,
+      top_item_summary: null,
+    },
+    calendar: {
+      enabled: false,
+      sync_status: "not_configured",
+      last_synced_at: null,
+      calendars_synced_count: 0,
+      events_synced_count: 0,
+      owned_writable_calendar_count: 0,
+      personal_ops_active_event_count: 0,
+      linked_scheduled_task_count: 0,
+      conflict_count_next_24h: 0,
+      next_upcoming_event_summary: null,
+      top_item_summary: null,
+      top_scheduling_item_summary: null,
+    },
+    github: {
+      enabled: false,
+      connected_login: null,
+      authenticated: false,
+      sync_status: "not_configured",
+      last_synced_at: null,
+      included_repository_count: 0,
+      review_requested_count: 0,
+      authored_pr_attention_count: 0,
+      top_item_summary: null,
+    },
+    drive: {
+      enabled: false,
+      authenticated: false,
+      sync_status: "not_configured",
+      last_synced_at: null,
+      included_folder_count: 0,
+      included_file_count: 0,
+      indexed_file_count: 0,
+      indexed_doc_count: 0,
+      indexed_sheet_count: 0,
+      top_item_summary: null,
+    },
+    autopilot: {
+      enabled: true,
+      mode: "continuous",
+      readiness: "degraded",
+      running: false,
+      last_success_at: null,
+      stale_profile_count: 0,
+      top_item_summary: null,
+    },
+    review: {
+      ready_package_count: 0,
+      open_tuning_proposal_count: 0,
+      unused_package_count_7d: 0,
+      top_review_summary: null,
+      refreshed_at: null,
+      refresh_state: "empty",
+      package_open_rate_14d: 0,
+      package_acted_on_rate_14d: 0,
+      stale_unused_rate_14d: 0,
+      notification_action_conversion_rate_14d: 0,
+      week_over_week_open_rate_delta: 0,
+      week_over_week_action_rate_delta: 0,
+      week_over_week_notification_action_conversion_delta: 0,
+      top_review_trend_surface: null,
+      calibration_status: "watch",
+      surfaces_off_track_count: 0,
+      notification_budget_pressure_count: 0,
+      top_calibration_surface: null,
+    },
+    desktop: emptyDesktopStatus(),
+  };
+}
+
+function buildBootstrapConsolePayload(): ConsolePayload {
+  const generatedAt = new Date().toISOString();
+  const status = buildBootstrapStatusReport(generatedAt);
+  return buildCoreConsolePayload({
+    status,
+    worklist: {
+      generated_at: generatedAt,
+      state: status.state,
+      counts_by_severity: {
+        info: 0,
+        warn: 0,
+        critical: 0,
+      },
+      send_window: {
+        active: false,
+      },
+      planning_groups: [],
+      maintenance_window: status.maintenance_window,
+      items: [],
+    },
+    nowNextWorkflow: {
+      workflow: "now-next",
+      generated_at: generatedAt,
+      readiness: status.state,
+      summary: "Local control plane needs attention while the first snapshot loads. Open Worklist if you want the safe fallback right away.",
+      sections: [],
+      actions: [
+        {
+          label: "Open related detail",
+          summary: "Open the worklist fallback while the full now-next bundle finishes loading.",
+          command: "personal-ops worklist",
+          target_type: "placeholder",
+          target_id: "now-next-loading",
+          why_now: "This keeps the safe CLI-backed navigation path available immediately.",
+          score_band: "medium",
+          signals: ["loading"],
+        },
+      ],
+      first_repair_step: null,
+    },
+    prepDayWorkflow: emptyWorkflowReport(
+      generatedAt,
+      "prep-day",
+      status.state,
+      "Day-start workflow is loading.",
+    ),
+  });
+}
+
+function buildCoreConsolePayload(input: {
+  status: ServiceStatusReport;
+  worklist: WorklistReport;
+  nowNextWorkflow: WorkflowBundleReport;
+  prepDayWorkflow: WorkflowBundleReport;
+}): ConsolePayload {
+  const generatedAt = input.status.generated_at;
+  const readiness = input.status.state;
+  const doctor: DoctorReport = {
+    generated_at: generatedAt,
+    state: readiness,
+    deep: false,
+    first_repair_step: input.status.first_repair_step,
+    repair_plan: input.status.repair_plan,
+    summary: { pass: 0, warn: 0, fail: 0 },
+    checks: [],
+  };
+  return {
+    status: input.status,
+    autopilot: {
+      enabled: true,
+      mode: "continuous",
+      readiness,
+      running: false,
+      last_run_at: null,
+      last_success_at: null,
+      last_failure_at: null,
+      last_trigger: null,
+      top_item_summary: null,
+      first_repair_step: input.status.first_repair_step,
+      profiles: [],
+    },
+    worklist: input.worklist,
+    assistantQueue: {
+      generated_at: generatedAt,
+      readiness,
+      summary: "Assistant queue is loading.",
+      counts_by_state: {
+        proposed: 0,
+        running: 0,
+        awaiting_review: 0,
+        blocked: 0,
+        completed: 0,
+        failed: 0,
+      },
+      top_item_summary: null,
+      actions: [],
+    },
+    inboxAutopilot: {
+      generated_at: generatedAt,
+      readiness,
+      summary: "Inbox autopilot is loading.",
+      top_item_summary: null,
+      prepared_draft_count: 0,
+      groups: [],
+    },
+    outboundAutopilot: {
+      generated_at: generatedAt,
+      readiness,
+      summary: "Outbound autopilot is loading.",
+      top_item_summary: null,
+      send_window: {
+        active: false,
+        effective_send_enabled: false,
+        permanent_send_enabled: false,
+      },
+      groups: [],
+    },
+    nowNextWorkflow: input.nowNextWorkflow,
+    prepDayWorkflow: input.prepDayWorkflow,
+    prepMeetingsWorkflow: emptyWorkflowReport(generatedAt, "prep-meetings", readiness, "Meeting prep is loading."),
+    doctor,
+    approvals: [],
+    drafts: [],
+    reviewItems: [],
+    planningSummary: {
+      generated_at: generatedAt,
+      open_count: 0,
+      stale_count: 0,
+      manual_scheduling_count: 0,
+      closed_last_7d: 0,
+      closed_last_30d: 0,
+      review_needed_count: 0,
+      reviewed_fresh_count: 0,
+      reviewed_stale_count: 0,
+      proposal_open_count: 0,
+      proposal_stale_count: 0,
+      proposal_dismissed_count: 0,
+    },
+    planningAutopilot: {
+      generated_at: generatedAt,
+      readiness,
+      summary: "Planning autopilot is loading.",
+      top_item_summary: null,
+      prepared_bundle_count: 0,
+      bundles: [],
+    },
+    reviewPackages: {
+      generated_at: generatedAt,
+      readiness,
+      refreshed_at: null,
+      refresh_state: "empty",
+      summary: "Review packages are loading.",
+      top_item_summary: null,
+      open_tuning_proposal_count: 0,
+      unused_package_count_7d: 0,
+      packages: [],
+    },
+    reviewTuning: {
+      generated_at: generatedAt,
+      refreshed_at: null,
+      refresh_state: "empty",
+      summary: "Review tuning is loading.",
+      open_proposal_count: 0,
+      proposals: [],
+    },
+    reviewCalibration: {
+      generated_at: generatedAt,
+      window_days: 14,
+      calibration_window_days: 14,
+      notification_budget_window_days: 7,
+      notification_window_days: 7,
+      global: {} as ReviewCalibrationReport["global"],
+      surfaces: [],
+      surfaces_off_track_count: 0,
+      notification_budget_pressure_count: 0,
+      recommendations: [],
+    },
+    reviewReport: {
+      generated_at: generatedAt,
+      window_days: 14,
+      summary: {
+        created_count: 0,
+        opened_count: 0,
+        acted_on_count: 0,
+        completed_count: 0,
+        stale_unused_count: 0,
+        disappeared_count: 0,
+        open_rate: 0,
+        acted_on_rate: 0,
+        stale_unused_rate: 0,
+        notification_open_conversion_rate: 0,
+        notification_action_conversion_rate: 0,
+      },
+      surfaces: [],
+      proposal_outcomes: {
+        proposed_count: 0,
+        approved_count: 0,
+        dismissed_count: 0,
+        reopened_count: 0,
+        active_state_counts: [],
+      },
+      notification_performance: {
+        fired_count: 0,
+        suppressed_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0,
+        notification_action_conversion_rate: 0,
+      },
+      top_noisy_sources: [],
+    },
+    reviewTrends: {
+      generated_at: generatedAt,
+      days: 30,
+      points: [],
+      summary: {
+        latest_snapshot_date: null,
+        average_open_rate: 0,
+        average_acted_on_rate: 0,
+        average_stale_unused_rate: 0,
+        average_notification_action_conversion_rate: 0,
+        week_over_week_open_rate_delta: 0,
+        week_over_week_action_rate_delta: 0,
+        week_over_week_stale_unused_rate_delta: 0,
+        week_over_week_notification_action_conversion_delta: 0,
+        top_review_trend_surface: null,
+      },
+    },
+    reviewImpact: {
+      generated_at: generatedAt,
+      days: 30,
+      comparisons: [],
+    },
+    reviewWeekly: {
+      generated_at: generatedAt,
+      days: 14,
+      current_period: {
+        created_count: 0,
+        opened_count: 0,
+        acted_on_count: 0,
+        completed_count: 0,
+        stale_unused_count: 0,
+        open_rate: 0,
+        acted_on_rate: 0,
+        stale_unused_rate: 0,
+        fired_notification_count: 0,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0,
+        notification_action_conversion_rate: 0,
+        noisy_source_count: 0,
+        open_tuning_proposal_count: 0,
+        active_tuning_state_count: 0,
+      },
+      previous_period: {
+        created_count: 0,
+        opened_count: 0,
+        acted_on_count: 0,
+        completed_count: 0,
+        stale_unused_count: 0,
+        open_rate: 0,
+        acted_on_rate: 0,
+        stale_unused_rate: 0,
+        fired_notification_count: 0,
+        suppressed_notification_count: 0,
+        cooldown_hit_count: 0,
+        notification_open_conversion_rate: 0,
+        notification_action_conversion_rate: 0,
+        noisy_source_count: 0,
+        open_tuning_proposal_count: 0,
+        active_tuning_state_count: 0,
+      },
+      week_over_week_open_rate_delta: 0,
+      week_over_week_action_rate_delta: 0,
+      week_over_week_notification_action_conversion_delta: 0,
+      top_review_trend_surface: null,
+      surfaces: [],
+      top_noisy_sources: [],
+      recent_tuning_impact: [],
+      recommendations: [],
+    },
+    planningGroups: [],
+    planningNext: null,
+    audit: [],
+    snapshots: [],
+  };
+}
+
+async function loadCorePayload(): Promise<ConsolePayload> {
+  const statusResponse = await fetchJson<StatusResponse>("/v1/status?skip_derived=1");
+  return buildCoreConsolePayload({
+    status: statusResponse.status,
+    worklist: {
+      generated_at: statusResponse.status.generated_at,
+      state: statusResponse.status.state,
+      counts_by_severity: {
+        info: 0,
+        warn: 0,
+        critical: 0,
+      },
+      send_window: {
+        active: false,
+      },
+      planning_groups: [],
+      maintenance_window: statusResponse.status.maintenance_window,
+      items: [],
+    },
+    nowNextWorkflow: {
+      workflow: "now-next",
+      generated_at: statusResponse.status.generated_at,
+      readiness: statusResponse.status.state,
+      summary: "Loading the bounded next-step bundle. Open Worklist if you want the stable CLI-safe fallback first.",
+      sections: [],
+      actions: [
+        {
+          label: "Open the worklist fallback",
+          summary: "Jump into the worklist while the now-next bundle finishes loading.",
+          command: "personal-ops worklist",
+          target_type: "placeholder",
+          target_id: "now-next-loading",
+          why_now: "This keeps the operator path available even while workflow hydration is still in progress.",
+          score_band: "medium",
+          signals: ["loading"],
+        },
+      ],
+      first_repair_step: statusResponse.status.first_repair_step,
+    },
+    prepDayWorkflow: emptyWorkflowReport(
+      statusResponse.status.generated_at,
+      "prep-day",
+      statusResponse.status.state,
+      "Day-start workflow is loading.",
+    ),
+  });
+}
+
+async function hydrateCorePayload(generation: number): Promise<void> {
+  const corePayload = await loadCorePayload();
+  if (generation !== corePayloadGeneration || !state.payload) {
+    return;
+  }
+  state.payload = {
+    ...state.payload,
+    ...corePayload,
+  };
+  corePayloadLoaded = true;
+  resolveSelections(state.payload);
+  await loadSelectedDetails();
+  render();
+}
+
+async function ensureCorePayloadLoaded(): Promise<void> {
+  if (corePayloadLoaded) {
+    return;
+  }
+  if (corePayloadTimer !== null) {
+    window.clearTimeout(corePayloadTimer);
+    corePayloadTimer = null;
+  }
+  if (!corePayloadPromise) {
+    const generation = corePayloadGeneration;
+    corePayloadPromise = hydrateCorePayload(generation)
+      .catch((error) => {
+        if (error instanceof SessionLockedError) {
+          renderLocked();
+          return;
+        }
+        setFlash(
+          `${error instanceof Error ? error.message : String(error)} Run personal-ops doctor if the console stays degraded after this first load.`,
+          "critical",
+        );
+        render();
+      })
+      .finally(() => {
+        corePayloadPromise = null;
+      });
+  }
+  await corePayloadPromise;
+}
+
+function scheduleCorePayloadHydration(delayMs = 5_000): void {
+  if (corePayloadLoaded || corePayloadPromise || corePayloadTimer !== null) {
+    return;
+  }
+  const generation = corePayloadGeneration;
+  corePayloadTimer = window.setTimeout(() => {
+    corePayloadTimer = null;
+    if (generation !== corePayloadGeneration) {
+      return;
+    }
+    void ensureCorePayloadLoaded();
+  }, delayMs);
+}
+
+async function loadDeferredPayload(): Promise<Partial<ConsolePayload>> {
   const [
-    statusResponse,
     autopilotResponse,
     worklistResponse,
+    nowNextWorkflowResponse,
     assistantQueueResponse,
     inboxAutopilotResponse,
     outboundAutopilotResponse,
-    nowNextWorkflowResponse,
     workflowResponse,
     prepMeetingsWorkflowResponse,
-    doctorResponse,
     approvalsResponse,
     draftsResponse,
     reviewQueueResponse,
-    planningSummaryResponse,
-    planningAutopilotResponse,
     reviewPackagesResponse,
     reviewTuningResponse,
-    reviewCalibrationResponse,
-    reviewReportResponse,
-    reviewTrendsResponse,
-    reviewImpactResponse,
-    reviewWeeklyResponse,
-    planningGroupsResponse,
-    planningNextResponse,
-    auditResponse,
-    snapshotListResponse,
   ] = await Promise.all([
-    fetchJson<StatusResponse>("/v1/status"),
     fetchJson<AutopilotResponse>("/v1/autopilot/status"),
     fetchJson<WorklistResponse>("/v1/worklist"),
+    fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
     fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
     fetchJson<OutboundAutopilotResponse>("/v1/outbound/autopilot"),
-    fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
     fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
-    fetchJson<DoctorResponse>("/v1/doctor"),
     fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
     fetchJson<DraftResponse>("/v1/mail/drafts"),
     fetchJson<ReviewQueueResponse>("/v1/review-queue"),
-    fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
-    fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
     fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
     fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
-    fetchJson<ReviewCalibrationResponse>("/v1/review/calibration"),
-    fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
-    fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
-    fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
-    fetchJson<ReviewWeeklyResponse>("/v1/review/weekly?days=14"),
-    fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
-    fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
-    fetchAudit(state.auditLimit, state.auditCategory),
-    fetchJson<SnapshotListResponse>("/v1/snapshots"),
   ]);
 
   return {
-    status: statusResponse.status,
     autopilot: autopilotResponse.autopilot,
     worklist: worklistResponse.worklist,
+    nowNextWorkflow: nowNextWorkflowResponse.workflow,
     assistantQueue: assistantQueueResponse.assistant_queue,
     inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
     outboundAutopilot: outboundAutopilotResponse.outbound_autopilot,
-    nowNextWorkflow: nowNextWorkflowResponse.workflow,
     prepDayWorkflow: workflowResponse.workflow,
     prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
-    doctor: doctorResponse.doctor,
     approvals: approvalsResponse.approval_requests,
     drafts: draftsResponse.drafts,
     reviewItems: reviewQueueResponse.review_items,
-    planningSummary: planningSummaryResponse.planning_recommendation_summary,
-    planningAutopilot: planningAutopilotResponse.planning_autopilot,
     reviewPackages: reviewPackagesResponse.review_packages,
     reviewTuning: reviewTuningResponse.review_tuning,
-    reviewCalibration: reviewCalibrationResponse.review_calibration,
-    reviewReport: reviewReportResponse.review_report,
-    reviewTrends: reviewTrendsResponse.review_trends,
-    reviewImpact: reviewImpactResponse.review_impact,
-    reviewWeekly: reviewWeeklyResponse.review_weekly,
-    planningGroups: planningGroupsResponse.planning_recommendation_groups,
-    planningNext: planningNextResponse.planning_recommendation,
-    audit: auditResponse.events,
-    snapshots: snapshotListResponse.snapshots,
   };
 }
 
@@ -1812,6 +2498,7 @@ async function loadSelectedDetails(): Promise<void> {
 
 function renderOverview(payload: ConsolePayload): string {
   const status = payload.status;
+  const repairPlan = status.repair_plan;
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
   const workflow = payload.prepDayWorkflow;
@@ -1885,13 +2572,14 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>Repair plan</h3>
           <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
-          <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(payload.doctor.repair_plan.last_repair ? `${payload.doctor.repair_plan.last_repair.step_id} (${payload.doctor.repair_plan.last_repair.outcome})` : "none")}</dd></div>
-          <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(payload.doctor.repair_plan.recurring_issue ? `${payload.doctor.repair_plan.recurring_issue.step_id}: ${payload.doctor.repair_plan.recurring_issue.prevention_hint}` : "none")}</dd></div>
-          <div class="detail-row"><dt>Preventive maintenance</dt><dd>${escapeHtml(payload.doctor.repair_plan.preventive_maintenance?.top_step_id ? `${payload.doctor.repair_plan.preventive_maintenance.top_step_id} (${payload.doctor.repair_plan.preventive_maintenance.recommendations[0]?.urgency ?? "watch"})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(repairPlan.last_repair ? `${repairPlan.last_repair.step_id} (${repairPlan.last_repair.outcome})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(repairPlan.recurring_issue ? `${repairPlan.recurring_issue.step_id}: ${repairPlan.recurring_issue.prevention_hint}` : "none")}</dd></div>
+          <div class="detail-row"><dt>Preventive maintenance</dt><dd>${escapeHtml(repairPlan.preventive_maintenance?.top_step_id ? `${repairPlan.preventive_maintenance.top_step_id} (${repairPlan.preventive_maintenance.recommendations[0]?.urgency ?? "watch"})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
           ${
-            payload.doctor.repair_plan.steps.length === 0
+            repairPlan.steps.length === 0
               ? `<div class="empty">No repair actions are pending right now.</div>`
-              : payload.doctor.repair_plan.steps
+              : repairPlan.steps
                   .slice(0, 5)
                   .map(
                     (step, index) => `
@@ -1910,11 +2598,11 @@ function renderOverview(payload: ConsolePayload): string {
                   .join("")
           }
           ${
-            (payload.doctor.repair_plan.preventive_maintenance?.recommendations.length ?? 0) === 0
+            (repairPlan.preventive_maintenance?.recommendations.length ?? 0) === 0
               ? ""
               : `
                 <div class="subtle subtle--body">Preventive maintenance</div>
-                ${(payload.doctor.repair_plan.preventive_maintenance?.recommendations ?? [])
+                ${(repairPlan.preventive_maintenance?.recommendations ?? [])
                   .map(
                     (recommendation) => `
                       <article class="list-item">
@@ -1930,6 +2618,23 @@ function renderOverview(payload: ConsolePayload): string {
                     `,
                   )
                   .join("")}
+              `
+          }
+          ${
+            !repairPlan.maintenance_window?.eligible_now || !repairPlan.maintenance_window.bundle
+              ? ""
+              : `
+                <div class="subtle subtle--body">Maintenance window</div>
+                <article class="list-item">
+                  <div class="list-item__top">
+                    <h4>${escapeHtml(repairPlan.maintenance_window.bundle.title)}</h4>
+                    <span class="pill pill--good">calm window</span>
+                  </div>
+                  <p>${escapeHtml(repairPlan.maintenance_window.bundle.summary)}</p>
+                  <div class="list-item__actions list-item__actions--stack">
+                    ${commandStack(repairPlan.maintenance_window.bundle.recommended_commands)}
+                  </div>
+                </article>
               `
           }
         </section>
@@ -2734,7 +3439,28 @@ function renderDrafts(payload: ConsolePayload): string {
 
 function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail | null): string {
   if (!detail) {
-    return `<div class="empty">Pick the next recommendation or inspect a group to review the current browser-safe planning actions.</div>`;
+    return `
+      <div class="empty">Pick the next recommendation or inspect a group to review the current browser-safe planning actions.</div>
+      <div class="action-grid">
+        <section class="action-card">
+          <h4>Snooze</h4>
+          <p>The selected recommendation controls are still loading.</p>
+          <label class="field">
+            <span class="eyebrow">Preset</span>
+            <select id="planning-snooze-preset">
+              <option value="end-of-day">end-of-day</option>
+              <option value="tomorrow-morning" selected>tomorrow-morning</option>
+              <option value="next-business-day">next-business-day</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="eyebrow">Note</span>
+            <textarea id="planning-snooze-note" rows="3" placeholder="Why this can wait."></textarea>
+          </label>
+          <button class="button" data-planning-loading-snooze="1" type="button">Snooze recommendation</button>
+        </section>
+      </div>
+    `;
   }
   const recommendation = detail.recommendation;
   const canAct = recommendation.status === "pending" || recommendation.status === "snoozed";
@@ -3029,6 +3755,58 @@ function renderAudit(payload: ConsolePayload): string {
 
 function renderBackups(payload: ConsolePayload): string {
   const detail = state.snapshotInspection;
+  const snapshotList = !state.snapshotsLoaded
+    ? `
+      <article class="list-item">
+        <div class="list-item__top">
+          <h4>Loading snapshots…</h4>
+          <span class="pill">loading</span>
+        </div>
+        <p>${escapeHtml(String(new Date().getUTCFullYear()))}</p>
+      </article>
+    `
+    : payload.snapshots.length === 0
+      ? `<div class="empty">No recovery snapshots exist yet.</div>`
+      : payload.snapshots
+          .map(
+            (snapshot) => `
+              <article class="list-item${selectedClass(snapshot.snapshot_id === state.selectedSnapshotId)}">
+                <div class="list-item__top">
+                  <h4>${escapeHtml(snapshot.snapshot_id)}</h4>
+                  <span class="pill">${escapeHtml(snapshot.daemon_state)}</span>
+                </div>
+                <p>${escapeHtml(formatTime(snapshot.created_at))}</p>
+                <div class="list-item__actions">
+                  <button class="button" data-snapshot="${escapeHtml(snapshot.snapshot_id)}" type="button">Inspect</button>
+                  <button class="copy-button" data-copy="${escapeHtml(`personal-ops backup inspect ${snapshot.snapshot_id}`)}" type="button">Copy inspect command</button>
+                </div>
+              </article>
+            `,
+          )
+          .join("");
+  const snapshotDetail = !detail
+    ? !state.snapshotsLoaded
+      ? `
+        <div class="detail-list">
+          <div class="detail-row"><dt>Source machine</dt><dd>Loading…</dd></div>
+        </div>
+      `
+      : `<div class="empty">Choose a snapshot to inspect its provenance and CLI restore guidance.</div>`
+    : `
+        <div class="detail-list">
+          <div class="detail-row"><dt>Snapshot id</dt><dd>${escapeHtml(detail.manifest.snapshot_id)}</dd></div>
+          <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(detail.manifest.created_at))}</dd></div>
+          <div class="detail-row"><dt>Schema</dt><dd>${escapeHtml(String(detail.manifest.schema_version ?? "legacy"))}</dd></div>
+          <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(detail.manifest.source_machine ? `${detail.manifest.source_machine.machine_label} (${truncateId(detail.manifest.source_machine.machine_id)})` : "legacy snapshot with unknown provenance")}</dd></div>
+        </div>
+        <p class="subtle subtle--body">Restore stays in the CLI. Cross-machine restore requires <span class="code">--allow-cross-machine</span> and does not merge state.</p>
+        <div class="list-item__actions list-item__actions--stack">
+          ${commandStack([
+            `personal-ops backup inspect ${detail.manifest.snapshot_id}`,
+            `personal-ops backup restore ${detail.manifest.snapshot_id} --yes`,
+          ])}
+        </div>
+      `;
   return `
     ${renderAssistantSection(payload, "Assistant-prepared backup work", "backups", "No assistant-prepared backup actions are waiting right now.")}
     <section class="columns">
@@ -3040,51 +3818,11 @@ function renderBackups(payload: ConsolePayload): string {
           </div>
           <button class="button button--primary" data-create-snapshot="1" type="button">Create snapshot</button>
         </div>
-        <div class="list">
-          ${
-            payload.snapshots.length === 0
-              ? `<div class="empty">No recovery snapshots exist yet.</div>`
-              : payload.snapshots
-                  .map(
-                    (snapshot) => `
-                      <article class="list-item${selectedClass(snapshot.snapshot_id === state.selectedSnapshotId)}">
-                        <div class="list-item__top">
-                          <h4>${escapeHtml(snapshot.snapshot_id)}</h4>
-                          <span class="pill">${escapeHtml(snapshot.daemon_state)}</span>
-                        </div>
-                        <p>${escapeHtml(formatTime(snapshot.created_at))}</p>
-                        <div class="list-item__actions">
-                          <button class="button" data-snapshot="${escapeHtml(snapshot.snapshot_id)}" type="button">Inspect</button>
-                          <button class="copy-button" data-copy="${escapeHtml(`personal-ops backup inspect ${snapshot.snapshot_id}`)}" type="button">Copy inspect command</button>
-                        </div>
-                      </article>
-                    `,
-                  )
-                  .join("")
-          }
-        </div>
+        <div class="list">${snapshotList}</div>
       </div>
       <div class="detail-card">
         <h3>Selected snapshot</h3>
-        ${
-          !detail
-            ? `<div class="empty">Choose a snapshot to inspect its provenance and CLI restore guidance.</div>`
-            : `
-              <div class="detail-list">
-                <div class="detail-row"><dt>Snapshot id</dt><dd>${escapeHtml(detail.manifest.snapshot_id)}</dd></div>
-                <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(detail.manifest.created_at))}</dd></div>
-                <div class="detail-row"><dt>Schema</dt><dd>${escapeHtml(String(detail.manifest.schema_version ?? "legacy"))}</dd></div>
-                <div class="detail-row"><dt>Source machine</dt><dd>${escapeHtml(detail.manifest.source_machine ? `${detail.manifest.source_machine.machine_label} (${truncateId(detail.manifest.source_machine.machine_id)})` : "legacy snapshot with unknown provenance")}</dd></div>
-              </div>
-              <p class="subtle subtle--body">Restore stays in the CLI. Cross-machine restore requires <span class="code">--allow-cross-machine</span> and does not merge state.</p>
-              <div class="list-item__actions list-item__actions--stack">
-                ${commandStack([
-                  `personal-ops backup inspect ${detail.manifest.snapshot_id}`,
-                  `personal-ops backup restore ${detail.manifest.snapshot_id} --yes`,
-                ])}
-              </div>
-            `
-        }
+        ${snapshotDetail}
       </div>
     </section>
   `;
@@ -3113,6 +3851,40 @@ function renderCurrentSection(payload: ConsolePayload): string {
   }
 }
 
+function renderLoadingSection(): string {
+  if (state.section !== "overview") {
+    return `<section class="hero"><h3>Loading ${escapeHtml(SECTIONS[state.section])}…</h3><p>The daemon is gathering local operator state.</p></section>`;
+  }
+  return `
+    <section class="hero">
+      <p class="eyebrow">Top-level readiness</p>
+      <div class="list-item__top">
+        <h3>Loading local control plane status…</h3>
+        <span class="pill pill--warn">loading</span>
+      </div>
+      <p>The daemon is gathering the first operator snapshot now.</p>
+      <div class="hero__meta">
+        <div>
+          <p class="eyebrow">Version</p>
+          <p>Loading…</p>
+        </div>
+      </div>
+    </section>
+    <section class="columns columns--wide-right">
+      <div class="detail-stack">
+        <section class="detail-card">
+          <h3>What to do right now</h3>
+          <p class="subtle subtle--body">Loading the bounded next-step bundle.</p>
+        </section>
+        <section class="detail-card">
+          <h3>Day-start workflow</h3>
+          <p class="subtle subtle--body">Loading the day-start bundle.</p>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
 function syncNav(): void {
   requiredSectionTitle.textContent = SECTIONS[state.section];
   for (const button of document.querySelectorAll<HTMLButtonElement>(".nav__item")) {
@@ -3128,7 +3900,7 @@ function render(): void {
       cards.push(state.flash);
     }
     renderBannerCards(cards);
-    requiredContent.innerHTML = `<section class="hero"><h3>Loading console…</h3><p>The daemon is gathering local operator state.</p></section>`;
+    requiredContent.innerHTML = renderLoadingSection();
     return;
   }
   const payload = state.payload;
@@ -3158,24 +3930,175 @@ function render(): void {
   requiredContent.innerHTML = renderCurrentSection(payload);
 }
 
-async function refreshAll(): Promise<void> {
-  state.payload = null;
-  render();
-  try {
-    state.payload = await loadPayload();
-    resolveSelections(state.payload);
-    await loadSelectedDetails();
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    renderBannerCards([
-      { message: error instanceof Error ? error.message : String(error), tone: "critical" },
-    ]);
-    requiredContent.innerHTML = `<section class="empty">The console could not load local data. Run <span class="code">personal-ops doctor</span> and refresh this page.</section>`;
+async function hydrateDeferredPayload(): Promise<void> {
+  const payload = state.payload;
+  if (!payload || state.deferredPayloadLoaded) {
+    return;
   }
+  const deferred = await loadDeferredPayload();
+  if (!state.payload) {
+    return;
+  }
+  state.payload = {
+    ...state.payload,
+    ...deferred,
+  };
+  state.deferredPayloadLoaded = true;
+  resolveSelections(state.payload);
+  await loadSelectedDetails();
+  render();
+}
+
+async function mergePayload(update: Partial<ConsolePayload>): Promise<void> {
+  if (!state.payload) {
+    return;
+  }
+  state.payload = {
+    ...state.payload,
+    ...update,
+  };
+  resolveSelections(state.payload);
+  await loadSelectedDetails();
+  render();
+}
+
+async function ensureDeferredPayloadLoaded(): Promise<void> {
+  if (state.deferredPayloadLoaded) {
+    return;
+  }
+  if (!deferredPayloadPromise) {
+    deferredPayloadPromise = hydrateDeferredPayload()
+      .catch((error) => {
+        setFlash(error instanceof Error ? error.message : String(error), "critical");
+        render();
+      })
+      .finally(() => {
+        deferredPayloadPromise = null;
+      });
+  }
+  await deferredPayloadPromise;
+}
+
+async function ensurePlanningPayloadLoaded(): Promise<void> {
+  const payload = state.payload;
+  if (!payload) {
+    return;
+  }
+  if (
+    payload.planningGroups.length > 0 ||
+    payload.planningAutopilot.bundles.length > 0 ||
+    payload.planningNext !== null ||
+    payload.planningSummary.open_count > 0
+  ) {
+    return;
+  }
+  const [planningSummaryResponse, planningAutopilotResponse, planningGroupsResponse, planningNextResponse] = await Promise.all([
+    fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
+    fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
+    fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
+    fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
+  ]);
+  await mergePayload({
+    planningSummary: planningSummaryResponse.planning_recommendation_summary,
+    planningAutopilot: planningAutopilotResponse.planning_autopilot,
+    planningGroups: planningGroupsResponse.planning_recommendation_groups,
+    planningNext: planningNextResponse.planning_recommendation,
+  });
+}
+
+async function ensurePlanningActionTargetLoaded(renderAfterLoad = false): Promise<void> {
+  if (state.selectedPlanningRecommendationId) {
+    if (renderAfterLoad && state.section === "planning") {
+      render();
+    }
+    return;
+  }
+  if (!planningActionTargetPromise) {
+    planningActionTargetPromise = (async () => {
+      const response = await fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next");
+      const detail = response.planning_recommendation;
+      if (!detail) {
+        return;
+      }
+      state.selectedPlanningRecommendationId = detail.recommendation.recommendation_id;
+      state.selectedPlanningGroupKey = detail.recommendation.group_key ?? null;
+      state.planningRecommendationDetail = detail;
+    })().finally(() => {
+      planningActionTargetPromise = null;
+    });
+  }
+  await planningActionTargetPromise;
+  if (renderAfterLoad && state.section === "planning") {
+    render();
+  }
+}
+
+async function ensureSnapshotsLoaded(): Promise<void> {
+  const payload = state.payload;
+  if (!payload) {
+    return;
+  }
+  if (payload.snapshots.length > 0) {
+    state.snapshotsLoaded = true;
+    return;
+  }
+  const response = await fetchJson<SnapshotListResponse>("/v1/snapshots");
+  state.snapshotsLoaded = true;
+  await mergePayload({ snapshots: response.snapshots });
+}
+
+async function ensureAuditLoaded(): Promise<void> {
+  const payload = state.payload;
+  if (!payload) {
+    return;
+  }
+  if (payload.audit.length > 0) {
+    return;
+  }
+  const response = await fetchAudit(state.auditLimit, state.auditCategory);
+  await mergePayload({ audit: response.events });
+}
+
+async function ensureReviewLoaded(): Promise<void> {
+  const payload = state.payload;
+  if (!payload) {
+    return;
+  }
+  if (payload.reviewCalibration.surfaces.length > 0 || payload.reviewImpact.comparisons.length > 0 || payload.reviewTrends.points.length > 0) {
+    return;
+  }
+  const [reviewCalibrationResponse, reviewReportResponse, reviewTrendsResponse, reviewImpactResponse, reviewWeeklyResponse] = await Promise.all([
+    fetchJson<ReviewCalibrationResponse>("/v1/review/calibration"),
+    fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
+    fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
+    fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
+    fetchJson<ReviewWeeklyResponse>("/v1/review/weekly?days=14"),
+  ]);
+  await mergePayload({
+    reviewCalibration: reviewCalibrationResponse.review_calibration,
+    reviewReport: reviewReportResponse.review_report,
+    reviewTrends: reviewTrendsResponse.review_trends,
+    reviewImpact: reviewImpactResponse.review_impact,
+    reviewWeekly: reviewWeeklyResponse.review_weekly,
+  });
+}
+
+async function refreshAll(): Promise<void> {
+  corePayloadGeneration += 1;
+  corePayloadLoaded = false;
+  corePayloadPromise = null;
+  if (corePayloadTimer !== null) {
+    window.clearTimeout(corePayloadTimer);
+    corePayloadTimer = null;
+  }
+  planningActionTargetPromise = null;
+  state.payload = buildBootstrapConsolePayload();
+  state.deferredPayloadLoaded = false;
+  state.snapshotsLoaded = false;
+  deferredPayloadPromise = null;
+  resolveSelections(state.payload);
+  render();
+  scheduleCorePayloadHydration();
 }
 
 async function refreshAuditOnly(): Promise<void> {
@@ -3383,6 +4306,16 @@ async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"]
   );
   if (matchingWorklistItem) {
     await selectWorklistItem(matchingWorklistItem.item_id);
+    return;
+  }
+
+  if (action.target_type && action.target_id) {
+    state.section = "worklist";
+    location.hash = state.section;
+    state.worklistDetail = await buildWorklistDetail(
+      syntheticAttentionItem(action.target_type, action.target_id, action.label, action.summary, action.command),
+    );
+    render();
     return;
   }
 
@@ -4128,6 +5061,25 @@ document.addEventListener("click", async (event) => {
   if (navButton?.dataset.section) {
     state.section = navButton.dataset.section as SectionId;
     location.hash = state.section;
+    if (state.section === "planning") {
+      render();
+      void ensurePlanningActionTargetLoaded(true).catch((error) => {
+        setFlash(error instanceof Error ? error.message : String(error), "critical");
+        render();
+      });
+      return;
+    } else if (state.section === "backups") {
+      render();
+      void ensureSnapshotsLoaded().catch((error) => {
+        setFlash(error instanceof Error ? error.message : String(error), "critical");
+        render();
+      });
+      return;
+    } else if (state.section === "audit") {
+      await ensureAuditLoaded();
+    } else if (state.section === "review") {
+      await ensureReviewLoaded();
+    }
     render();
     return;
   }
@@ -4344,6 +5296,41 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const planningLoadingSnoozeButton = target.closest<HTMLButtonElement>("[data-planning-loading-snooze]");
+  if (planningLoadingSnoozeButton) {
+    const pendingSnoozePreset = document.querySelector<HTMLSelectElement>("#planning-snooze-preset")?.value ?? "";
+    const pendingSnoozeNote = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note")?.value ?? "";
+    try {
+      await ensurePlanningActionTargetLoaded(false);
+      if (!state.selectedPlanningRecommendationId) {
+        await ensurePlanningPayloadLoaded();
+      }
+    } catch (error) {
+      if (error instanceof SessionLockedError) {
+        renderLocked();
+        return;
+      }
+      setFlash(
+        `${error instanceof Error ? error.message : String(error)} Run personal-ops planning recommendation next for the CLI path.`,
+        "critical",
+      );
+      render();
+      return;
+    }
+    const snoozePreset = document.querySelector<HTMLSelectElement>("#planning-snooze-preset");
+    if (snoozePreset && pendingSnoozePreset) {
+      snoozePreset.value = pendingSnoozePreset;
+    }
+    const snoozeNote = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note");
+    if (snoozeNote && pendingSnoozeNote && !snoozeNote.value.trim()) {
+      snoozeNote.value = pendingSnoozeNote;
+      snoozeNote.dispatchEvent(new Event("input", { bubbles: true }));
+      snoozeNote.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    await performPlanningAction("snooze");
+    return;
+  }
+
   const planningActionButton = target.closest<HTMLButtonElement>("[data-planning-action]");
   if (planningActionButton?.dataset.planningAction === "apply") {
     await performPlanningAction("apply");
@@ -4392,5 +5379,7 @@ requiredRefreshButton.addEventListener("click", () => {
 if (!(state.section in SECTIONS)) {
   state.section = "overview";
 }
+
+document.documentElement.dataset.consoleReady = "1";
 
 void refreshAll();

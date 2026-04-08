@@ -307,6 +307,70 @@ test("Phase 4 formatters emphasize start-here guidance and the new now summary",
   assert.match(formattedNow, /personal-ops worklist/);
 });
 
+test("phase 18 formatters surface maintenance windows only during calm periods", async () => {
+  const { service } = createServiceFixture();
+  const status = await service.getStatusReport({ httpReachable: true });
+  const worklist = {
+    ...(await service.getWorklistReport({ httpReachable: true })),
+    items: [],
+    maintenance_window: {
+      eligible_now: true,
+      deferred_reason: null,
+      count: 1,
+      top_step_id: "install_wrappers" as const,
+      bundle: {
+        bundle_id: "maintenance-window:install_wrappers",
+        title: "Preventive maintenance window",
+        summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+        recommended_commands: ["personal-ops install wrappers"],
+        recommendations: [
+          {
+            step_id: "install_wrappers" as const,
+            title: "Refresh wrappers before the next drift",
+            reason: "Wrapper drift has repeated on this machine.",
+            suggested_command: "personal-ops install wrappers",
+            urgency: "watch" as const,
+            last_resolved_at: "2026-04-06T18:05:00.000Z",
+            repeat_count_30d: 2,
+          },
+        ],
+      },
+    },
+  };
+  const prepDay = {
+    workflow: "prep-day" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Ready for the day.",
+    first_repair_step: null,
+    actions: [],
+    sections: [
+      { title: "Overall State", items: [] },
+      { title: "Top Attention", items: [] },
+      { title: "Time-Sensitive Items", items: [] },
+      {
+        title: "Maintenance Window",
+        items: [
+          {
+            label: "Refresh wrappers before the next drift",
+            summary: "Wrapper drift has repeated on this machine.",
+            command: "personal-ops install wrappers",
+            why_now: "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
+            score_band: "medium" as const,
+            signals: ["maintenance_window", "install_wrappers"],
+          },
+        ],
+      },
+      { title: "Next Commands", items: [] },
+    ],
+  };
+
+  assert.match(formatWorklistReport(worklist), /Preventive Maintenance/);
+  assert.match(formatNowReport(status, worklist), /Calm Window/);
+  assert.match(formatWorkflowBundleReport(prepDay), /Maintenance Window/);
+  assert.match(formatWorkflowBundleReport(prepDay), /calm window/i);
+});
+
 test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {
   const { service } = createServiceFixture();
   service.createTask(cliIdentity, {

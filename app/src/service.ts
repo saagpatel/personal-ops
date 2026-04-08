@@ -31,8 +31,9 @@ import {
   verifyGoogleDriveAccess,
   verifyGoogleDriveScopes,
 } from "./drive.js";
+import { getDesktopStatusReport } from "./desktop.js";
 import { evaluateWrapperHealth } from "./install-artifacts.js";
-import { getInstallArtifactPaths, readInstallManifest } from "./install.js";
+import { buildInstallCheckReport, getInstallArtifactPaths, readInstallManifest } from "./install.js";
 import { getLaunchAgentLabel, inspectLaunchAgent as inspectInstalledLaunchAgent } from "./launchagent.js";
 import {
   createGmailDraft,
@@ -54,10 +55,12 @@ import {
   RECOVERY_REHEARSAL_WARN_HOURS,
   SNAPSHOT_FAIL_HOURS,
   SNAPSHOT_WARN_HOURS,
+  snapshotAgeHours,
 } from "./recovery.js";
 import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
+import { buildMaintenanceWindowSummary, buildRepairPlan } from "./repair-plan.js";
 import {
   deleteKeychainSecret,
   getKeychainSecret,
@@ -705,10 +708,10 @@ export class PersonalOpsService {
     };
   }
 
-  async getStatusReport(options: { httpReachable: boolean }): Promise<ServiceStatusReport> {
+  async getStatusReport(options: { httpReachable: boolean; skipDerived?: boolean }): Promise<ServiceStatusReport> {
     return buildStatusReport(this, {
       ...options,
-      skipDerived: this.reviewReadModelRefreshDepth > 0,
+      skipDerived: Boolean(options.skipDerived) || this.reviewReadModelRefreshDepth > 0,
     });
   }
 
@@ -3523,6 +3526,37 @@ export class PersonalOpsService {
       },
       { info: 0, warn: 0, critical: 0 },
     );
+    const latestSnapshot = this.getLatestSnapshotSummary();
+    const installCheck = buildInstallCheckReport(this.paths);
+    const desktopStatus = await getDesktopStatusReport(this.paths);
+    const recoveryRehearsal = readRecoveryRehearsalStamp(this.paths);
+    const prune = pruneSnapshots(this.paths, { dryRun: true });
+    const provenance = readRestoreProvenance(this.paths);
+    const recentRepairExecutions = this.db.listRepairExecutions({ days: 30, limit: 100 });
+    const repairPlan = buildRepairPlan({
+      generated_at: new Date().toISOString(),
+      install_check: installCheck,
+      doctor: {
+        checks,
+        state,
+        deep: false,
+      },
+      desktop: desktopStatus,
+      latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+      latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot ?? null),
+      snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
+      prune_candidate_count: prune.prune_candidates,
+      recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+      machine_state_origin: describeStateOrigin(provenance.status === "configured" ? provenance.provenance : null),
+      recent_repair_executions: recentRepairExecutions,
+    });
+    const maintenanceWindow = buildMaintenanceWindowSummary({
+      generated_at: new Date().toISOString(),
+      state,
+      worklist_items: items,
+      repair_plan: repairPlan,
+      recent_repair_executions: recentRepairExecutions,
+    });
     return {
       generated_at: new Date().toISOString(),
       state,
@@ -3532,6 +3566,7 @@ export class PersonalOpsService {
         window: activeSendWindow ?? undefined,
       },
       planning_groups: planningGroups,
+      maintenance_window: maintenanceWindow,
       items,
     };
   }

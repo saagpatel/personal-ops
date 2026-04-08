@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRepairPlan, summarizeRepairPlan } from "../src/repair-plan.js";
+import { buildMaintenanceWindowSummary, buildRepairPlan, summarizeRepairPlan } from "../src/repair-plan.js";
 import type { DoctorCheck, RepairExecutionRecord } from "../src/types.js";
 
 function warn(id: string, message: string): DoctorCheck {
@@ -20,6 +20,27 @@ function fail(id: string, message: string): DoctorCheck {
     severity: "fail",
     message,
     category: "integration",
+  };
+}
+
+function resolvedExecution(
+  stepId: RepairExecutionRecord["step_id"],
+  completedAt: string,
+  executionId: string,
+): RepairExecutionRecord {
+  return {
+    execution_id: executionId,
+    step_id: stepId,
+    started_at: completedAt,
+    completed_at: completedAt,
+    requested_by_client: "personal-ops-cli",
+    requested_by_actor: "operator",
+    trigger_source: "repair_run",
+    before_first_step_id: stepId,
+    after_first_step_id: "install_check",
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Step resolved.",
   };
 }
 
@@ -365,4 +386,108 @@ test("phase 17 repair plan summary exposes preventive maintenance fields", () =>
 
   assert.equal(summary.preventive_maintenance_count, 1);
   assert.equal(summary.top_preventive_step_id, "install_wrappers");
+});
+
+test("phase 18 maintenance window becomes eligible only when the system is ready and calm", () => {
+  const recentRepairExecutions = [
+    resolvedExecution("install_wrappers", "2026-04-06T18:05:00.000Z", "repair-12"),
+    resolvedExecution("install_wrappers", "2026-04-01T18:05:00.000Z", "repair-13"),
+  ];
+  const repairPlan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    latest_snapshot_id: "snapshot-1",
+    latest_snapshot_age_hours: 1,
+    snapshot_age_limit_hours: 24,
+    prune_candidate_count: 0,
+    recovery_rehearsal_missing: false,
+    machine_state_origin: "native",
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  const maintenanceWindow = buildMaintenanceWindowSummary({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    state: "ready",
+    worklist_items: [],
+    repair_plan: repairPlan,
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  assert.equal(maintenanceWindow.eligible_now, true);
+  assert.equal(maintenanceWindow.deferred_reason, null);
+  assert.equal(maintenanceWindow.top_step_id, "install_wrappers");
+  assert.equal(maintenanceWindow.bundle?.recommendations[0]?.step_id, "install_wrappers");
+});
+
+test("phase 18 maintenance window stays deferred when concrete work is already present", () => {
+  const recentRepairExecutions = [
+    resolvedExecution("install_wrappers", "2026-04-06T18:05:00.000Z", "repair-14"),
+    resolvedExecution("install_wrappers", "2026-04-01T18:05:00.000Z", "repair-15"),
+  ];
+  const repairPlan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    latest_snapshot_id: "snapshot-1",
+    latest_snapshot_age_hours: 1,
+    snapshot_age_limit_hours: 24,
+    prune_candidate_count: 0,
+    recovery_rehearsal_missing: false,
+    machine_state_origin: "native",
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  const maintenanceWindow = buildMaintenanceWindowSummary({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    state: "ready",
+    worklist_items: [
+      {
+        item_id: "task-1",
+        kind: "task_due_soon",
+        severity: "warn",
+        title: "Task due soon",
+        summary: "A real task is due soon.",
+        target_type: "task",
+        target_id: "task-1",
+        created_at: "2026-04-07T20:00:00.000Z",
+        suggested_command: "personal-ops task show task-1",
+        metadata_json: "{}",
+      },
+    ],
+    repair_plan: repairPlan,
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  assert.equal(maintenanceWindow.eligible_now, false);
+  assert.equal(maintenanceWindow.deferred_reason, "concrete_work_present");
+  assert.equal(maintenanceWindow.bundle, null);
+});
+
+test("phase 18 maintenance window respects the 24-hour quiet period for fresh repairs", () => {
+  const recentRepairExecutions = [
+    resolvedExecution("install_wrappers", "2026-04-07T10:30:00.000Z", "repair-16"),
+    resolvedExecution("install_wrappers", "2026-04-04T10:30:00.000Z", "repair-17"),
+  ];
+  const repairPlan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    latest_snapshot_id: "snapshot-1",
+    latest_snapshot_age_hours: 1,
+    snapshot_age_limit_hours: 24,
+    prune_candidate_count: 0,
+    recovery_rehearsal_missing: false,
+    machine_state_origin: "native",
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  const maintenanceWindow = buildMaintenanceWindowSummary({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    state: "ready",
+    worklist_items: [],
+    repair_plan: repairPlan,
+    recent_repair_executions: recentRepairExecutions,
+  });
+
+  assert.equal(maintenanceWindow.eligible_now, false);
+  assert.equal(maintenanceWindow.deferred_reason, "quiet_period_active");
+  assert.equal(maintenanceWindow.top_step_id, "install_wrappers");
 });
