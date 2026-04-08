@@ -322,10 +322,27 @@ Delivered shape:
   - no new HTTP or MCP APIs
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 17
+
+Phase 17 is now complete.
+
+Delivered shape:
+
+- preventive-maintenance recommendations derived from repeated safe repair history
+- additive preventive summaries across status, doctor, health, install check, desktop status, repair plan, and console
+- a 24-hour quiet period after a fresh resolved safe repair so preventive guidance stays quieter than active repair steps
+- repair run output that can now add a short preventive follow-up note when a resolved safe repair keeps repeating
+- unchanged trust boundaries:
+  - preventive maintenance remains guidance only
+  - repair execution stays CLI-only
+  - browser and console remain read-only for repair
+  - no new HTTP or MCP APIs
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, and 16 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, and 17 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

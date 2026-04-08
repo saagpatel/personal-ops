@@ -92,6 +92,14 @@ Phase 16 also adds repair memory to these same surfaces:
 
 That additive repair memory does not change the support contract or widen desktop authority. It only makes the existing repair path easier to trust.
 
+Phase 17 adds quieter preventive maintenance on top of that repair memory:
+
+- recurring safe desktop-adjacent repairs can now surface early maintenance guidance before the same issue becomes an active repair again
+- preventive guidance stays separate from active repair steps
+- fresh resolved repairs stay quiet for 24 hours before preventive maintenance can surface again
+
+That preventive layer is still guidance only. It does not add background healing, browser mutation, or a second desktop control path.
+
 ## Closeout Rule
 
 Any future desktop maintenance change should preserve this contract unless a later roadmap phase explicitly changes the supported platform scope.

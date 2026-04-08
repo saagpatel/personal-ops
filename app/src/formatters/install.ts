@@ -173,6 +173,7 @@ export function formatDesktopStatus(report: DesktopStatusReport): string {
         : "none",
     ),
     line("Recurring drift", report.repair_plan_summary?.recurring_issue?.step_id ?? "none"),
+    line("Preventive maintenance", report.repair_plan_summary?.top_preventive_step_id ?? "none"),
   ].join("\n");
 }
 
@@ -191,6 +192,7 @@ export function formatInstallCheckReport(report: InstallCheckReport): string {
     ),
   );
   lines.push(line("Recurring drift", report.repair_plan_summary.recurring_issue?.step_id ?? "none"));
+  lines.push(line("Preventive maintenance", report.repair_plan_summary.top_preventive_step_id ?? "none"));
   if (report.manifest) {
     lines.push(line("Node", report.manifest.node_executable));
     lines.push(line("LaunchAgent", report.manifest.launch_agent_plist_path));

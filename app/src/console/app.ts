@@ -1887,6 +1887,7 @@ function renderOverview(payload: ConsolePayload): string {
           <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
           <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(payload.doctor.repair_plan.last_repair ? `${payload.doctor.repair_plan.last_repair.step_id} (${payload.doctor.repair_plan.last_repair.outcome})` : "none")}</dd></div>
           <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(payload.doctor.repair_plan.recurring_issue ? `${payload.doctor.repair_plan.recurring_issue.step_id}: ${payload.doctor.repair_plan.recurring_issue.prevention_hint}` : "none")}</dd></div>
+          <div class="detail-row"><dt>Preventive maintenance</dt><dd>${escapeHtml(payload.doctor.repair_plan.preventive_maintenance?.top_step_id ? `${payload.doctor.repair_plan.preventive_maintenance.top_step_id} (${payload.doctor.repair_plan.preventive_maintenance.recommendations[0]?.urgency ?? "watch"})` : "none")}</dd></div>
           ${
             payload.doctor.repair_plan.steps.length === 0
               ? `<div class="empty">No repair actions are pending right now.</div>`
@@ -1907,6 +1908,29 @@ function renderOverview(payload: ConsolePayload): string {
                     `,
                   )
                   .join("")
+          }
+          ${
+            (payload.doctor.repair_plan.preventive_maintenance?.recommendations.length ?? 0) === 0
+              ? ""
+              : `
+                <div class="subtle subtle--body">Preventive maintenance</div>
+                ${(payload.doctor.repair_plan.preventive_maintenance?.recommendations ?? [])
+                  .map(
+                    (recommendation) => `
+                      <article class="list-item">
+                        <div class="list-item__top">
+                          <h4>${escapeHtml(recommendation.title)}</h4>
+                          <span class="pill ${recommendation.urgency === "recommended" ? "pill--warn" : "pill--good"}">${escapeHtml(recommendation.urgency)}</span>
+                        </div>
+                        <p>${escapeHtml(recommendation.reason)}</p>
+                        <div class="list-item__actions list-item__actions--stack">
+                          ${commandStack([recommendation.suggested_command])}
+                        </div>
+                      </article>
+                    `,
+                  )
+                  .join("")}
+              `
           }
         </section>
         <section class="detail-card">

@@ -526,6 +526,37 @@ test("phase 15 repair run next executes the first executable step only", () => {
   assert.equal(latestExecution?.outcome, "resolved");
 });
 
+test("phase 17 repair run adds preventive follow-up when the same safe repair keeps repeating", () => {
+  const { env, paths } = createTempEnv("repair-run-preventive");
+  writeFixtureFiles(paths, 46212);
+  const db = new PersonalOpsDb(paths.databaseFile);
+  db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-01T18:00:00.000Z",
+    completed_at: "2026-04-01T18:05:00.000Z",
+    requested_by_client: "personal-ops-cli",
+    requested_by_actor: "operator",
+    trigger_source: "repair_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: "install_check",
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Step resolved.",
+  });
+  db.close();
+  withRuntimeEnv(env, () => installWrappers(paths, "/missing/node"));
+
+  const output = execFileSync(process.execPath, [cliEntryPath(), "repair", "run", "next"], {
+    cwd: repoAppDir(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+
+  assert.match(output, /Outcome:\s+resolved/i);
+  assert.match(output, /Preventive follow-up:/i);
+  assert.match(output, /wrapper issue has repeated recently/i);
+});
+
 test("phase 15 repair run reports manual-only steps without skipping ahead", () => {
   const { env, paths } = createTempEnv("repair-run-manual");
   writeFixtureFiles(paths, 46212);

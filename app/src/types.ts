@@ -2254,6 +2254,24 @@ export interface RepairRecurringIssue {
   prevention_hint: string;
 }
 
+export type PreventiveMaintenanceUrgency = "watch" | "recommended";
+
+export interface PreventiveMaintenanceRecommendation {
+  step_id: RepairStepId;
+  title: string;
+  reason: string;
+  suggested_command: string;
+  urgency: PreventiveMaintenanceUrgency;
+  last_resolved_at: string;
+  repeat_count_30d: number;
+}
+
+export interface PreventiveMaintenanceSummary {
+  recommendations: PreventiveMaintenanceRecommendation[];
+  count: number;
+  top_step_id: RepairStepId | null;
+}
+
 export interface RepairExecutionRecord {
   execution_id: string;
   step_id: RepairStepId;
@@ -2288,6 +2306,7 @@ export interface RepairPlan {
   first_repair_step: string | null;
   last_execution: RepairOutcomeSummary | null;
   top_recurring_issue: RepairRecurringIssue | null;
+  preventive_maintenance: PreventiveMaintenanceSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2300,6 +2319,8 @@ export interface RepairPlanSummary {
   last_step_id: RepairStepId | null;
   last_outcome: RepairExecutionOutcome | null;
   top_recurring_step_id: RepairStepId | null;
+  preventive_maintenance_count: number;
+  top_preventive_step_id: RepairStepId | null;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
 }
@@ -2314,6 +2335,7 @@ export interface RepairExecutionResult {
   resolved_target_step?: boolean | undefined;
   next_repair_step?: string | undefined;
   remaining_reason?: string | undefined;
+  preventive_follow_up?: string | undefined;
   message: string;
 }
 
