@@ -385,8 +385,10 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       }
 
       if (request.method === "GET" && url.pathname === "/v1/status") {
+        const skipDerived =
+          url.searchParams.get("skip_derived") === "1" || url.searchParams.get("skipDerived") === "1";
         sendJson(response, 200, {
-          status: await service.getStatusReport({ httpReachable: true }),
+          status: await service.getStatusReport({ httpReachable: true, skipDerived }),
         });
         return;
       }
@@ -2039,7 +2041,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       }
 
       if (request.method === "POST" && url.pathname === "/v1/snapshots") {
-        const status = await service.getStatusReport({ httpReachable: true });
+        const status = await service.getStatusReport({ httpReachable: true, skipDerived: true });
         sendJson(response, 200, { snapshot: await service.createSnapshot(status.state) });
         return;
       }

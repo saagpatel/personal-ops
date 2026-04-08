@@ -962,6 +962,13 @@ test("assistant-led phase 2 workflows prefer staged inbox autopilot work over ra
       counts_by_severity: { critical: 0, warn: 0, info: 0 },
       send_window: { active: false },
       planning_groups: [],
+      maintenance_window: {
+        eligible_now: false,
+        deferred_reason: "no_preventive_work" as const,
+        count: 0,
+        top_step_id: null,
+        bundle: null,
+      },
       items: [],
     }),
     listPlanningRecommendations: service.listPlanningRecommendations.bind(service),
@@ -6353,14 +6360,75 @@ test("phase-5 prep-day workflow stays bounded and leads with a repair step when 
   assert.equal(report.workflow, "prep-day");
   assert.deepEqual(
     report.sections.map((section) => section.title),
-    ["Overall State", "Top Attention", "Time-Sensitive Items", "Next Commands"],
+    ["Overall State", "Top Attention", "Time-Sensitive Items", "Maintenance Window", "Next Commands"],
   );
   assert.ok(report.actions.length <= 3);
-  assert.equal(report.sections[3]?.items.length, report.actions.length);
+  assert.equal(report.sections[4]?.items.length, report.actions.length);
   if (report.readiness !== "ready") {
     assert.ok(report.first_repair_step);
     assert.equal(report.actions[0]?.command, report.first_repair_step);
   }
+});
+
+test("phase 18 worklist and prep-day surface a maintenance window only during calm healthy periods", async () => {
+  const { service } = createFixture();
+  const worklist: WorklistReport = {
+    generated_at: new Date().toISOString(),
+    state: "ready",
+    counts_by_severity: { critical: 0, warn: 0, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    maintenance_window: {
+      eligible_now: true,
+      deferred_reason: null,
+      count: 1,
+      top_step_id: "install_wrappers",
+      bundle: {
+        bundle_id: "maintenance-window:install_wrappers",
+        title: "Preventive maintenance window",
+        summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+        recommended_commands: ["personal-ops install wrappers"],
+        recommendations: [
+          {
+            step_id: "install_wrappers",
+            title: "Refresh wrappers before the next drift",
+            reason: "Wrapper drift has repeated on this machine.",
+            suggested_command: "personal-ops install wrappers",
+            urgency: "watch",
+            last_resolved_at: "2026-04-06T18:05:00.000Z",
+            repeat_count_30d: 2,
+          },
+        ],
+      },
+    },
+    items: [],
+  };
+  const fakeService = {
+    getStatusReport: async () => ({
+      state: "ready",
+      mailbox: { connected: "machine@example.com", configured: "machine@example.com" },
+    }),
+    getWorklistReport: async () => worklist,
+    listPlanningRecommendations: service.listPlanningRecommendations.bind(service),
+    listNeedsReplyThreads: service.listNeedsReplyThreads.bind(service),
+    listFollowupThreads: service.listFollowupThreads.bind(service),
+    listUpcomingCalendarEvents: service.listUpcomingCalendarEvents.bind(service),
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: service.getPlanningRecommendationDetail.bind(service),
+    getPlanningAutopilotReport: service.getPlanningAutopilotReport.bind(service),
+    getOutboundAutopilotReport: service.getOutboundAutopilotReport.bind(service),
+    getInboxAutopilotReport: service.getInboxAutopilotReport.bind(service),
+    getRelatedDocsForTarget: service.getRelatedDocsForTarget.bind(service),
+    getRelatedFilesForTarget: service.getRelatedFilesForTarget.bind(service),
+  };
+
+  const report = await buildPrepDayWorkflowReport(fakeService, { httpReachable: true });
+  const maintenanceSection = report.sections.find((section) => section.title === "Maintenance Window");
+
+  assert.equal(worklist.maintenance_window.eligible_now, true);
+  assert.equal(worklist.maintenance_window.top_step_id, "install_wrappers");
+  assert.equal(maintenanceSection?.items[0]?.command, "personal-ops install wrappers");
+  assert.equal(report.actions.some((action) => action.command === "personal-ops install wrappers"), false);
 });
 
 test("phase-5 follow-up workflow bundles needs-reply and stale follow-up pressure", async () => {
@@ -6617,6 +6685,13 @@ test("phase-6 now-next leads with the first repair step when readiness is degrad
     counts_by_severity: { critical: 1, warn: 0, info: 0 },
     send_window: { active: false },
     planning_groups: [],
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "active_repair_pending",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
     items: [
       {
         item_id: "repair-1",
@@ -6656,6 +6731,13 @@ test("phase-6 prep-day prefers concrete work over governance review in healthy s
     counts_by_severity: { critical: 0, warn: 2, info: 0 },
     send_window: { active: false },
     planning_groups: [],
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "concrete_work_present",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
     items: [
       {
         item_id: "governance-1",
@@ -7561,6 +7643,13 @@ test("phase-7 workflows rank github pull request work above governance noise in 
       counts_by_severity: { critical: 0, warn: 1, info: 1 },
       send_window: { active: false },
       planning_groups: [],
+      maintenance_window: {
+        eligible_now: false,
+        deferred_reason: "concrete_work_present" as const,
+        count: 0,
+        top_step_id: null,
+        bundle: null,
+      },
       items: [
         {
           item_id: "planning-policy",
@@ -7991,7 +8080,7 @@ test("assistant-led phase 5 prep-meetings attaches related files without changin
   });
 
   (service as unknown as { refreshDriveLinkProvenance(): void }).refreshDriveLinkProvenance();
-  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "today" });
+  const report = await service.getPrepMeetingsWorkflowReport({ httpReachable: true, scope: "next_24h" });
   const text = JSON.stringify(report.sections);
 
   assert.match(text, /Drive enriched meeting/);
@@ -8247,6 +8336,13 @@ test("assistant-led phase 7 workflows prefer grouped outbound finish-work when i
       counts_by_severity: { critical: 0, warn: 0, info: 0 },
       send_window: { active: false },
       planning_groups: [],
+      maintenance_window: {
+        eligible_now: false,
+        deferred_reason: "no_preventive_work" as const,
+        count: 0,
+        top_step_id: null,
+        bundle: null,
+      },
       items: [],
     }),
     listPlanningRecommendations: service.listPlanningRecommendations.bind(service),

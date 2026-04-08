@@ -1239,6 +1239,7 @@ export interface WorklistReport {
     window?: SendWindow | undefined;
   };
   planning_groups: PlanningRecommendationGroup[];
+  maintenance_window: MaintenanceWindowSummary;
   items: AttentionItem[];
 }
 
@@ -2256,6 +2257,13 @@ export interface RepairRecurringIssue {
 
 export type PreventiveMaintenanceUrgency = "watch" | "recommended";
 
+export type MaintenanceWindowDeferredReason =
+  | "active_repair_pending"
+  | "system_not_ready"
+  | "concrete_work_present"
+  | "quiet_period_active"
+  | "no_preventive_work";
+
 export interface PreventiveMaintenanceRecommendation {
   step_id: RepairStepId;
   title: string;
@@ -2270,6 +2278,22 @@ export interface PreventiveMaintenanceSummary {
   recommendations: PreventiveMaintenanceRecommendation[];
   count: number;
   top_step_id: RepairStepId | null;
+}
+
+export interface PreventiveMaintenanceBundle {
+  bundle_id: string;
+  title: string;
+  summary: string;
+  recommended_commands: string[];
+  recommendations: PreventiveMaintenanceRecommendation[];
+}
+
+export interface MaintenanceWindowSummary {
+  eligible_now: boolean;
+  deferred_reason: MaintenanceWindowDeferredReason | null;
+  count: number;
+  top_step_id: RepairStepId | null;
+  bundle: PreventiveMaintenanceBundle | null;
 }
 
 export interface RepairExecutionRecord {
@@ -2307,6 +2331,7 @@ export interface RepairPlan {
   last_execution: RepairOutcomeSummary | null;
   top_recurring_issue: RepairRecurringIssue | null;
   preventive_maintenance: PreventiveMaintenanceSummary;
+  maintenance_window: MaintenanceWindowSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2321,6 +2346,7 @@ export interface RepairPlanSummary {
   top_recurring_step_id: RepairStepId | null;
   preventive_maintenance_count: number;
   top_preventive_step_id: RepairStepId | null;
+  maintenance_window: MaintenanceWindowSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
 }
@@ -2476,6 +2502,7 @@ export interface ServiceStatusReport {
   state: ServiceState;
   first_repair_step: string | null;
   repair_plan: RepairPlan;
+  maintenance_window: MaintenanceWindowSummary;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

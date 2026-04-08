@@ -1,10 +1,14 @@
 import type {
+  AttentionItem,
   DesktopStatusReport,
   DoctorCheck,
   DoctorReport,
   InstallCheckReport,
+  MaintenanceWindowDeferredReason,
+  MaintenanceWindowSummary,
   MachineStateOrigin,
   PreventiveMaintenanceRecommendation,
+  PreventiveMaintenanceBundle,
   PreventiveMaintenanceSummary,
   RepairExecutionRecord,
   RepairOutcomeSummary,
@@ -13,6 +17,7 @@ import type {
   RepairRecurringIssue,
   RepairStep,
   RepairStepId,
+  ServiceState,
 } from "./types.js";
 
 const RECURRING_WINDOW_DAYS = 30;
@@ -25,6 +30,18 @@ const RECURRING_PRIORITY: RepairStepId[] = [
 ];
 const PREVENTIVE_QUIET_PERIOD_HOURS = 24;
 const PREVENTIVE_LIMIT = 3;
+const CONCRETE_PRESSURE_KINDS = new Set([
+  "task_overdue",
+  "task_due_soon",
+  "task_reminder_due",
+  "thread_needs_reply",
+  "thread_stale_followup",
+  "github_review_requested",
+  "github_pr_checks_failing",
+  "github_pr_changes_requested",
+  "calendar_conflict",
+  "calendar_event_soon",
+]);
 
 interface BuildRepairPlanOptions {
   generated_at?: string;
@@ -169,6 +186,130 @@ function olderThanQuietPeriod(completedAt: string, now: Date): boolean {
   return now.getTime() - completed.getTime() >= PREVENTIVE_QUIET_PERIOD_HOURS * 60 * 60 * 1000;
 }
 
+function preventiveCandidates(
+  recentExecutions: RepairExecutionRecord[],
+  pendingStepIds: Set<RepairStepId>,
+  generatedAtDate: Date,
+  includeQuietPeriod: boolean,
+): PreventiveMaintenanceRecommendation[] {
+  const recommendations: PreventiveMaintenanceRecommendation[] = [];
+  for (const stepId of RECURRING_PRIORITY) {
+    if (pendingStepIds.has(stepId)) {
+      continue;
+    }
+    const resolvedExecutions = recentExecutions.filter(
+      (execution) => execution.step_id === stepId && execution.outcome === "resolved" && execution.resolved_target_step,
+    );
+    if (resolvedExecutions.length < RECURRING_THRESHOLD) {
+      continue;
+    }
+    const lastResolved = resolvedExecutions[0];
+    if (!lastResolved?.completed_at) {
+      continue;
+    }
+    if (!includeQuietPeriod && !olderThanQuietPeriod(lastResolved.completed_at, generatedAtDate)) {
+      continue;
+    }
+    recommendations.push({
+      step_id: stepId,
+      title: preventiveTitle(stepId),
+      reason: preventiveReason(stepId),
+      suggested_command: preventiveCommand(stepId),
+      urgency: resolvedExecutions.length >= 3 ? "recommended" : "watch",
+      last_resolved_at: lastResolved.completed_at,
+      repeat_count_30d: resolvedExecutions.length,
+    });
+    if (recommendations.length >= PREVENTIVE_LIMIT) {
+      break;
+    }
+  }
+  return recommendations;
+}
+
+function maintenanceBundleFor(recommendations: PreventiveMaintenanceRecommendation[]): PreventiveMaintenanceBundle | null {
+  if (recommendations.length === 0) {
+    return null;
+  }
+  const commands = recommendations.map((recommendation) => recommendation.suggested_command);
+  const titles = recommendations.map((recommendation) => recommendation.title.toLowerCase());
+  return {
+    bundle_id: `maintenance-window:${recommendations.map((recommendation) => recommendation.step_id).join("+")}`,
+    title: "Preventive maintenance window",
+    summary:
+      recommendations.length === 1
+        ? `${recommendations[0]!.title} is a good calm-window maintenance task right now.`
+        : `${titles[0]} plus ${recommendations.length - 1} other preventive maintenance task${recommendations.length === 2 ? "" : "s"} fit a calm window right now.`,
+    recommended_commands: commands,
+    recommendations,
+  };
+}
+
+function maintenanceDeferredReason(input: {
+  state: ServiceState;
+  hasPendingRepair: boolean;
+  actionableRecommendations: PreventiveMaintenanceRecommendation[];
+  quietPeriodRecommendations: PreventiveMaintenanceRecommendation[];
+  hasConcretePressure: boolean;
+}): MaintenanceWindowDeferredReason {
+  if (input.hasPendingRepair) {
+    return "active_repair_pending";
+  }
+  if (input.state !== "ready") {
+    return "system_not_ready";
+  }
+  if (input.actionableRecommendations.length === 0 && input.quietPeriodRecommendations.length === 0) {
+    return "no_preventive_work";
+  }
+  if (input.hasConcretePressure) {
+    return "concrete_work_present";
+  }
+  if (input.actionableRecommendations.length === 0 && input.quietPeriodRecommendations.length > 0) {
+    return "quiet_period_active";
+  }
+  return "no_preventive_work";
+}
+
+export function buildMaintenanceWindowSummary(input: {
+  generated_at?: string;
+  state: ServiceState;
+  worklist_items: AttentionItem[];
+  repair_plan: RepairPlan;
+  recent_repair_executions?: RepairExecutionRecord[];
+}): MaintenanceWindowSummary {
+  const generatedAt = input.generated_at ?? new Date().toISOString();
+  const generatedAtDate = new Date(generatedAt);
+  const recentExecutions = [...(input.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const pendingStepIds = new Set(input.repair_plan.steps.map((step) => step.id));
+  const quietPeriodRecommendations = preventiveCandidates(recentExecutions, pendingStepIds, generatedAtDate, true);
+  const actionableRecommendations = preventiveCandidates(recentExecutions, pendingStepIds, generatedAtDate, false);
+  const hasConcretePressure = input.worklist_items.some((item) => CONCRETE_PRESSURE_KINDS.has(item.kind));
+  const eligibleNow =
+    input.state === "ready" &&
+    pendingStepIds.size === 0 &&
+    actionableRecommendations.length > 0 &&
+    !hasConcretePressure;
+  const deferredReason = eligibleNow
+    ? null
+    : maintenanceDeferredReason({
+        state: input.state,
+        hasPendingRepair: pendingStepIds.size > 0,
+        actionableRecommendations,
+        quietPeriodRecommendations,
+        hasConcretePressure,
+      });
+  const visibleRecommendations = eligibleNow ? actionableRecommendations : [];
+  const topRecommendation = actionableRecommendations[0] ?? quietPeriodRecommendations[0] ?? null;
+  return {
+    eligible_now: eligibleNow,
+    deferred_reason: deferredReason,
+    count: actionableRecommendations.length,
+    top_step_id: topRecommendation?.step_id ?? null,
+    bundle: eligibleNow ? maintenanceBundleFor(visibleRecommendations) : null,
+  };
+}
+
 export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
   return {
     first_step_id: plan.first_step_id,
@@ -179,6 +320,7 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     top_recurring_step_id: plan.top_recurring_issue?.step_id ?? null,
     preventive_maintenance_count: plan.preventive_maintenance.count,
     top_preventive_step_id: plan.preventive_maintenance.top_step_id,
+    maintenance_window: plan.maintenance_window,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
   };
@@ -469,34 +611,7 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     break;
   }
 
-  const preventiveRecommendations: PreventiveMaintenanceRecommendation[] = [];
-  for (const stepId of RECURRING_PRIORITY) {
-    if (pendingStepIds.has(stepId)) {
-      continue;
-    }
-    const resolvedExecutions = recentExecutions.filter(
-      (execution) => execution.step_id === stepId && execution.outcome === "resolved" && execution.resolved_target_step,
-    );
-    if (resolvedExecutions.length < RECURRING_THRESHOLD) {
-      continue;
-    }
-    const lastResolved = resolvedExecutions[0];
-    if (!lastResolved?.completed_at || !olderThanQuietPeriod(lastResolved.completed_at, generatedAtDate)) {
-      continue;
-    }
-    preventiveRecommendations.push({
-      step_id: stepId,
-      title: preventiveTitle(stepId),
-      reason: preventiveReason(stepId),
-      suggested_command: preventiveCommand(stepId),
-      urgency: resolvedExecutions.length >= 3 ? "recommended" : "watch",
-      last_resolved_at: lastResolved.completed_at,
-      repeat_count_30d: resolvedExecutions.length,
-    });
-    if (preventiveRecommendations.length >= PREVENTIVE_LIMIT) {
-      break;
-    }
-  }
+  const preventiveRecommendations = preventiveCandidates(recentExecutions, pendingStepIds, generatedAtDate, false);
   const preventiveMaintenance: PreventiveMaintenanceSummary = {
     recommendations: preventiveRecommendations,
     count: preventiveRecommendations.length,
@@ -510,6 +625,13 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     last_execution: lastRepair,
     top_recurring_issue: recurringIssue,
     preventive_maintenance: preventiveMaintenance,
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: preventiveRecommendations.length > 0 ? "concrete_work_present" : "no_preventive_work",
+      count: preventiveMaintenance.count,
+      top_step_id: preventiveMaintenance.top_step_id,
+      bundle: null,
+    },
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

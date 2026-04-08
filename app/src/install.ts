@@ -1282,6 +1282,13 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
         top_recurring_step_id: null,
         preventive_maintenance_count: 0,
         top_preventive_step_id: null,
+        maintenance_window: {
+          eligible_now: false,
+          deferred_reason: "no_preventive_work",
+          count: 0,
+          top_step_id: null,
+          bundle: null,
+        },
         last_repair: null,
         recurring_issue: null,
       },
