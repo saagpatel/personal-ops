@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRepairPlan } from "../src/repair-plan.js";
+import { buildRepairPlan, summarizeRepairPlan } from "../src/repair-plan.js";
 import type { DoctorCheck, RepairExecutionRecord } from "../src/types.js";
 
 function warn(id: string, message: string): DoctorCheck {
@@ -161,4 +161,208 @@ test("phase 16 repair plan flags recurring drift for repeated resolved wrapper r
 
   assert.equal(plan.top_recurring_issue?.step_id, "install_wrappers");
   assert.equal(plan.top_recurring_issue?.occurrence_count, 2);
+});
+
+test("phase 17 repair plan promotes healthy recurring wrapper drift into preventive maintenance", () => {
+  const plan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    recent_repair_executions: [
+      {
+        execution_id: "repair-4",
+        step_id: "install_wrappers",
+        started_at: "2026-04-06T18:00:00.000Z",
+        completed_at: "2026-04-06T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+      {
+        execution_id: "repair-5",
+        step_id: "install_wrappers",
+        started_at: "2026-04-01T18:00:00.000Z",
+        completed_at: "2026-04-01T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "direct_command",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+    ],
+  });
+
+  assert.equal(plan.steps.some((step) => step.id === "install_wrappers"), false);
+  assert.equal(plan.preventive_maintenance.top_step_id, "install_wrappers");
+  assert.equal(plan.preventive_maintenance.recommendations[0]?.urgency, "watch");
+});
+
+test("phase 17 active repair suppresses duplicate preventive maintenance for the same step", () => {
+  const plan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: {
+      state: "degraded",
+      checks: [warn("cli_wrapper_current", "CLI wrapper was generated from an older checkout.")],
+    },
+    recent_repair_executions: [
+      {
+        execution_id: "repair-6",
+        step_id: "install_wrappers",
+        started_at: "2026-04-06T18:00:00.000Z",
+        completed_at: "2026-04-06T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+      {
+        execution_id: "repair-7",
+        step_id: "install_wrappers",
+        started_at: "2026-04-01T18:00:00.000Z",
+        completed_at: "2026-04-01T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+    ],
+  });
+
+  assert.equal(plan.steps.some((step) => step.id === "install_wrappers"), true);
+  assert.equal(plan.preventive_maintenance.count, 0);
+});
+
+test("phase 17 preventive maintenance keeps fixed precedence, urgency, and a cap of three", () => {
+  const plan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    recent_repair_executions: [
+      "install_wrappers",
+      "install_wrappers",
+      "install_wrappers",
+      "install_desktop",
+      "install_desktop",
+      "install_launchagent",
+      "install_launchagent",
+      "fix_permissions",
+      "fix_permissions",
+    ].map((stepId, index) => ({
+      execution_id: `repair-priority-${index}`,
+      step_id: stepId as RepairExecutionRecord["step_id"],
+      started_at: `2026-04-0${(index % 5) + 1}T18:00:00.000Z`,
+      completed_at: `2026-04-0${(index % 5) + 1}T18:05:00.000Z`,
+      requested_by_client: "personal-ops-cli",
+      requested_by_actor: "operator",
+      trigger_source: "repair_run" as const,
+      before_first_step_id: stepId as RepairExecutionRecord["step_id"],
+      after_first_step_id: "install_check" as const,
+      outcome: "resolved" as const,
+      resolved_target_step: true,
+      message: "Step resolved.",
+    })),
+  });
+
+  assert.deepEqual(
+    plan.preventive_maintenance.recommendations.map((recommendation) => recommendation.step_id),
+    ["install_wrappers", "install_desktop", "install_launchagent"],
+  );
+  assert.equal(plan.preventive_maintenance.count, 3);
+  assert.equal(plan.preventive_maintenance.top_step_id, "install_wrappers");
+  assert.equal(plan.preventive_maintenance.recommendations[0]?.urgency, "recommended");
+  assert.equal(plan.preventive_maintenance.recommendations[1]?.urgency, "watch");
+});
+
+test("phase 17 preventive maintenance stays quiet for 24 hours after a fresh resolved repair", () => {
+  const plan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    recent_repair_executions: [
+      {
+        execution_id: "repair-8",
+        step_id: "install_wrappers",
+        started_at: "2026-04-07T10:00:00.000Z",
+        completed_at: "2026-04-07T10:30:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+      {
+        execution_id: "repair-9",
+        step_id: "install_wrappers",
+        started_at: "2026-04-04T10:00:00.000Z",
+        completed_at: "2026-04-04T10:30:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+    ],
+  });
+
+  assert.equal(plan.preventive_maintenance.count, 0);
+});
+
+test("phase 17 repair plan summary exposes preventive maintenance fields", () => {
+  const plan = buildRepairPlan({
+    generated_at: "2026-04-07T20:00:00.000Z",
+    install_check: { state: "ready", checks: [] },
+    recent_repair_executions: [
+      {
+        execution_id: "repair-10",
+        step_id: "install_wrappers",
+        started_at: "2026-04-06T18:00:00.000Z",
+        completed_at: "2026-04-06T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+      {
+        execution_id: "repair-11",
+        step_id: "install_wrappers",
+        started_at: "2026-04-01T18:00:00.000Z",
+        completed_at: "2026-04-01T18:05:00.000Z",
+        requested_by_client: "personal-ops-cli",
+        requested_by_actor: "operator",
+        trigger_source: "repair_run",
+        before_first_step_id: "install_wrappers",
+        after_first_step_id: "install_check",
+        outcome: "resolved",
+        resolved_target_step: true,
+        message: "Step resolved.",
+      },
+    ],
+  });
+  const summary = summarizeRepairPlan(plan);
+
+  assert.equal(summary.preventive_maintenance_count, 1);
+  assert.equal(summary.top_preventive_step_id, "install_wrappers");
 });

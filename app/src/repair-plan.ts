@@ -4,6 +4,8 @@ import type {
   DoctorReport,
   InstallCheckReport,
   MachineStateOrigin,
+  PreventiveMaintenanceRecommendation,
+  PreventiveMaintenanceSummary,
   RepairExecutionRecord,
   RepairOutcomeSummary,
   RepairPlan,
@@ -21,6 +23,8 @@ const RECURRING_PRIORITY: RepairStepId[] = [
   "install_launchagent",
   "fix_permissions",
 ];
+const PREVENTIVE_QUIET_PERIOD_HOURS = 24;
+const PREVENTIVE_LIMIT = 3;
 
 interface BuildRepairPlanOptions {
   generated_at?: string;
@@ -118,6 +122,53 @@ function preventionHint(stepId: RepairStepId): string | null {
   return null;
 }
 
+function preventiveTitle(stepId: RepairStepId): string {
+  if (stepId === "install_wrappers") {
+    return "Refresh wrappers before the next drift";
+  }
+  if (stepId === "install_desktop") {
+    return "Refresh the desktop app before it falls behind";
+  }
+  if (stepId === "install_launchagent") {
+    return "Reload the LaunchAgent before runtime drift returns";
+  }
+  return "Tighten local secret permissions before they drift again";
+}
+
+function preventiveReason(stepId: RepairStepId): string {
+  if (stepId === "install_wrappers") {
+    return "Wrapper drift has repeated on this machine, so a small wrapper refresh is likely cheaper than waiting for the next launcher break.";
+  }
+  if (stepId === "install_desktop") {
+    return "Desktop drift has repeated on this machine, so rebuilding the installed app early should reduce stale-bundle surprises.";
+  }
+  if (stepId === "install_launchagent") {
+    return "LaunchAgent drift has repeated on this machine, so a quick reload is likely safer than waiting for the daemon wiring to break again.";
+  }
+  return "Secret-permission drift has repeated on this machine, so tightening the affected files early should reduce future auth or policy noise.";
+}
+
+function preventiveCommand(stepId: RepairStepId): string {
+  if (stepId === "install_wrappers") {
+    return "personal-ops install wrappers";
+  }
+  if (stepId === "install_desktop") {
+    return "personal-ops install desktop";
+  }
+  if (stepId === "install_launchagent") {
+    return "personal-ops install launchagent";
+  }
+  return "personal-ops install fix-permissions";
+}
+
+function olderThanQuietPeriod(completedAt: string, now: Date): boolean {
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime())) {
+    return false;
+  }
+  return now.getTime() - completed.getTime() >= PREVENTIVE_QUIET_PERIOD_HOURS * 60 * 60 * 1000;
+}
+
 export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
   return {
     first_step_id: plan.first_step_id,
@@ -126,12 +177,16 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     last_step_id: plan.last_execution?.step_id ?? null,
     last_outcome: plan.last_execution?.outcome ?? null,
     top_recurring_step_id: plan.top_recurring_issue?.step_id ?? null,
+    preventive_maintenance_count: plan.preventive_maintenance.count,
+    top_preventive_step_id: plan.preventive_maintenance.top_step_id,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
   };
 }
 
 export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
+  const generatedAt = options.generated_at ?? new Date().toISOString();
+  const generatedAtDate = new Date(generatedAt);
   const installChecks = options.install_check?.checks ?? [];
   const doctorChecks = options.doctor?.checks ?? [];
   const allChecks = [...installChecks, ...doctorChecks];
@@ -389,9 +444,10 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
   }
 
   const lastRepair = recentExecutions[0] ? toRepairOutcomeSummary(recentExecutions[0]) : null;
+  const pendingStepIds = new Set(steps.map((step) => step.id));
   let recurringIssue: RepairRecurringIssue | null = null;
   for (const stepId of RECURRING_PRIORITY) {
-    if (!steps.some((step) => step.id === stepId)) {
+    if (!pendingStepIds.has(stepId)) {
       continue;
     }
     const occurrenceCount = recentExecutions.filter(
@@ -413,12 +469,47 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     break;
   }
 
+  const preventiveRecommendations: PreventiveMaintenanceRecommendation[] = [];
+  for (const stepId of RECURRING_PRIORITY) {
+    if (pendingStepIds.has(stepId)) {
+      continue;
+    }
+    const resolvedExecutions = recentExecutions.filter(
+      (execution) => execution.step_id === stepId && execution.outcome === "resolved" && execution.resolved_target_step,
+    );
+    if (resolvedExecutions.length < RECURRING_THRESHOLD) {
+      continue;
+    }
+    const lastResolved = resolvedExecutions[0];
+    if (!lastResolved?.completed_at || !olderThanQuietPeriod(lastResolved.completed_at, generatedAtDate)) {
+      continue;
+    }
+    preventiveRecommendations.push({
+      step_id: stepId,
+      title: preventiveTitle(stepId),
+      reason: preventiveReason(stepId),
+      suggested_command: preventiveCommand(stepId),
+      urgency: resolvedExecutions.length >= 3 ? "recommended" : "watch",
+      last_resolved_at: lastResolved.completed_at,
+      repeat_count_30d: resolvedExecutions.length,
+    });
+    if (preventiveRecommendations.length >= PREVENTIVE_LIMIT) {
+      break;
+    }
+  }
+  const preventiveMaintenance: PreventiveMaintenanceSummary = {
+    recommendations: preventiveRecommendations,
+    count: preventiveRecommendations.length,
+    top_step_id: preventiveRecommendations[0]?.step_id ?? null,
+  };
+
   return {
-    generated_at: options.generated_at ?? new Date().toISOString(),
+    generated_at: generatedAt,
     first_step_id: steps[0]?.id ?? null,
     first_repair_step: steps[0]?.suggested_command ?? null,
     last_execution: lastRepair,
     top_recurring_issue: recurringIssue,
+    preventive_maintenance: preventiveMaintenance,
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

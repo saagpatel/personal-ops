@@ -1280,6 +1280,8 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
         last_step_id: null,
         last_outcome: null,
         top_recurring_step_id: null,
+        preventive_maintenance_count: 0,
+        top_preventive_step_id: null,
         last_repair: null,
         recurring_issue: null,
       },

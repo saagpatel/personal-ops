@@ -77,6 +77,13 @@ function statusActionItems(report: ServiceStatusReport): string[] {
 
 function formatRepairPlan(plan: RepairPlan): string[] {
   const lines: string[] = [];
+  const preventiveRows =
+    plan.preventive_maintenance.recommendations.length === 0
+      ? []
+      : plan.preventive_maintenance.recommendations.map(
+          (recommendation) =>
+            `- Preventive maintenance (${recommendation.urgency}): ${recommendation.title}. ${recommendation.reason} Last resolved: ${recommendation.last_resolved_at}. Next: \`${recommendation.suggested_command}\`.`,
+        );
   if (plan.last_repair) {
     lines.push(
       `- Last repair: ${plan.last_repair.step_id} finished ${plan.last_repair.completed_at} with ${plan.last_repair.outcome}. ${plan.last_repair.message}`,
@@ -89,6 +96,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
   }
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
+    lines.push(...preventiveRows);
     return lines;
   }
   lines.push(
@@ -97,6 +105,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
         `- ${index + 1}. ${step.title}: ${step.reason}${step.latest_outcome ? ` Last outcome: ${step.latest_outcome}${step.latest_completed_at ? ` at ${step.latest_completed_at}` : ""}.` : ""} Next: \`${step.suggested_command}\`${step.executable ? " (can run from `personal-ops repair run`)" : ""}.`,
     ),
   );
+  lines.push(...preventiveRows);
   return lines;
 }
 
@@ -107,6 +116,9 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
   lines.push(line("First repair step", plan.first_repair_step ?? "none"));
   lines.push(line("Last repair", plan.last_repair ? `${plan.last_repair.step_id} (${plan.last_repair.outcome})` : "none"));
   lines.push(line("Recurring drift", plan.recurring_issue ? plan.recurring_issue.step_id : "none"));
+  lines.push(
+    line("Preventive maintenance", plan.preventive_maintenance.top_step_id ? plan.preventive_maintenance.top_step_id : "none"),
+  );
   lines.push("");
   lines.push("Steps");
   lines.push(...formatRepairPlan(plan));
@@ -645,6 +657,10 @@ export function formatRepairExecutionResult(result: RepairExecutionResult): stri
   if (result.remaining_reason) {
     lines.push("");
     lines.push(`Remaining reason: ${result.remaining_reason}`);
+  }
+  if (result.outcome === "resolved" && result.preventive_follow_up) {
+    lines.push("");
+    lines.push(`Preventive follow-up: ${result.preventive_follow_up}`);
   }
   return lines.join("\n");
 }

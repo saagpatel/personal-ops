@@ -47,6 +47,22 @@ function openUrl(url: string): void {
   execFileSync("xdg-open", [url]);
 }
 
+function preventiveFollowUpForStep(stepId: RepairStepId): string | null {
+  if (stepId === "install_wrappers") {
+    return "This wrapper issue has repeated recently. Refresh wrappers after checkout or Node path changes to reduce repeat drift.";
+  }
+  if (stepId === "install_desktop") {
+    return "This desktop drift has repeated recently. Rebuild and reinstall the desktop app after source or dependency changes to stay ahead of stale bundles.";
+  }
+  if (stepId === "install_launchagent") {
+    return "This LaunchAgent issue has repeated recently. Reload it after runtime or daemon path changes to reduce repeat drift.";
+  }
+  if (stepId === "fix_permissions") {
+    return "This permissions issue has repeated recently. Check the tool or workflow reopening broad secret-file permissions.";
+  }
+  return null;
+}
+
 export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger, paths: Paths) {
   program
     .command("notify")
@@ -185,6 +201,20 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           : remainingStep
             ? `Step ran, but the targeted issue still needs attention: ${remainingStep.reason}`
             : "Step ran, but repair follow-up is still required.";
+        let preventiveFollowUp: string | undefined;
+        if (resolvedTargetStep && (process.env.PERSONAL_OPS_STATE_DIR || paths.databaseFile)) {
+          const db = new PersonalOpsDb(paths.databaseFile);
+          try {
+            const priorResolvedCount = db
+              .listRepairExecutions({ step_id: targetStep.id, days: 30, limit: 100 })
+              .filter((execution) => execution.outcome === "resolved" && execution.resolved_target_step).length;
+            if (priorResolvedCount + 1 >= 2) {
+              preventiveFollowUp = preventiveFollowUpForStep(targetStep.id) ?? undefined;
+            }
+          } finally {
+            db.close();
+          }
+        }
         if (process.env.PERSONAL_OPS_STATE_DIR || paths.databaseFile) {
           const db = new PersonalOpsDb(paths.databaseFile);
           try {
@@ -215,6 +245,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           resolved_target_step: resolvedTargetStep,
           next_repair_step: refreshedReport.repair_plan.first_repair_step ?? undefined,
           remaining_reason: remainingStep?.reason,
+          preventive_follow_up: preventiveFollowUp,
           message,
         };
       }

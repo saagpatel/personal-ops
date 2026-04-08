@@ -360,6 +360,50 @@ test("phase 16 direct wrapper repair records a repair execution outcome", () => 
   }
 });
 
+test("phase 17 install check summarizes preventive maintenance from recurring safe repairs", () => {
+  const fixture = createFixture();
+  try {
+    setConfiguredMailbox(fixture.paths, "machine@example.com");
+    setConfiguredOauth(fixture.paths);
+    installWrappers(fixture.paths, process.execPath, { trackRepairExecution: false });
+    const db = new PersonalOpsDb(fixture.paths.databaseFile);
+    db.createRepairExecution({
+      step_id: "install_wrappers",
+      started_at: "2026-04-01T18:00:00.000Z",
+      completed_at: "2026-04-01T18:05:00.000Z",
+      requested_by_client: "personal-ops-cli",
+      requested_by_actor: "operator",
+      trigger_source: "repair_run",
+      before_first_step_id: "install_wrappers",
+      after_first_step_id: "install_check",
+      outcome: "resolved",
+      resolved_target_step: true,
+      message: "Step resolved.",
+    });
+    db.createRepairExecution({
+      step_id: "install_wrappers",
+      started_at: "2026-04-03T18:00:00.000Z",
+      completed_at: "2026-04-03T18:05:00.000Z",
+      requested_by_client: "personal-ops-cli",
+      requested_by_actor: "operator",
+      trigger_source: "repair_run",
+      before_first_step_id: "install_wrappers",
+      after_first_step_id: "install_check",
+      outcome: "resolved",
+      resolved_target_step: true,
+      message: "Step resolved.",
+    });
+    db.close();
+
+    const report = buildInstallCheckReport(fixture.paths);
+
+    assert.equal(report.repair_plan_summary.preventive_maintenance_count, 1);
+    assert.equal(report.repair_plan_summary.top_preventive_step_id, "install_wrappers");
+  } finally {
+    fixture.restoreEnv();
+  }
+});
+
 test("install manifest formatter tolerates legacy desktop metadata while wrappers are refreshed", () => {
   const formatted = formatInstallManifest({
     generated_at: "2026-04-07T00:00:00.000Z",

@@ -173,6 +173,8 @@ export async function buildStatusReport(
       last_step_id: repairPlan.last_execution?.step_id ?? null,
       last_outcome: repairPlan.last_execution?.outcome ?? null,
       top_recurring_step_id: repairPlan.top_recurring_issue?.step_id ?? null,
+      preventive_maintenance_count: repairPlan.preventive_maintenance.count,
+      top_preventive_step_id: repairPlan.preventive_maintenance.top_step_id,
       last_repair: repairPlan.last_repair,
       recurring_issue: repairPlan.recurring_issue,
     },
