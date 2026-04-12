@@ -264,6 +264,7 @@ function buildWorkflowReport(input: {
     first_repair_step: firstRepair,
     maintenance_follow_through: input.worklist.maintenance_follow_through,
     maintenance_escalation: input.worklist.maintenance_escalation,
+    maintenance_scheduling: input.worklist.maintenance_scheduling,
   };
 }
 
@@ -962,21 +963,45 @@ function buildPrepDayTimeSensitive(
 
 function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSectionItem[] {
   const items: WorkflowBundleSectionItem[] = [];
-  if (worklist.maintenance_escalation.eligible && worklist.maintenance_escalation.step_id) {
-    items.push({
-      label: "Maintenance escalation",
-      summary: worklist.maintenance_escalation.summary ?? "Recurring maintenance is behaving more like repair-priority upkeep.",
-      command: MAINTENANCE_SESSION_COMMAND,
-      target_type: "system",
-      target_id: `maintenance:${worklist.maintenance_escalation.step_id}`,
-      why_now: "This maintenance family has repeatedly turned into active repair and should be handled deliberately before it degrades normal work.",
-      score_band: "high",
-      signals: ["maintenance_escalation", worklist.maintenance_escalation.step_id],
-    });
-  }
-  if (!worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
+  const scheduling = worklist.maintenance_scheduling;
+  if (!scheduling.eligible || !scheduling.step_id) {
     return items;
   }
+
+  if (scheduling.placement === "now" || scheduling.placement === "prep_day") {
+    items.push({
+      label: scheduling.placement === "now" ? "Maintenance now" : "Plan maintenance block",
+      summary: scheduling.summary ?? "Recurring maintenance is behaving more like repair-priority upkeep.",
+      command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+      target_type: "system",
+      target_id: `maintenance:${scheduling.step_id}`,
+      why_now:
+        scheduling.reason ??
+        (scheduling.placement === "now"
+          ? "This upkeep has become repair-priority work in the current operating block."
+          : "This upkeep should be planned after time-sensitive work, not surfaced as the immediate next move."),
+      score_band: scheduling.placement === "now" ? "high" : "medium",
+      signals: [
+        scheduling.placement === "now" ? "maintenance_scheduling_now" : "maintenance_scheduling_prep_day",
+        scheduling.step_id,
+      ],
+    });
+    return items;
+  }
+
+  if (scheduling.placement !== "calm_window" || !worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
+    return items;
+  }
+  items.push({
+    label: "Calm-window maintenance",
+    summary: scheduling.summary ?? worklist.maintenance_window.bundle.summary,
+    command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    target_type: "system",
+    target_id: `maintenance:${scheduling.step_id}`,
+    why_now: scheduling.reason ?? "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
+    score_band: "medium",
+    signals: ["maintenance_scheduling_calm_window", scheduling.step_id],
+  });
   return items.concat(worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
     label: recommendation.title,
     summary: recommendation.reason,

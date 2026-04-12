@@ -62,6 +62,18 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
   };
 }
 
+function emptyMaintenanceScheduling() {
+  return {
+    eligible: false,
+    placement: "suppressed" as const,
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    bundle_step_ids: [],
+  };
+}
+
 function createLaunchctlStub(initiallyLoaded = false) {
   let loaded = initiallyLoaded;
   return {
@@ -368,6 +380,15 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
         ],
       },
     },
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "calm_window" as const,
+      step_id: "install_wrappers" as const,
+      summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers" as const],
+    },
   };
   const prepDay = {
     workflow: "prep-day" as const,
@@ -384,6 +405,15 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
       suggested_command: null,
       handoff_count_30d: 0,
       cue: null,
+    },
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "calm_window" as const,
+      step_id: "install_wrappers" as const,
+      summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers" as const],
     },
     actions: [],
     sections: [
@@ -408,9 +438,9 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
   };
 
   assert.match(formatWorklistReport(worklist), /Preventive Maintenance/);
-  assert.match(formatNowReport(status, worklist), /Calm Window/);
+  assert.doesNotMatch(formatNowReport(status, worklist), /Calm Window/);
   assert.match(formatWorklistReport(worklist), /personal-ops maintenance session/);
-  assert.match(formatNowReport(status, worklist), /personal-ops maintenance session/);
+  assert.doesNotMatch(formatNowReport(status, worklist), /personal-ops maintenance session/);
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance Window/);
   assert.match(formatWorkflowBundleReport(prepDay), /calm window/i);
 });
@@ -436,6 +466,7 @@ test("phase 19 maintenance session formatters show the calm-window entrypoint an
       },
       summary: "The last maintenance session advanced cleanly and 1 calm-window maintenance step remains.",
     },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
     steps: [
       {
         step_id: "install_wrappers",
@@ -511,16 +542,43 @@ test("phase 21 formatter surfaces agree on the same maintenance escalation cue",
     ...status,
     maintenance_follow_through: followThrough,
     maintenance_escalation: escalation,
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now" as const,
+      step_id: "install_wrappers" as const,
+      summary: escalation.summary,
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     repair_plan: {
       ...status.repair_plan,
       maintenance_follow_through: followThrough,
       maintenance_escalation: escalation,
+      maintenance_scheduling: {
+        eligible: true,
+        placement: "now" as const,
+        step_id: "install_wrappers" as const,
+        summary: escalation.summary,
+        suggested_command: "personal-ops maintenance session",
+        reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+        bundle_step_ids: ["install_wrappers" as const],
+      },
     },
   };
   const worklist = {
     ...(await service.getWorklistReport({ httpReachable: true })),
     maintenance_follow_through: followThrough,
     maintenance_escalation: escalation,
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now" as const,
+      step_id: "install_wrappers" as const,
+      summary: escalation.summary,
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     items: [
       {
         item_id: "maintenance-escalation:install_wrappers",
@@ -544,6 +602,15 @@ test("phase 21 formatter surfaces agree on the same maintenance escalation cue",
     first_repair_step: null,
     maintenance_follow_through: followThrough,
     maintenance_escalation: escalation,
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now" as const,
+      step_id: "install_wrappers" as const,
+      summary: escalation.summary,
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     actions: [],
     sections: [
       { title: "Overall State", items: [] },
@@ -575,6 +642,15 @@ test("phase 21 formatter surfaces agree on the same maintenance escalation cue",
     start_command: "personal-ops maintenance session",
     first_step_id: "install_wrappers" as const,
     maintenance_follow_through: followThrough,
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now" as const,
+      step_id: "install_wrappers" as const,
+      summary: escalation.summary,
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     steps: [
       {
         step_id: "install_wrappers" as const,
@@ -595,6 +671,91 @@ test("phase 21 formatter surfaces agree on the same maintenance escalation cue",
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance escalation/i);
   assert.match(formatMaintenanceSessionPlan(session), /Maintenance escalation/i);
   assert.match(formatMaintenanceSessionPlan(session), /personal-ops maintenance session/);
+});
+
+test("phase 22 formatter surfaces show maintenance timing only in the intended places", async () => {
+  const { service } = createServiceFixture();
+  const status = await service.getStatusReport({ httpReachable: true });
+  const scheduling = {
+    eligible: true,
+    placement: "prep_day" as const,
+    step_id: "install_wrappers" as const,
+    summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "Plan this into today's maintenance block after time-sensitive work.",
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const statusWithScheduling = {
+    ...status,
+    maintenance_scheduling: scheduling,
+    repair_plan: {
+      ...status.repair_plan,
+      maintenance_scheduling: scheduling,
+    },
+  };
+  const worklist = {
+    ...(await service.getWorklistReport({ httpReachable: true })),
+    maintenance_scheduling: scheduling,
+  };
+  const prepDay = {
+    workflow: "prep-day" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Ready for the day.",
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: scheduling,
+    actions: [],
+    sections: [
+      { title: "Overall State", items: [] },
+      { title: "Top Attention", items: [] },
+      { title: "Time-Sensitive Items", items: [] },
+      {
+        title: "Maintenance Window",
+        items: [
+          {
+            label: "Plan maintenance block",
+            summary: scheduling.summary,
+            command: "personal-ops maintenance session",
+            why_now: scheduling.reason,
+            score_band: "medium" as const,
+            signals: ["maintenance_scheduling_prep_day", "install_wrappers"],
+          },
+        ],
+      },
+      { title: "Next Commands", items: [] },
+    ],
+  };
+  const session = {
+    generated_at: new Date().toISOString(),
+    eligible_now: false,
+    deferred_reason: "concrete_work_present" as const,
+    bundle_id: null,
+    title: null,
+    summary: null,
+    start_command: "personal-ops maintenance session",
+    first_step_id: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_scheduling: scheduling,
+    steps: [],
+  };
+
+  assert.match(formatStatusReport(statusWithScheduling), /Maintenance scheduling/i);
+  assert.match(formatRepairPlanReport(statusWithScheduling.repair_plan), /prep day/i);
+  assert.match(formatWorklistReport(worklist), /Maintenance Scheduling/i);
+  assert.doesNotMatch(formatNowReport(statusWithScheduling, worklist), /Maintenance Now/);
+  assert.match(formatWorkflowBundleReport(prepDay), /Maintenance scheduling/i);
+  assert.match(formatMaintenanceSessionPlan(session), /Scheduling/);
+  assert.match(formatMaintenanceSessionPlan(session), /prep day/i);
 });
 
 test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {

@@ -115,6 +115,18 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
   };
 }
 
+function emptyMaintenanceScheduling() {
+  return {
+    eligible: false,
+    placement: "suppressed" as const,
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    bundle_step_ids: [],
+  };
+}
+
 const GITHUB_TEST_IDENTITY: ClientIdentity = {
   client_id: "github-test",
   requested_by: "github-test",
@@ -1008,6 +1020,7 @@ test("assistant-led phase 2 workflows prefer staged inbox autopilot work over ra
         handoff_count_30d: 0,
         cue: null,
       },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
       items: [],
     }),
     listPlanningRecommendations: service.listPlanningRecommendations.bind(service),
@@ -6452,6 +6465,15 @@ test("phase 18 worklist and prep-day surface a maintenance window only during ca
       handoff_count_30d: 0,
       cue: null,
     },
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "calm_window",
+      step_id: "install_wrappers",
+      summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers"],
+    },
     items: [],
   };
   const fakeService = {
@@ -6753,6 +6775,7 @@ test("phase-6 now-next leads with the first repair step when readiness is degrad
       handoff_count_30d: 0,
       cue: null,
     },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
     items: [
       {
         item_id: "repair-1",
@@ -6809,6 +6832,7 @@ test("phase-6 prep-day prefers concrete work over governance review in healthy s
       handoff_count_30d: 0,
       cue: null,
     },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
     items: [
       {
         item_id: "governance-1",
@@ -7792,6 +7816,7 @@ test("phase-7 workflows rank github pull request work above governance noise in 
         handoff_count_30d: 0,
         cue: null,
       },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
       items: [
         {
           item_id: "planning-policy",
@@ -8495,6 +8520,7 @@ test("assistant-led phase 7 workflows prefer grouped outbound finish-work when i
         handoff_count_30d: 0,
         cue: null,
       },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
       items: [],
     }),
     listPlanningRecommendations: service.listPlanningRecommendations.bind(service),

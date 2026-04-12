@@ -413,10 +413,30 @@ Delivered shape:
   - no planning-recommendation or task creation path
   - maintenance still stays behind active repair and urgent concrete work
 
+## Phase 22
+
+Phase 22 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_scheduling` summary layered onto the existing maintenance window and escalation model
+- deterministic placement for the top maintenance cue:
+  - `now`
+  - `prep_day`
+  - `calm_window`
+  - `suppressed`
+- additive timing visibility across `status`, `worklist`, `now`, `prep-day`, `repair plan`, `maintenance session`, and the console
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new maintenance commands
+  - maintenance still stays behind active repair and urgent concrete work
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, and 21 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, and 22 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

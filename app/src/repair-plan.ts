@@ -9,6 +9,7 @@ import type {
   MaintenanceFollowThroughSummary,
   MaintenanceOutcomeSignal,
   MaintenancePressureSummary,
+  MaintenanceSchedulingSummary,
   MaintenanceSessionPlan,
   MaintenanceSessionStep,
   MaintenanceWindowDeferredReason,
@@ -274,6 +275,18 @@ export function emptyMaintenanceEscalationSummary(): MaintenanceEscalationSummar
     suggested_command: null,
     handoff_count_30d: 0,
     cue: null,
+  };
+}
+
+export function emptyMaintenanceSchedulingSummary(): MaintenanceSchedulingSummary {
+  return {
+    eligible: false,
+    placement: "suppressed",
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    bundle_step_ids: [],
   };
 }
 
@@ -543,6 +556,107 @@ export function buildMaintenanceEscalationSummary(input: {
   };
 }
 
+function maintenanceBundleStepIds(maintenanceWindow: MaintenanceWindowSummary): RepairStepId[] {
+  return maintenanceWindow.bundle?.recommendations.map((recommendation) => recommendation.step_id) ?? [];
+}
+
+function maintenanceSchedulingReason(placement: MaintenanceSchedulingSummary["placement"]): string | null {
+  if (placement === "now") {
+    return "This has become repair-priority upkeep and should be handled in the current operating block.";
+  }
+  if (placement === "prep_day") {
+    return "Plan this into today's maintenance block after time-sensitive work.";
+  }
+  if (placement === "calm_window") {
+    return "Keep this for a calm window; do not displace active operator work.";
+  }
+  return null;
+}
+
+export function buildMaintenanceSchedulingSummary(input: {
+  state: ServiceState;
+  worklist_items: AttentionItem[];
+  repair_plan: Pick<RepairPlan, "steps">;
+  maintenance_window: MaintenanceWindowSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
+}): MaintenanceSchedulingSummary {
+  const summary = emptyMaintenanceSchedulingSummary();
+  const topEscalationStepId = input.maintenance_escalation.eligible ? input.maintenance_escalation.step_id : null;
+  const topWindowStepId = input.maintenance_window.eligible_now ? input.maintenance_window.top_step_id : null;
+  const stepId = topEscalationStepId ?? topWindowStepId ?? null;
+  const bundleStepIds = (() => {
+    const ids = maintenanceBundleStepIds(input.maintenance_window);
+    if (ids.length > 0) {
+      return ids;
+    }
+    return stepId ? [stepId] : [];
+  })();
+
+  if (!stepId) {
+    return summary;
+  }
+
+  if (input.repair_plan.steps.some((step) => step.id === stepId)) {
+    return {
+      ...summary,
+      step_id: stepId,
+      reason: "Maintenance scheduling is suppressed because an active repair step is already pending for this family.",
+      bundle_step_ids: bundleStepIds,
+    };
+  }
+
+  if (input.state !== "ready") {
+    return {
+      ...summary,
+      step_id: stepId,
+      reason: "Maintenance scheduling is suppressed because the system is not fully ready.",
+      bundle_step_ids: bundleStepIds,
+    };
+  }
+
+  if (input.maintenance_window.deferred_reason === "quiet_period_active") {
+    return {
+      ...summary,
+      step_id: stepId,
+      reason: "Maintenance scheduling is suppressed because the post-repair quiet period is still active.",
+      bundle_step_ids: bundleStepIds,
+    };
+  }
+
+  if (input.maintenance_escalation.eligible && input.maintenance_escalation.step_id) {
+    const hasConcretePressure = input.worklist_items.some((item) => CONCRETE_PRESSURE_KINDS.has(item.kind));
+    const placement = hasConcretePressure ? "prep_day" : "now";
+    return {
+      eligible: true,
+      placement,
+      step_id: stepId,
+      summary: input.maintenance_escalation.summary,
+      suggested_command: input.maintenance_escalation.suggested_command,
+      reason: maintenanceSchedulingReason(placement),
+      bundle_step_ids: bundleStepIds,
+    };
+  }
+
+  if (input.maintenance_window.eligible_now && input.maintenance_window.bundle) {
+    return {
+      eligible: true,
+      placement: "calm_window",
+      step_id: stepId,
+      summary: input.maintenance_window.bundle.summary,
+      suggested_command: MAINTENANCE_SESSION_COMMAND,
+      reason: maintenanceSchedulingReason("calm_window"),
+      bundle_step_ids: bundleStepIds,
+    };
+  }
+
+  return {
+    ...summary,
+    step_id: stepId,
+    reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
+    bundle_step_ids: bundleStepIds,
+  };
+}
+
 function toMaintenanceSessionStep(
   recommendation: PreventiveMaintenanceRecommendation,
   latestByStep: Map<RepairStepId, RepairExecutionRecord>,
@@ -629,6 +743,7 @@ export function buildMaintenanceSessionPlan(input: {
   generated_at?: string;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through?: MaintenanceFollowThroughSummary | null;
+  maintenance_scheduling?: MaintenanceSchedulingSummary | null;
   recent_repair_executions?: RepairExecutionRecord[];
 }): MaintenanceSessionPlan {
   const generatedAt = input.generated_at ?? new Date().toISOString();
@@ -654,6 +769,7 @@ export function buildMaintenanceSessionPlan(input: {
     steps,
     first_step_id: steps[0]?.step_id ?? null,
     maintenance_follow_through: input.maintenance_follow_through ?? emptyMaintenanceFollowThroughSummary(generatedAt),
+    maintenance_scheduling: input.maintenance_scheduling ?? emptyMaintenanceSchedulingSummary(),
   };
 }
 
@@ -673,6 +789,7 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     top_maintenance_pressure_step_id: plan.maintenance_follow_through.top_maintenance_pressure_step_id,
     maintenance_follow_through: plan.maintenance_follow_through,
     maintenance_escalation: plan.maintenance_escalation,
+    maintenance_scheduling: plan.maintenance_scheduling,
     maintenance_window: plan.maintenance_window,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
@@ -987,6 +1104,7 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     },
     maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
     maintenance_escalation: emptyMaintenanceEscalationSummary(),
+    maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

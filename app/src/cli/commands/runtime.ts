@@ -136,6 +136,7 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
       generated_at: status.generated_at,
       maintenance_window: status.maintenance_window,
       maintenance_follow_through: status.maintenance_follow_through,
+      maintenance_scheduling: status.maintenance_scheduling,
       recent_repair_executions: listRecentRepairExecutions(paths),
     });
   } catch {
@@ -431,6 +432,8 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           const afterSession = buildMaintenanceSessionPlan({
             generated_at: afterStatus.generated_at,
             maintenance_window: afterStatus.maintenance_window,
+            maintenance_follow_through: afterStatus.maintenance_follow_through,
+            maintenance_scheduling: afterStatus.maintenance_scheduling,
             recent_repair_executions: currentRecentExecutions,
           });
           const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;

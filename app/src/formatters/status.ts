@@ -64,6 +64,21 @@ function maintenanceFollowThroughRows(summary: RepairPlan["maintenance_follow_th
   return rows;
 }
 
+function maintenanceSchedulingRows(summary: RepairPlan["maintenance_scheduling"]): string[] {
+  if (!summary.eligible || !summary.summary) {
+    return [];
+  }
+  const rows = [
+    `- Maintenance scheduling (${summary.placement.replaceAll("_", " ")}): ${summary.summary}${
+      summary.suggested_command ? ` Next: \`${summary.suggested_command}\`.` : ""
+    }`,
+  ];
+  if (summary.reason) {
+    rows.push(`- ${summary.reason}`);
+  }
+  return rows;
+}
+
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
 
@@ -138,6 +153,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
     );
   }
   lines.push(...maintenanceFollowThroughRows(plan.maintenance_follow_through));
+  lines.push(...maintenanceSchedulingRows(plan.maintenance_scheduling));
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
     lines.push(...preventiveRows);
@@ -183,6 +199,14 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
     ),
   );
   lines.push(line("Maintenance escalation", plan.maintenance_escalation.step_id ?? "none"));
+  lines.push(
+    line(
+      "Maintenance scheduling",
+      plan.maintenance_scheduling.eligible
+        ? `${plan.maintenance_scheduling.step_id ?? "none"} (${plan.maintenance_scheduling.placement.replaceAll("_", " ")})`
+        : "none",
+    ),
+  );
   lines.push("");
   lines.push("Steps");
   lines.push(...formatRepairPlan(plan));
@@ -566,6 +590,7 @@ export function formatSendWindowStatus(status: SendWindowStatus): string {
 export function formatWorklistReport(report: WorklistReport): string {
   const lines: string[] = [];
   const followThroughRows = maintenanceFollowThroughRows(report.maintenance_follow_through);
+  const schedulingRows = maintenanceSchedulingRows(report.maintenance_scheduling);
   const maintenanceRows =
     report.maintenance_window.eligible_now && report.maintenance_window.bundle
       ? [
@@ -603,6 +628,9 @@ export function formatWorklistReport(report: WorklistReport): string {
       if (followThroughRows.length > 0) {
         pushSection(lines, "Maintenance Follow-Through", followThroughRows);
       }
+      if (schedulingRows.length > 0) {
+        pushSection(lines, "Maintenance Scheduling", schedulingRows);
+      }
       pushSection(lines, "Preventive Maintenance", maintenanceRows);
     }
     return lines.join("\n");
@@ -625,6 +653,10 @@ export function formatWorklistReport(report: WorklistReport): string {
 
   if (followThroughRows.length > 0) {
     pushSection(lines, "Maintenance Follow-Through", followThroughRows);
+  }
+
+  if (schedulingRows.length > 0) {
+    pushSection(lines, "Maintenance Scheduling", schedulingRows);
   }
 
   if (maintenanceRows.length > 0) {
@@ -770,6 +802,7 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     escalation: session.maintenance_follow_through.escalation,
     summary: session.maintenance_follow_through.summary,
   });
+  const schedulingRows = maintenanceSchedulingRows(session.maintenance_scheduling);
   lines.push("Maintenance Session");
   lines.push(line("Generated", session.generated_at));
   lines.push(line("Eligible now", yesNo(session.eligible_now)));
@@ -778,6 +811,12 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
   lines.push(line("First step", session.first_step_id ?? "none"));
   lines.push("");
   if (!session.eligible_now || session.steps.length === 0) {
+    if (followThroughRows.length > 0) {
+      pushSection(lines, "Follow-Through", followThroughRows);
+    }
+    if (schedulingRows.length > 0) {
+      pushSection(lines, "Scheduling", schedulingRows);
+    }
     lines.push(
       session.deferred_reason
         ? `Maintenance is deferred right now: ${session.deferred_reason}.`
@@ -791,6 +830,9 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
   }
   if (followThroughRows.length > 0) {
     pushSection(lines, "Follow-Through", followThroughRows);
+  }
+  if (schedulingRows.length > 0) {
+    pushSection(lines, "Scheduling", schedulingRows);
   }
   lines.push("Steps");
   for (const [index, step] of session.steps.entries()) {
@@ -858,7 +900,7 @@ export function formatVersionReport(report: VersionReport): string {
 
 export function formatNowReport(status: ServiceStatusReport, worklist: WorklistReport): string {
   const lines: string[] = [];
-  const maintenanceWindow = worklist.maintenance_window.eligible_now ? worklist.maintenance_window.bundle : null;
+  const maintenanceScheduling = worklist.maintenance_scheduling;
   const followThroughRows = maintenanceFollowThroughRows(worklist.maintenance_follow_through);
   lines.push(`Personal Ops Now: ${formatStateLabel(status.state)}`);
   lines.push(line("Next attention", topSummary(worklist.items[0]?.summary, "nothing urgent right now")));
@@ -874,20 +916,19 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
   lines.push("");
 
   if (worklist.items.length === 0) {
-    lines.push(maintenanceWindow ? "Nothing urgent is waiting right now." : "Nothing urgent is waiting right now.");
+    lines.push("Nothing urgent is waiting right now.");
     if (followThroughRows.length > 0) {
       lines.push("");
       lines.push("Maintenance Follow-Through");
       lines.push(...followThroughRows);
     }
-    if (maintenanceWindow) {
+    if (maintenanceScheduling.eligible && maintenanceScheduling.placement === "now") {
       lines.push("");
-      lines.push("Calm Window");
-      lines.push(`- ${maintenanceWindow.summary}`);
+      lines.push("Maintenance Now");
+      lines.push(`- ${maintenanceScheduling.summary}`);
       lines.push("- Start with `personal-ops maintenance session`.");
-      for (const recommendation of maintenanceWindow.recommendations) {
-        lines.push(`- ${recommendation.title}`);
-        lines.push(`  inside session: ${recommendation.suggested_command}`);
+      if (maintenanceScheduling.reason) {
+        lines.push(`- ${maintenanceScheduling.reason}`);
       }
       lines.push("");
     }
@@ -900,14 +941,13 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
     lines.push(`- ${item.title}`);
     lines.push(`  ${item.suggested_command}`);
   }
-  if (maintenanceWindow) {
+  if (maintenanceScheduling.eligible && maintenanceScheduling.placement === "now") {
     lines.push("");
-    lines.push("Calm Window");
-    lines.push(`- ${maintenanceWindow.summary}`);
+    lines.push("Maintenance Now");
+    lines.push(`- ${maintenanceScheduling.summary}`);
     lines.push("- Start with `personal-ops maintenance session`.");
-    for (const recommendation of maintenanceWindow.recommendations) {
-      lines.push(`- ${recommendation.title}`);
-      lines.push(`  inside session: ${recommendation.suggested_command}`);
+    if (maintenanceScheduling.reason) {
+      lines.push(`- ${maintenanceScheduling.reason}`);
     }
   }
   if (followThroughRows.length > 0) {
