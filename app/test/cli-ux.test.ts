@@ -32,6 +32,26 @@ const cliIdentity: ClientIdentity = {
   auth_role: "operator",
 };
 
+function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z") {
+  return {
+    generated_at: generatedAt,
+    last_maintenance_outcome: null,
+    last_maintenance_step_id: null,
+    top_signal: null,
+    current_bundle_outcome: null,
+    maintenance_pressure_count: 0,
+    top_maintenance_pressure_step_id: null,
+    pressure: {
+      signal: null,
+      count: 0,
+      top_step_id: null,
+      summary: null,
+      suggested_command: null,
+    },
+    summary: null,
+  };
+}
+
 function createLaunchctlStub(initiallyLoaded = false) {
   let loaded = initiallyLoaded;
   return {
@@ -345,6 +365,7 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
     readiness: "ready" as const,
     summary: "Ready for the day.",
     first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
     actions: [],
     sections: [
       { title: "Overall State", items: [] },
@@ -385,6 +406,17 @@ test("phase 19 maintenance session formatters show the calm-window entrypoint an
     summary: "A small wrapper refresh fits a calm window right now.",
     start_command: "personal-ops maintenance session",
     first_step_id: "install_wrappers",
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      current_bundle_outcome: {
+        signal: "advanced",
+        step_id: "install_wrappers",
+        occurred_at: "2026-04-11T09:55:00.000Z",
+        remaining_step_count: 1,
+        summary: "The last maintenance session advanced cleanly and 1 calm-window maintenance step remains.",
+      },
+      summary: "The last maintenance session advanced cleanly and 1 calm-window maintenance step remains.",
+    },
     steps: [
       {
         step_id: "install_wrappers",
@@ -406,13 +438,19 @@ test("phase 19 maintenance session formatters show the calm-window entrypoint an
     session_complete: false,
     next_step_id: "install_launchagent",
     next_command: "personal-ops maintenance run next",
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      summary: "The last maintenance session advanced cleanly and 1 calm-window maintenance step remains.",
+    },
     message: "Maintenance step resolved. Next safe maintenance step: `personal-ops maintenance run next`.",
   });
 
   assert.match(sessionOutput, /Maintenance Session/);
   assert.match(sessionOutput, /personal-ops maintenance session/);
+  assert.match(sessionOutput, /Follow-Through/);
   assert.match(sessionOutput, /inside session: personal-ops install wrappers/);
   assert.match(runOutput, /Maintenance Run/);
+  assert.match(runOutput, /Follow-through:/);
   assert.match(runOutput, /Next command: personal-ops maintenance run next/);
 });
 

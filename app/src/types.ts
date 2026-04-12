@@ -1240,6 +1240,7 @@ export interface WorklistReport {
   };
   planning_groups: PlanningRecommendationGroup[];
   maintenance_window: MaintenanceWindowSummary;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
   items: AttentionItem[];
 }
 
@@ -2073,6 +2074,7 @@ export interface WorkflowBundleReport {
   sections: WorkflowBundleSection[];
   actions: WorkflowBundleAction[];
   first_repair_step: string | null;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
 }
 
 export interface MailSyncState {
@@ -2263,6 +2265,13 @@ export type MaintenanceWindowDeferredReason =
   | "concrete_work_present"
   | "quiet_period_active"
   | "no_preventive_work";
+export type MaintenanceOutcomeSignal =
+  | "completed"
+  | "advanced"
+  | "handed_off_to_repair"
+  | "failed"
+  | "deferred"
+  | "stale_bundle";
 
 export interface PreventiveMaintenanceRecommendation {
   step_id: RepairStepId;
@@ -2296,6 +2305,34 @@ export interface MaintenanceWindowSummary {
   bundle: PreventiveMaintenanceBundle | null;
 }
 
+export interface MaintenanceBundleOutcome {
+  signal: Exclude<MaintenanceOutcomeSignal, "stale_bundle">;
+  step_id: RepairStepId | null;
+  occurred_at: string;
+  remaining_step_count: number;
+  summary: string;
+}
+
+export interface MaintenancePressureSummary {
+  signal: MaintenanceOutcomeSignal | null;
+  count: number;
+  top_step_id: RepairStepId | null;
+  summary: string | null;
+  suggested_command: string | null;
+}
+
+export interface MaintenanceFollowThroughSummary {
+  generated_at: string;
+  last_maintenance_outcome: MaintenanceOutcomeSignal | null;
+  last_maintenance_step_id: RepairStepId | null;
+  top_signal: MaintenanceOutcomeSignal | null;
+  current_bundle_outcome: MaintenanceBundleOutcome | null;
+  maintenance_pressure_count: number;
+  top_maintenance_pressure_step_id: RepairStepId | null;
+  pressure: MaintenancePressureSummary;
+  summary: string | null;
+}
+
 export interface MaintenanceSessionStep {
   step_id: RepairStepId;
   title: string;
@@ -2316,6 +2353,7 @@ export interface MaintenanceSessionPlan {
   start_command: string;
   steps: MaintenanceSessionStep[];
   first_step_id: RepairStepId | null;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
 }
 
 export interface RepairExecutionRecord {
@@ -2354,6 +2392,7 @@ export interface RepairPlan {
   top_recurring_issue: RepairRecurringIssue | null;
   preventive_maintenance: PreventiveMaintenanceSummary;
   maintenance_window: MaintenanceWindowSummary;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2368,6 +2407,11 @@ export interface RepairPlanSummary {
   top_recurring_step_id: RepairStepId | null;
   preventive_maintenance_count: number;
   top_preventive_step_id: RepairStepId | null;
+  last_maintenance_outcome: MaintenanceOutcomeSignal | null;
+  last_maintenance_step_id: RepairStepId | null;
+  maintenance_pressure_count: number;
+  top_maintenance_pressure_step_id: RepairStepId | null;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_window: MaintenanceWindowSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
@@ -2401,6 +2445,7 @@ export interface MaintenanceSessionRunResult {
   next_repair_step?: string | undefined;
   deferred_reason?: MaintenanceWindowDeferredReason | undefined;
   remaining_reason?: string | undefined;
+  maintenance_follow_through?: MaintenanceFollowThroughSummary | undefined;
   message: string;
 }
 
@@ -2542,6 +2587,7 @@ export interface ServiceStatusReport {
   first_repair_step: string | null;
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

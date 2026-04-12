@@ -32,6 +32,7 @@ import {
   formatWorklistReport,
 } from "../../formatters.js";
 import {
+  buildMaintenanceFollowThroughSummary,
   buildMaintenanceSessionPlan,
   buildRepairPlan,
   MAINTENANCE_RUN_NEXT_COMMAND,
@@ -134,19 +135,29 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
     return buildMaintenanceSessionPlan({
       generated_at: status.generated_at,
       maintenance_window: status.maintenance_window,
+      maintenance_follow_through: status.maintenance_follow_through,
       recent_repair_executions: listRecentRepairExecutions(paths),
     });
   } catch {
+    const generatedAt = new Date().toISOString();
+    const maintenanceWindow = {
+      eligible_now: false,
+      deferred_reason: "system_not_ready" as const,
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    };
+    const recentExecutions = listRecentRepairExecutions(paths);
     return buildMaintenanceSessionPlan({
-      generated_at: new Date().toISOString(),
-      maintenance_window: {
-        eligible_now: false,
-        deferred_reason: "system_not_ready",
-        count: 0,
-        top_step_id: null,
-        bundle: null,
-      },
-      recent_repair_executions: listRecentRepairExecutions(paths),
+      generated_at: generatedAt,
+      maintenance_window: maintenanceWindow,
+      maintenance_follow_through: buildMaintenanceFollowThroughSummary({
+        generated_at: generatedAt,
+        maintenance_window: maintenanceWindow,
+        repair_plan: { steps: [], first_repair_step: null },
+        recent_repair_executions: recentExecutions,
+      }),
+      recent_repair_executions: recentExecutions,
     });
   }
 }
@@ -415,12 +426,13 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             context,
           });
           const afterStatus = await buildCurrentStatusReport(context);
+          const handedOffToRepair = afterReport.repair_plan.steps.length > 0;
+          const currentRecentExecutions = listRecentRepairExecutions(paths);
           const afterSession = buildMaintenanceSessionPlan({
             generated_at: afterStatus.generated_at,
             maintenance_window: afterStatus.maintenance_window,
-            recent_repair_executions: listRecentRepairExecutions(paths),
+            recent_repair_executions: currentRecentExecutions,
           });
-          const handedOffToRepair = afterReport.repair_plan.steps.length > 0;
           const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;
           const nextMaintenanceStep = !handedOffToRepair ? afterSession.steps[0] ?? null : null;
           const message = !resolvedTargetStep
@@ -450,6 +462,13 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           } finally {
             db.close();
           }
+          const updatedRecentExecutions = listRecentRepairExecutions(paths);
+          const maintenanceFollowThrough = buildMaintenanceFollowThroughSummary({
+            generated_at: new Date().toISOString(),
+            maintenance_window: afterStatus.maintenance_window,
+            repair_plan: afterReport.repair_plan,
+            recent_repair_executions: updatedRecentExecutions,
+          });
           result = {
             generated_at: new Date().toISOString(),
             step_id: targetStep.step_id,
@@ -463,6 +482,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             next_command: nextMaintenanceStep ? MAINTENANCE_RUN_NEXT_COMMAND : undefined,
             next_repair_step: afterReport.repair_plan.first_repair_step ?? undefined,
             remaining_reason: remainingStep?.reason,
+            maintenance_follow_through: maintenanceFollowThrough,
             message,
           };
         } catch (error) {
@@ -485,6 +505,19 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           } finally {
             db.close();
           }
+          const updatedRecentExecutions = listRecentRepairExecutions(paths);
+          const maintenanceFollowThrough = buildMaintenanceFollowThroughSummary({
+            generated_at: new Date().toISOString(),
+            maintenance_window: {
+              eligible_now: session.eligible_now,
+              deferred_reason: session.deferred_reason,
+              count: session.steps.length,
+              top_step_id: session.first_step_id,
+              bundle: null,
+            },
+            repair_plan: { steps: [], first_repair_step: null },
+            recent_repair_executions: updatedRecentExecutions,
+          });
           result = {
             generated_at: new Date().toISOString(),
             step_id: targetStep.step_id,
@@ -493,6 +526,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             outcome: "failed",
             next_step_id: targetStep.step_id,
             next_command: MAINTENANCE_RUN_NEXT_COMMAND,
+            maintenance_follow_through: maintenanceFollowThrough,
             message,
           };
         }

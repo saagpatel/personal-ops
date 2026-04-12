@@ -262,6 +262,7 @@ function buildWorkflowReport(input: {
     sections,
     actions,
     first_repair_step: firstRepair,
+    maintenance_follow_through: input.worklist.maintenance_follow_through,
   };
 }
 
