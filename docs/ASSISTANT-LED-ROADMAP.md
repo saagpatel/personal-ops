@@ -392,10 +392,31 @@ Delivered shape:
   - no new maintenance commands
   - maintenance still stays behind active repair and concrete work
 
+## Phase 21
+
+Phase 21 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_escalation` summary layered onto the existing maintenance follow-through model
+- promotion limited to repeated `handed_off_to_repair` patterns for safe maintenance families only
+- one bounded queue-visible cue:
+  - `AttentionItem.kind = "maintenance_escalation"`
+  - severity `warn`
+  - command `personal-ops maintenance session`
+- additive escalation visibility across `status`, `worklist`, `now`, `prep-day`, `repair plan`, `maintenance session`, and the console
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new maintenance commands
+  - no planning-recommendation or task creation path
+  - maintenance still stays behind active repair and urgent concrete work
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, and 20 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, and 21 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

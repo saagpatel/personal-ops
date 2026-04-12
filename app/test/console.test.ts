@@ -460,9 +460,93 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
       return {
         ...status,
         maintenance_window: maintenanceWindow,
+        maintenance_escalation: {
+          eligible: true,
+          step_id: "install_wrappers",
+          signal: "handed_off_to_repair",
+          summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+          suggested_command: "personal-ops maintenance session",
+          handoff_count_30d: 2,
+          cue: {
+            item_id: "maintenance-escalation:install_wrappers",
+            kind: "maintenance_escalation",
+            severity: "warn",
+            title: "Maintenance escalation",
+            summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+            target_type: "system",
+            target_id: "maintenance:install_wrappers",
+            suggested_command: "personal-ops maintenance session",
+            signals: ["maintenance_escalation", "install_wrappers"],
+          },
+        },
+        maintenance_follow_through: {
+          ...status.maintenance_follow_through,
+          escalation: {
+            eligible: true,
+            step_id: "install_wrappers",
+            signal: "handed_off_to_repair",
+            summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+            suggested_command: "personal-ops maintenance session",
+            handoff_count_30d: 2,
+            cue: {
+              item_id: "maintenance-escalation:install_wrappers",
+              kind: "maintenance_escalation",
+              severity: "warn",
+              title: "Maintenance escalation",
+              summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+              target_type: "system",
+              target_id: "maintenance:install_wrappers",
+              suggested_command: "personal-ops maintenance session",
+              signals: ["maintenance_escalation", "install_wrappers"],
+            },
+          },
+          summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+        },
         repair_plan: {
           ...status.repair_plan,
           maintenance_window: maintenanceWindow,
+          maintenance_escalation: {
+            eligible: true,
+            step_id: "install_wrappers",
+            signal: "handed_off_to_repair",
+            summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+            suggested_command: "personal-ops maintenance session",
+            handoff_count_30d: 2,
+            cue: {
+              item_id: "maintenance-escalation:install_wrappers",
+              kind: "maintenance_escalation",
+              severity: "warn",
+              title: "Maintenance escalation",
+              summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+              target_type: "system",
+              target_id: "maintenance:install_wrappers",
+              suggested_command: "personal-ops maintenance session",
+              signals: ["maintenance_escalation", "install_wrappers"],
+            },
+          },
+          maintenance_follow_through: {
+            ...status.repair_plan.maintenance_follow_through,
+            escalation: {
+              eligible: true,
+              step_id: "install_wrappers",
+              signal: "handed_off_to_repair",
+              summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+              suggested_command: "personal-ops maintenance session",
+              handoff_count_30d: 2,
+              cue: {
+                item_id: "maintenance-escalation:install_wrappers",
+                kind: "maintenance_escalation",
+                severity: "warn",
+                title: "Maintenance escalation",
+                summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+                target_type: "system",
+                target_id: "maintenance:install_wrappers",
+                suggested_command: "personal-ops maintenance session",
+                signals: ["maintenance_escalation", "install_wrappers"],
+              },
+            },
+            summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+          },
         },
       };
     };
@@ -490,12 +574,20 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           eligible_now?: boolean;
           bundle?: { title?: string; recommended_commands?: string[] };
         };
+        maintenance_escalation?: {
+          eligible?: boolean;
+          step_id?: string | null;
+          suggested_command?: string | null;
+        };
       };
     };
 
     assert.equal(payload.status?.maintenance_window?.eligible_now, true);
     assert.equal(payload.status?.maintenance_window?.bundle?.title, "Preventive maintenance window");
     assert.equal(payload.status?.maintenance_window?.bundle?.recommended_commands?.[0], "personal-ops install wrappers");
+    assert.equal(payload.status?.maintenance_escalation?.eligible, true);
+    assert.equal(payload.status?.maintenance_escalation?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_escalation?.suggested_command, "personal-ops maintenance session");
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

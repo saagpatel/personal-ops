@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
@@ -658,4 +659,169 @@ test("phase 20 follow-through suppresses stale-bundle pressure right after a rec
 
   assert.equal(summary.pressure.signal, null);
   assert.equal(summary.maintenance_pressure_count, 0);
+});
+
+test("phase 21 maintenance escalation promotes repeated handoff-to-repair patterns into one queue cue", () => {
+  const maintenanceWindow = {
+    eligible_now: false,
+    deferred_reason: "active_repair_pending" as const,
+    count: 1,
+    top_step_id: "install_wrappers" as const,
+    bundle: null,
+  };
+  const followThrough = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: maintenanceWindow,
+    repair_plan: {
+      steps: [
+        {
+          id: "install_check",
+          title: "Confirm local install health",
+          reason: "Install checks still need attention.",
+          suggested_command: "personal-ops install check",
+          executable: false,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+      first_repair_step: "personal-ops install check",
+    },
+    recent_repair_executions: [
+      maintenanceExecution("install_wrappers", "2026-04-11T18:00:00.000Z", "maintenance-21-1", {
+        after_first_step_id: "install_check",
+      }),
+      maintenanceExecution("install_wrappers", "2026-04-05T18:00:00.000Z", "maintenance-21-2", {
+        after_first_step_id: "install_check",
+      }),
+    ],
+  });
+
+  const escalation = buildMaintenanceEscalationSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    state: "ready",
+    maintenance_window: maintenanceWindow,
+    maintenance_follow_through: followThrough,
+    repair_plan: { steps: [] },
+    recent_repair_executions: [
+      maintenanceExecution("install_wrappers", "2026-04-11T18:00:00.000Z", "maintenance-21-1", {
+        after_first_step_id: "install_check",
+      }),
+      maintenanceExecution("install_wrappers", "2026-04-05T18:00:00.000Z", "maintenance-21-2", {
+        after_first_step_id: "install_check",
+      }),
+    ],
+  });
+
+  assert.equal(followThrough.pressure.signal, "handed_off_to_repair");
+  assert.equal(escalation.eligible, true);
+  assert.equal(escalation.step_id, "install_wrappers");
+  assert.equal(escalation.handoff_count_30d, 2);
+  assert.equal(escalation.cue?.kind, "maintenance_escalation");
+  assert.equal(escalation.cue?.suggested_command, "personal-ops maintenance session");
+});
+
+test("phase 21 maintenance escalation ignores ordinary stale bundles", () => {
+  const maintenanceWindow = {
+    eligible_now: true,
+    deferred_reason: null,
+    count: 1,
+    top_step_id: "install_wrappers" as const,
+    bundle: {
+      bundle_id: "maintenance-window:install_wrappers",
+      title: "Preventive maintenance window",
+      summary: "Refresh wrappers in a calm window.",
+      recommended_commands: ["personal-ops install wrappers"],
+      recommendations: [
+        {
+          step_id: "install_wrappers" as const,
+          title: "Refresh wrappers before the next drift",
+          reason: "Wrapper drift has repeated on this machine.",
+          suggested_command: "personal-ops install wrappers",
+          urgency: "watch" as const,
+          last_resolved_at: "2026-04-01T18:00:00.000Z",
+          repeat_count_30d: 2,
+        },
+      ],
+    },
+  };
+  const followThrough = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: maintenanceWindow,
+    repair_plan: { steps: [], first_repair_step: null },
+    recent_repair_executions: [],
+  });
+
+  const escalation = buildMaintenanceEscalationSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    state: "ready",
+    maintenance_window: maintenanceWindow,
+    maintenance_follow_through: followThrough,
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+  });
+
+  assert.equal(followThrough.pressure.signal, "stale_bundle");
+  assert.equal(escalation.eligible, false);
+  assert.equal(escalation.cue, null);
+});
+
+test("phase 21 maintenance escalation is suppressed by a recent successful maintenance run or matching active repair", () => {
+  const maintenanceWindow = {
+    eligible_now: false,
+    deferred_reason: "active_repair_pending" as const,
+    count: 1,
+    top_step_id: "install_wrappers" as const,
+    bundle: null,
+  };
+  const repeatedHandoffs = [
+    maintenanceExecution("install_wrappers", "2026-04-11T18:00:00.000Z", "maintenance-21-3", {
+      after_first_step_id: "install_check",
+    }),
+    maintenanceExecution("install_wrappers", "2026-04-05T18:00:00.000Z", "maintenance-21-4", {
+      after_first_step_id: "install_check",
+    }),
+  ];
+  const followThrough = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: maintenanceWindow,
+    repair_plan: { steps: [], first_repair_step: null },
+    recent_repair_executions: repeatedHandoffs,
+  });
+
+  const recentSuccessSuppressed = buildMaintenanceEscalationSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    state: "ready",
+    maintenance_window: maintenanceWindow,
+    maintenance_follow_through: followThrough,
+    repair_plan: { steps: [] },
+    recent_repair_executions: [
+      ...repeatedHandoffs,
+      maintenanceExecution("install_wrappers", "2026-04-10T18:00:00.000Z", "maintenance-21-5"),
+    ],
+  });
+  const activeRepairSuppressed = buildMaintenanceEscalationSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    state: "ready",
+    maintenance_window: maintenanceWindow,
+    maintenance_follow_through: followThrough,
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Refresh wrappers",
+          reason: "Wrapper drift is pending again.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    recent_repair_executions: repeatedHandoffs,
+  });
+
+  assert.equal(recentSuccessSuppressed.eligible, false);
+  assert.equal(activeRepairSuppressed.eligible, false);
 });
