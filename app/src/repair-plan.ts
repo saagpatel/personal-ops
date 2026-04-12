@@ -4,6 +4,10 @@ import type {
   DoctorCheck,
   DoctorReport,
   InstallCheckReport,
+  MaintenanceBundleOutcome,
+  MaintenanceFollowThroughSummary,
+  MaintenanceOutcomeSignal,
+  MaintenancePressureSummary,
   MaintenanceSessionPlan,
   MaintenanceSessionStep,
   MaintenanceWindowDeferredReason,
@@ -32,6 +36,7 @@ const RECURRING_PRIORITY: RepairStepId[] = [
 ];
 const PREVENTIVE_QUIET_PERIOD_HOURS = 24;
 const PREVENTIVE_LIMIT = 3;
+const MAINTENANCE_RECENTLY_HANDLED_DAYS = 7;
 export const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
 export const MAINTENANCE_RUN_NEXT_COMMAND = "personal-ops maintenance run next";
 const CONCRETE_PRESSURE_KINDS = new Set([
@@ -248,6 +253,215 @@ function maintenanceBundleFor(recommendations: PreventiveMaintenanceRecommendati
   };
 }
 
+function emptyMaintenancePressureSummary(): MaintenancePressureSummary {
+  return {
+    signal: null,
+    count: 0,
+    top_step_id: null,
+    summary: null,
+    suggested_command: null,
+  };
+}
+
+export function emptyMaintenanceFollowThroughSummary(generatedAt: string): MaintenanceFollowThroughSummary {
+  return {
+    generated_at: generatedAt,
+    last_maintenance_outcome: null,
+    last_maintenance_step_id: null,
+    top_signal: null,
+    current_bundle_outcome: null,
+    maintenance_pressure_count: 0,
+    top_maintenance_pressure_step_id: null,
+    pressure: emptyMaintenancePressureSummary(),
+    summary: null,
+  };
+}
+
+function withinRecentHandledWindow(completedAt: string, now: Date): boolean {
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime())) {
+    return false;
+  }
+  return now.getTime() - completed.getTime() <= MAINTENANCE_RECENTLY_HANDLED_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function withinRecurringWindow(completedAt: string, now: Date): boolean {
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime())) {
+    return false;
+  }
+  return now.getTime() - completed.getTime() <= RECURRING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function maintenanceDeferredSummary(reason: MaintenanceWindowDeferredReason, topStepId: RepairStepId | null): string {
+  if (reason === "active_repair_pending") {
+    return "Maintenance is deferred because active repair is pending.";
+  }
+  if (reason === "system_not_ready") {
+    return "Maintenance is deferred because the system is not fully ready.";
+  }
+  if (reason === "concrete_work_present") {
+    return "Maintenance is deferred because concrete operator work is already present.";
+  }
+  if (reason === "quiet_period_active") {
+    return topStepId
+      ? `Maintenance is deferred because ${topStepId} is still inside the post-repair quiet period.`
+      : "Maintenance is deferred because the post-repair quiet period is still active.";
+  }
+  return "No preventive maintenance bundle is active right now.";
+}
+
+function summarizeMaintenanceOutcome(input: {
+  execution: RepairExecutionRecord;
+  generatedAtDate: Date;
+  maintenanceWindow: MaintenanceWindowSummary;
+  currentStepIds: RepairStepId[];
+  pressureSignal: MaintenanceOutcomeSignal | null;
+}): MaintenanceBundleOutcome {
+  const occurredAt = input.execution.completed_at;
+  if (input.execution.outcome === "failed") {
+    return {
+      signal: "failed",
+      step_id: input.execution.step_id,
+      occurred_at: occurredAt,
+      remaining_step_count: input.maintenanceWindow.count,
+      summary: input.execution.message,
+    };
+  }
+  if (input.execution.after_first_step_id) {
+    return {
+      signal: "handed_off_to_repair",
+      step_id: input.execution.step_id,
+      occurred_at: occurredAt,
+      remaining_step_count: input.maintenanceWindow.count,
+      summary: "The last maintenance session stopped for the right reason and handed back to active repair.",
+    };
+  }
+  const advanced =
+    input.currentStepIds.length > 0 &&
+    input.currentStepIds.some((stepId) => stepId !== input.execution.step_id) &&
+    withinRecentHandledWindow(occurredAt, input.generatedAtDate);
+  if (advanced) {
+    return {
+      signal: "advanced",
+      step_id: input.execution.step_id,
+      occurred_at: occurredAt,
+      remaining_step_count: input.currentStepIds.length,
+      summary: `The last maintenance session advanced cleanly and ${input.currentStepIds.length} calm-window maintenance step${input.currentStepIds.length === 1 ? "" : "s"} remain.`,
+    };
+  }
+  return {
+    signal: "completed",
+    step_id: input.execution.step_id,
+    occurred_at: occurredAt,
+    remaining_step_count: 0,
+    summary:
+      input.pressureSignal === "stale_bundle"
+        ? "The last maintenance session completed, but the same calm-window maintenance step is resurfacing again."
+        : "The last maintenance session completed cleanly and that step family has stayed quiet since the prior successful run.",
+  };
+}
+
+export function buildMaintenanceFollowThroughSummary(input: {
+  generated_at?: string;
+  maintenance_window: MaintenanceWindowSummary;
+  repair_plan: Pick<RepairPlan, "steps" | "first_repair_step">;
+  recent_repair_executions?: RepairExecutionRecord[];
+}): MaintenanceFollowThroughSummary {
+  const generatedAt = input.generated_at ?? new Date().toISOString();
+  const generatedAtDate = new Date(generatedAt);
+  const summary = emptyMaintenanceFollowThroughSummary(generatedAt);
+  const recentExecutions = [...(input.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const maintenanceExecutions = recentExecutions.filter((execution) => execution.trigger_source === "maintenance_run");
+  const currentStepIds =
+    input.maintenance_window.bundle?.recommendations.map((recommendation) => recommendation.step_id) ??
+    (input.maintenance_window.top_step_id ? [input.maintenance_window.top_step_id] : []);
+  const pressureCandidates = currentStepIds
+    .map((stepId) => {
+      const stepExecutions = maintenanceExecutions.filter((execution) => execution.step_id === stepId);
+      const repeatedHandoffs = stepExecutions.filter(
+        (execution) =>
+          execution.outcome === "resolved" &&
+          execution.resolved_target_step &&
+          Boolean(execution.after_first_step_id) &&
+          withinRecurringWindow(execution.completed_at, generatedAtDate),
+      ).length;
+      if (repeatedHandoffs >= RECURRING_THRESHOLD) {
+        return {
+          step_id: stepId,
+          signal: "handed_off_to_repair" as const,
+          summary: "This calm-window maintenance step has repeatedly turned into active repair and likely deserves repair-priority treatment.",
+        };
+      }
+      const recentlyHandled = stepExecutions.some(
+        (execution) =>
+          execution.outcome === "resolved" &&
+          execution.resolved_target_step &&
+          withinRecentHandledWindow(execution.completed_at, generatedAtDate),
+      );
+      if (!recentlyHandled) {
+        return {
+          step_id: stepId,
+          signal: "stale_bundle" as const,
+          summary: "The same calm-window maintenance step keeps resurfacing without a recent successful maintenance session.",
+        };
+      }
+      return null;
+    })
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        step_id: RepairStepId;
+        signal: "handed_off_to_repair" | "stale_bundle";
+        summary: string;
+      } => candidate !== null,
+    );
+
+  const topPressure = pressureCandidates[0] ?? null;
+  if (topPressure) {
+    summary.maintenance_pressure_count = pressureCandidates.length;
+    summary.top_maintenance_pressure_step_id = topPressure.step_id;
+    summary.pressure = {
+      signal: topPressure.signal,
+      count: pressureCandidates.length,
+      top_step_id: topPressure.step_id,
+      summary: topPressure.summary,
+      suggested_command: MAINTENANCE_SESSION_COMMAND,
+    };
+  }
+
+  const lastMaintenanceExecution = maintenanceExecutions[0] ?? null;
+  if (lastMaintenanceExecution) {
+    const bundleOutcome = summarizeMaintenanceOutcome({
+      execution: lastMaintenanceExecution,
+      generatedAtDate,
+      maintenanceWindow: input.maintenance_window,
+      currentStepIds,
+      pressureSignal: summary.pressure.signal,
+    });
+    summary.last_maintenance_outcome = bundleOutcome.signal;
+    summary.last_maintenance_step_id = bundleOutcome.step_id;
+    summary.current_bundle_outcome = bundleOutcome;
+  } else if (input.maintenance_window.deferred_reason && input.maintenance_window.top_step_id) {
+    summary.last_maintenance_outcome = "deferred";
+    summary.last_maintenance_step_id = input.maintenance_window.top_step_id;
+    summary.current_bundle_outcome = {
+      signal: "deferred",
+      step_id: input.maintenance_window.top_step_id,
+      occurred_at: generatedAt,
+      remaining_step_count: input.maintenance_window.count,
+      summary: maintenanceDeferredSummary(input.maintenance_window.deferred_reason, input.maintenance_window.top_step_id),
+    };
+  }
+
+  summary.top_signal = summary.pressure.signal ?? summary.last_maintenance_outcome;
+  summary.summary = summary.pressure.summary ?? summary.current_bundle_outcome?.summary ?? null;
+  return summary;
+}
+
 function toMaintenanceSessionStep(
   recommendation: PreventiveMaintenanceRecommendation,
   latestByStep: Map<RepairStepId, RepairExecutionRecord>,
@@ -333,6 +547,7 @@ export function buildMaintenanceWindowSummary(input: {
 export function buildMaintenanceSessionPlan(input: {
   generated_at?: string;
   maintenance_window: MaintenanceWindowSummary;
+  maintenance_follow_through?: MaintenanceFollowThroughSummary | null;
   recent_repair_executions?: RepairExecutionRecord[];
 }): MaintenanceSessionPlan {
   const generatedAt = input.generated_at ?? new Date().toISOString();
@@ -357,6 +572,7 @@ export function buildMaintenanceSessionPlan(input: {
     start_command: MAINTENANCE_SESSION_COMMAND,
     steps,
     first_step_id: steps[0]?.step_id ?? null,
+    maintenance_follow_through: input.maintenance_follow_through ?? emptyMaintenanceFollowThroughSummary(generatedAt),
   };
 }
 
@@ -370,6 +586,11 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     top_recurring_step_id: plan.top_recurring_issue?.step_id ?? null,
     preventive_maintenance_count: plan.preventive_maintenance.count,
     top_preventive_step_id: plan.preventive_maintenance.top_step_id,
+    last_maintenance_outcome: plan.maintenance_follow_through.last_maintenance_outcome,
+    last_maintenance_step_id: plan.maintenance_follow_through.last_maintenance_step_id,
+    maintenance_pressure_count: plan.maintenance_follow_through.maintenance_pressure_count,
+    top_maintenance_pressure_step_id: plan.maintenance_follow_through.top_maintenance_pressure_step_id,
+    maintenance_follow_through: plan.maintenance_follow_through,
     maintenance_window: plan.maintenance_window,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
@@ -682,6 +903,7 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       top_step_id: preventiveMaintenance.top_step_id,
       bundle: null,
     },
+    maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

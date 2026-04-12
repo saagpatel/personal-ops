@@ -10,7 +10,12 @@ import { buildInstallCheckReport } from "../install.js";
 import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
-import { buildMaintenanceWindowSummary, buildRepairPlan, summarizeRepairPlan } from "../repair-plan.js";
+import {
+  buildMaintenanceFollowThroughSummary,
+  buildMaintenanceWindowSummary,
+  buildRepairPlan,
+  summarizeRepairPlan,
+} from "../repair-plan.js";
 import { pruneSnapshots, readRecoveryRehearsalStamp, snapshotAgeHours, SNAPSHOT_WARN_HOURS } from "../recovery.js";
 import {
   buildStoredReviewCalibration,
@@ -171,9 +176,18 @@ export async function buildStatusReport(
     repair_plan: repairPlan,
     recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
   });
+  const maintenanceFollowThrough =
+    worklist.maintenance_follow_through ??
+    buildMaintenanceFollowThroughSummary({
+      generated_at: new Date().toISOString(),
+      maintenance_window: maintenanceWindow,
+      repair_plan: repairPlan,
+      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+    });
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
+    maintenance_follow_through: maintenanceFollowThrough,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -186,6 +200,7 @@ export async function buildStatusReport(
     first_repair_step: repairPlanWithMaintenance.first_repair_step,
     repair_plan: repairPlanWithMaintenance,
     maintenance_window: maintenanceWindow,
+    maintenance_follow_through: maintenanceFollowThrough,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

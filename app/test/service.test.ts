@@ -86,6 +86,26 @@ interface FixtureOptions {
   profileHistoryId?: string;
 }
 
+function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z") {
+  return {
+    generated_at: generatedAt,
+    last_maintenance_outcome: null,
+    last_maintenance_step_id: null,
+    top_signal: null,
+    current_bundle_outcome: null,
+    maintenance_pressure_count: 0,
+    top_maintenance_pressure_step_id: null,
+    pressure: {
+      signal: null,
+      count: 0,
+      top_step_id: null,
+      summary: null,
+      suggested_command: null,
+    },
+    summary: null,
+  };
+}
+
 const GITHUB_TEST_IDENTITY: ClientIdentity = {
   client_id: "github-test",
   requested_by: "github-test",
@@ -6403,6 +6423,7 @@ test("phase 18 worklist and prep-day surface a maintenance window only during ca
         ],
       },
     },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
     items: [],
   };
   const fakeService = {
@@ -6694,6 +6715,7 @@ test("phase-6 now-next leads with the first repair step when readiness is degrad
       top_step_id: null,
       bundle: null,
     },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
     items: [
       {
         item_id: "repair-1",
@@ -6740,6 +6762,7 @@ test("phase-6 prep-day prefers concrete work over governance review in healthy s
       top_step_id: null,
       bundle: null,
     },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
     items: [
       {
         item_id: "governance-1",

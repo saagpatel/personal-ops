@@ -16,6 +16,12 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
   if (report.first_repair_step) {
     lines.push(`First repair step: ${report.first_repair_step}`);
   }
+  if (report.maintenance_follow_through.current_bundle_outcome) {
+    lines.push(`Last maintenance: ${report.maintenance_follow_through.current_bundle_outcome.summary}`);
+  }
+  if (report.maintenance_follow_through.pressure.summary) {
+    lines.push(`Maintenance pressure: ${report.maintenance_follow_through.pressure.summary}`);
+  }
   lines.push("");
 
   for (const section of report.sections) {

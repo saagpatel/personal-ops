@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildMaintenanceFollowThroughSummary,
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -46,6 +47,29 @@ function resolvedExecution(
     outcome: "resolved",
     resolved_target_step: true,
     message: "Step resolved.",
+  };
+}
+
+function maintenanceExecution(
+  stepId: RepairExecutionRecord["step_id"],
+  completedAt: string,
+  executionId: string,
+  overrides: Partial<RepairExecutionRecord> = {},
+): RepairExecutionRecord {
+  return {
+    execution_id: executionId,
+    step_id: stepId,
+    started_at: completedAt,
+    completed_at: completedAt,
+    requested_by_client: "personal-ops-cli",
+    requested_by_actor: "operator",
+    trigger_source: "maintenance_run",
+    before_first_step_id: stepId,
+    after_first_step_id: undefined,
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Maintenance step resolved.",
+    ...overrides,
   };
 }
 
@@ -540,4 +564,98 @@ test("phase 18 maintenance window respects the 24-hour quiet period for fresh re
   assert.equal(maintenanceWindow.eligible_now, false);
   assert.equal(maintenanceWindow.deferred_reason, "quiet_period_active");
   assert.equal(maintenanceWindow.top_step_id, "install_wrappers");
+});
+
+test("phase 20 follow-through marks a completed maintenance session when no bundle remains", () => {
+  const summary = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "no_preventive_work",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
+    repair_plan: { steps: [], first_repair_step: null },
+    recent_repair_executions: [maintenanceExecution("install_wrappers", "2026-04-12T18:00:00.000Z", "maintenance-1")],
+  });
+
+  assert.equal(summary.last_maintenance_outcome, "completed");
+  assert.equal(summary.last_maintenance_step_id, "install_wrappers");
+  assert.equal(summary.current_bundle_outcome?.signal, "completed");
+  assert.equal(summary.maintenance_pressure_count, 0);
+});
+
+test("phase 20 follow-through treats repeated maintenance handoffs as stronger pressure than ordinary deferral", () => {
+  const summary = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "active_repair_pending",
+      count: 1,
+      top_step_id: "install_wrappers",
+      bundle: null,
+    },
+    repair_plan: {
+      steps: [
+        {
+          id: "install_check",
+          title: "Confirm local install health",
+          reason: "Install checks still need attention.",
+          suggested_command: "personal-ops install check",
+          executable: false,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+      first_repair_step: "personal-ops install check",
+    },
+    recent_repair_executions: [
+      maintenanceExecution("install_wrappers", "2026-04-11T18:00:00.000Z", "maintenance-2", {
+        after_first_step_id: "install_check",
+      }),
+      maintenanceExecution("install_wrappers", "2026-04-05T18:00:00.000Z", "maintenance-3", {
+        after_first_step_id: "install_check",
+      }),
+    ],
+  });
+
+  assert.equal(summary.last_maintenance_outcome, "handed_off_to_repair");
+  assert.equal(summary.pressure.signal, "handed_off_to_repair");
+  assert.equal(summary.top_maintenance_pressure_step_id, "install_wrappers");
+});
+
+test("phase 20 follow-through suppresses stale-bundle pressure right after a recent successful maintenance run", () => {
+  const summary = buildMaintenanceFollowThroughSummary({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_window: {
+      eligible_now: true,
+      deferred_reason: null,
+      count: 1,
+      top_step_id: "install_wrappers",
+      bundle: {
+        bundle_id: "maintenance-window:install_wrappers",
+        title: "Preventive maintenance window",
+        summary: "Refresh wrappers in a calm window.",
+        recommended_commands: ["personal-ops install wrappers"],
+        recommendations: [
+          {
+            step_id: "install_wrappers",
+            title: "Refresh wrappers before the next drift",
+            reason: "Wrapper drift has repeated on this machine.",
+            suggested_command: "personal-ops install wrappers",
+            urgency: "watch",
+            last_resolved_at: "2026-04-10T18:00:00.000Z",
+            repeat_count_30d: 2,
+          },
+        ],
+      },
+    },
+    repair_plan: { steps: [], first_repair_step: null },
+    recent_repair_executions: [maintenanceExecution("install_wrappers", "2026-04-10T18:00:00.000Z", "maintenance-4")],
+  });
+
+  assert.equal(summary.pressure.signal, null);
+  assert.equal(summary.maintenance_pressure_count, 0);
 });

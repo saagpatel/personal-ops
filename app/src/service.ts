@@ -60,7 +60,7 @@ import {
 import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
-import { buildMaintenanceWindowSummary, buildRepairPlan } from "./repair-plan.js";
+import { buildMaintenanceFollowThroughSummary, buildMaintenanceWindowSummary, buildRepairPlan } from "./repair-plan.js";
 import {
   deleteKeychainSecret,
   getKeychainSecret,
@@ -3557,6 +3557,12 @@ export class PersonalOpsService {
       repair_plan: repairPlan,
       recent_repair_executions: recentRepairExecutions,
     });
+    const maintenanceFollowThrough = buildMaintenanceFollowThroughSummary({
+      generated_at: new Date().toISOString(),
+      maintenance_window: maintenanceWindow,
+      repair_plan: repairPlan,
+      recent_repair_executions: recentRepairExecutions,
+    });
     return {
       generated_at: new Date().toISOString(),
       state,
@@ -3567,6 +3573,7 @@ export class PersonalOpsService {
       },
       planning_groups: planningGroups,
       maintenance_window: maintenanceWindow,
+      maintenance_follow_through: maintenanceFollowThrough,
       items,
     };
   }

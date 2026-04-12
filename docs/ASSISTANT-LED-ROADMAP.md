@@ -375,10 +375,27 @@ Delivered shape:
   - no new persistence beyond the existing repair execution history
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 20
+
+Phase 20 is now complete.
+
+Delivered shape:
+
+- a derived maintenance follow-through summary layered onto the existing maintenance window and maintenance session model
+- deterministic maintenance outcome signals for completed, advanced, handed-off, failed, deferred, and stale resurfacing bundles
+- additive maintenance-pressure summaries across `status`, `worklist`, `now`, `prep-day`, `repair plan`, `maintenance session`, and the console
+- stronger guidance when the same calm-window bundle keeps resurfacing or repeatedly turns into repair
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new maintenance commands
+  - maintenance still stays behind active repair and concrete work
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, and 19 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, and 20 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

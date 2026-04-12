@@ -459,6 +459,7 @@ function emptyWorkflowReport(
     sections: [],
     actions: [],
     first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
   };
 }
 
@@ -472,8 +473,29 @@ function emptyMaintenanceWindowSummary(): ServiceStatusReport["maintenance_windo
   };
 }
 
+function emptyMaintenanceFollowThroughSummary(generatedAt: string): ServiceStatusReport["maintenance_follow_through"] {
+  return {
+    generated_at: generatedAt,
+    last_maintenance_outcome: null,
+    last_maintenance_step_id: null,
+    top_signal: null,
+    current_bundle_outcome: null,
+    maintenance_pressure_count: 0,
+    top_maintenance_pressure_step_id: null,
+    pressure: {
+      signal: null,
+      count: 0,
+      top_step_id: null,
+      summary: null,
+      suggested_command: null,
+    },
+    summary: null,
+  };
+}
+
 function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"] {
   const maintenanceWindow = emptyMaintenanceWindowSummary();
+  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(generatedAt);
   return {
     generated_at: generatedAt,
     first_step_id: null,
@@ -486,6 +508,7 @@ function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"
       top_step_id: null,
     },
     maintenance_window: maintenanceWindow,
+    maintenance_follow_through: maintenanceFollowThrough,
     last_repair: null,
     recurring_issue: null,
     steps: [],
@@ -494,6 +517,7 @@ function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"
 
 function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
   const maintenanceWindow = emptyMaintenanceWindowSummary();
+  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(new Date().toISOString());
   return {
     support_contract: "macos_only",
     supported: false,
@@ -540,6 +564,11 @@ function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
       top_recurring_step_id: null,
       preventive_maintenance_count: 0,
       top_preventive_step_id: null,
+      last_maintenance_outcome: null,
+      last_maintenance_step_id: null,
+      maintenance_pressure_count: 0,
+      top_maintenance_pressure_step_id: null,
+      maintenance_follow_through: maintenanceFollowThrough,
       maintenance_window: maintenanceWindow,
       last_repair: null,
       recurring_issue: null,
@@ -550,6 +579,7 @@ function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
 function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
   const maintenanceWindow = emptyMaintenanceWindowSummary();
   const repairPlan = emptyRepairPlan(generatedAt);
+  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(generatedAt);
   return {
     generated_at: generatedAt,
     service_version: "Loading…",
@@ -557,6 +587,7 @@ function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
     first_repair_step: null,
     repair_plan: repairPlan,
     maintenance_window: maintenanceWindow,
+    maintenance_follow_through: maintenanceFollowThrough,
     daemon_reachable: true,
     send_enabled: false,
     send_policy: {
@@ -784,6 +815,7 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       },
       planning_groups: [],
       maintenance_window: status.maintenance_window,
+      maintenance_follow_through: status.maintenance_follow_through,
       items: [],
     },
     nowNextWorkflow: {
@@ -805,6 +837,7 @@ function buildBootstrapConsolePayload(): ConsolePayload {
         },
       ],
       first_repair_step: null,
+      maintenance_follow_through: status.maintenance_follow_through,
     },
     prepDayWorkflow: emptyWorkflowReport(
       generatedAt,
@@ -1070,6 +1103,7 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       },
       planning_groups: [],
       maintenance_window: statusResponse.status.maintenance_window,
+      maintenance_follow_through: statusResponse.status.maintenance_follow_through,
       items: [],
     },
     nowNextWorkflow: {
@@ -1091,6 +1125,7 @@ async function loadCorePayload(): Promise<ConsolePayload> {
         },
       ],
       first_repair_step: statusResponse.status.first_repair_step,
+      maintenance_follow_through: statusResponse.status.maintenance_follow_through,
     },
     prepDayWorkflow: emptyWorkflowReport(
       statusResponse.status.generated_at,
@@ -2575,9 +2610,21 @@ function renderOverview(payload: ConsolePayload): string {
           <h3>Repair plan</h3>
           <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
           <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(repairPlan.last_repair ? `${repairPlan.last_repair.step_id} (${repairPlan.last_repair.outcome})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Last maintenance</dt><dd>${escapeHtml(repairPlan.maintenance_follow_through?.current_bundle_outcome ? `${repairPlan.maintenance_follow_through.current_bundle_outcome.signal}${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id ? ` (${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id})` : ""}` : "none")}</dd></div>
           <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(repairPlan.recurring_issue ? `${repairPlan.recurring_issue.step_id}: ${repairPlan.recurring_issue.prevention_hint}` : "none")}</dd></div>
           <div class="detail-row"><dt>Preventive maintenance</dt><dd>${escapeHtml(repairPlan.preventive_maintenance?.top_step_id ? `${repairPlan.preventive_maintenance.top_step_id} (${repairPlan.preventive_maintenance.recommendations[0]?.urgency ?? "watch"})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance pressure</dt><dd>${escapeHtml(repairPlan.maintenance_follow_through?.pressure.summary ?? "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
+          ${
+            repairPlan.maintenance_follow_through?.current_bundle_outcome
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.current_bundle_outcome.summary)}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_follow_through?.pressure.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.pressure.summary)}</p>`
+              : ""
+          }
           ${
             repairPlan.steps.length === 0
               ? `<div class="empty">No repair actions are pending right now.</div>`

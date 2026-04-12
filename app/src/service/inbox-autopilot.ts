@@ -126,7 +126,9 @@ function threadHasFreshDraft(summary: InboxThreadSummary, draft: DraftArtifact |
   if (!draft) {
     return false;
   }
-  return Number(summary.thread.last_message_at) <= Date.parse(draft.updated_at);
+  const latestSubject = summary.latest_message?.subject?.trim() || "";
+  const draftSubject = draft.subject?.trim() || "";
+  return Number(summary.thread.last_message_at) <= Date.parse(draft.updated_at) && latestSubject === draftSubject;
 }
 
 function groupState(input: {
