@@ -263,6 +263,7 @@ function buildWorkflowReport(input: {
     actions,
     first_repair_step: firstRepair,
     maintenance_follow_through: input.worklist.maintenance_follow_through,
+    maintenance_escalation: input.worklist.maintenance_escalation,
   };
 }
 
@@ -960,10 +961,23 @@ function buildPrepDayTimeSensitive(
 }
 
 function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSectionItem[] {
-  if (!worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
-    return [];
+  const items: WorkflowBundleSectionItem[] = [];
+  if (worklist.maintenance_escalation.eligible && worklist.maintenance_escalation.step_id) {
+    items.push({
+      label: "Maintenance escalation",
+      summary: worklist.maintenance_escalation.summary ?? "Recurring maintenance is behaving more like repair-priority upkeep.",
+      command: MAINTENANCE_SESSION_COMMAND,
+      target_type: "system",
+      target_id: `maintenance:${worklist.maintenance_escalation.step_id}`,
+      why_now: "This maintenance family has repeatedly turned into active repair and should be handled deliberately before it degrades normal work.",
+      score_band: "high",
+      signals: ["maintenance_escalation", worklist.maintenance_escalation.step_id],
+    });
   }
-  return worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
+  if (!worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
+    return items;
+  }
+  return items.concat(worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
     label: recommendation.title,
     summary: recommendation.reason,
     command: MAINTENANCE_SESSION_COMMAND,
@@ -972,7 +986,7 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
     why_now: "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
     score_band: recommendation.urgency === "recommended" ? "medium" : "high",
     signals: ["maintenance_window", recommendation.step_id],
-  }));
+  })));
 }
 
 export async function buildNowNextWorkflowReport(service: any, options: { httpReachable: boolean }): Promise<WorkflowBundleReport> {

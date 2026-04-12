@@ -102,6 +102,15 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
       summary: null,
       suggested_command: null,
     },
+    escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
     summary: null,
   };
 }
@@ -988,6 +997,16 @@ test("assistant-led phase 2 workflows prefer staged inbox autopilot work over ra
         count: 0,
         top_step_id: null,
         bundle: null,
+      },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: {
+        eligible: false,
+        step_id: null,
+        signal: null,
+        summary: null,
+        suggested_command: null,
+        handoff_count_30d: 0,
+        cue: null,
       },
       items: [],
     }),
@@ -6424,6 +6443,15 @@ test("phase 18 worklist and prep-day surface a maintenance window only during ca
       },
     },
     maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
     items: [],
   };
   const fakeService = {
@@ -6716,6 +6744,15 @@ test("phase-6 now-next leads with the first repair step when readiness is degrad
       bundle: null,
     },
     maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
     items: [
       {
         item_id: "repair-1",
@@ -6763,6 +6800,15 @@ test("phase-6 prep-day prefers concrete work over governance review in healthy s
       bundle: null,
     },
     maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
     items: [
       {
         item_id: "governance-1",
@@ -6804,6 +6850,67 @@ test("phase-6 prep-day prefers concrete work over governance review in healthy s
   assert.equal(report.actions[0]?.command, "personal-ops task show task-1");
   assert.notEqual(report.actions[0]?.command, "personal-ops recommendation hygiene --review-needed-only");
   assert.match(report.actions[0]?.why_now ?? "", /task|due window/i);
+});
+
+test("phase 21 worklist ordering keeps maintenance escalation behind repair and urgent concrete work", () => {
+  const { service } = createFixture();
+  const compareAttentionItems = (service as any).compareAttentionItems.bind(service) as (
+    left: WorklistReport["items"][number],
+    right: WorklistReport["items"][number],
+  ) => number;
+
+  const criticalRepair = {
+    item_id: "repair-21",
+    kind: "system_degraded",
+    severity: "critical" as const,
+    title: "System repair needed",
+    summary: "Repair needs attention first.",
+    target_type: "system",
+    target_id: "personal-ops",
+    created_at: "2026-04-12T20:00:00.000Z",
+    suggested_command: "personal-ops doctor",
+    metadata_json: "{}",
+  };
+  const urgentTask = {
+    item_id: "task-21",
+    kind: "task_due_soon" as const,
+    severity: "warn" as const,
+    title: "Task due soon",
+    summary: "A real task is due soon.",
+    target_type: "task",
+    target_id: "task-21",
+    created_at: "2026-04-12T20:00:00.000Z",
+    suggested_command: "personal-ops task show task-21",
+    metadata_json: "{}",
+  };
+  const maintenanceEscalation = {
+    item_id: "maintenance-escalation:install_wrappers",
+    kind: "maintenance_escalation" as const,
+    severity: "warn" as const,
+    title: "Maintenance escalation",
+    summary: "This maintenance family keeps turning into repair and should be handled deliberately.",
+    target_type: "system",
+    target_id: "maintenance:install_wrappers",
+    created_at: "2026-04-12T20:00:00.000Z",
+    suggested_command: "personal-ops maintenance session",
+    metadata_json: "{}",
+  };
+  const governanceWarn = {
+    item_id: "governance-21",
+    kind: "planning_policy_governance_needed" as const,
+    severity: "warn" as const,
+    title: "Governance review needed",
+    summary: "A quiet planning family needs review.",
+    target_type: "planning_recommendation_family",
+    target_id: "family-21",
+    created_at: "2026-04-12T20:00:00.000Z",
+    suggested_command: "personal-ops recommendation hygiene --review-needed-only",
+    metadata_json: "{}",
+  };
+
+  assert.ok(compareAttentionItems(criticalRepair, maintenanceEscalation) < 0);
+  assert.ok(compareAttentionItems(urgentTask, maintenanceEscalation) < 0);
+  assert.ok(compareAttentionItems(maintenanceEscalation, governanceWarn) < 0);
 });
 
 test("phase-6 meeting workflow only surfaces prep when the meeting window is close", async () => {
@@ -7675,6 +7782,16 @@ test("phase-7 workflows rank github pull request work above governance noise in 
         top_step_id: null,
         bundle: null,
       },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: {
+        eligible: false,
+        step_id: null,
+        signal: null,
+        summary: null,
+        suggested_command: null,
+        handoff_count_30d: 0,
+        cue: null,
+      },
       items: [
         {
           item_id: "planning-policy",
@@ -8367,6 +8484,16 @@ test("assistant-led phase 7 workflows prefer grouped outbound finish-work when i
         count: 0,
         top_step_id: null,
         bundle: null,
+      },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: {
+        eligible: false,
+        step_id: null,
+        signal: null,
+        summary: null,
+        suggested_command: null,
+        handoff_count_30d: 0,
+        cue: null,
       },
       items: [],
     }),

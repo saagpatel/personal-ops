@@ -11,6 +11,7 @@ import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
 import {
+  buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -184,10 +185,21 @@ export async function buildStatusReport(
       repair_plan: repairPlan,
       recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
     });
+  const maintenanceEscalation =
+    worklist.maintenance_escalation ??
+    buildMaintenanceEscalationSummary({
+      generated_at: new Date().toISOString(),
+      state: classifiedState,
+      maintenance_window: maintenanceWindow,
+      maintenance_follow_through: maintenanceFollowThrough,
+      repair_plan: repairPlan,
+      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+    });
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_escalation: maintenanceEscalation,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -201,6 +213,7 @@ export async function buildStatusReport(
     repair_plan: repairPlanWithMaintenance,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_escalation: maintenanceEscalation,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

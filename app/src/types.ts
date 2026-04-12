@@ -1241,6 +1241,7 @@ export interface WorklistReport {
   planning_groups: PlanningRecommendationGroup[];
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
   items: AttentionItem[];
 }
 
@@ -2075,6 +2076,7 @@ export interface WorkflowBundleReport {
   actions: WorkflowBundleAction[];
   first_repair_step: string | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
 }
 
 export interface MailSyncState {
@@ -2321,6 +2323,28 @@ export interface MaintenancePressureSummary {
   suggested_command: string | null;
 }
 
+export interface MaintenanceEscalationCue {
+  item_id: string;
+  kind: "maintenance_escalation";
+  severity: AttentionSeverity;
+  title: string;
+  summary: string;
+  target_type: string;
+  target_id: string;
+  suggested_command: string;
+  signals: string[];
+}
+
+export interface MaintenanceEscalationSummary {
+  eligible: boolean;
+  step_id: RepairStepId | null;
+  signal: MaintenanceOutcomeSignal | null;
+  summary: string | null;
+  suggested_command: string | null;
+  handoff_count_30d: number;
+  cue: MaintenanceEscalationCue | null;
+}
+
 export interface MaintenanceFollowThroughSummary {
   generated_at: string;
   last_maintenance_outcome: MaintenanceOutcomeSignal | null;
@@ -2330,6 +2354,7 @@ export interface MaintenanceFollowThroughSummary {
   maintenance_pressure_count: number;
   top_maintenance_pressure_step_id: RepairStepId | null;
   pressure: MaintenancePressureSummary;
+  escalation: MaintenanceEscalationSummary;
   summary: string | null;
 }
 
@@ -2393,6 +2418,7 @@ export interface RepairPlan {
   preventive_maintenance: PreventiveMaintenanceSummary;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2412,6 +2438,7 @@ export interface RepairPlanSummary {
   maintenance_pressure_count: number;
   top_maintenance_pressure_step_id: RepairStepId | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_window: MaintenanceWindowSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
@@ -2588,6 +2615,7 @@ export interface ServiceStatusReport {
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

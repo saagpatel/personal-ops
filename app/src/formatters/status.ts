@@ -54,6 +54,13 @@ function maintenanceFollowThroughRows(summary: RepairPlan["maintenance_follow_th
       }`,
     );
   }
+  if (summary.escalation.eligible && summary.escalation.summary) {
+    rows.push(
+      `- Maintenance escalation: ${summary.escalation.summary}${
+        summary.escalation.suggested_command ? ` Next: \`${summary.escalation.suggested_command}\`.` : ""
+      }`,
+    );
+  }
   return rows;
 }
 
@@ -175,6 +182,7 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
         : "none",
     ),
   );
+  lines.push(line("Maintenance escalation", plan.maintenance_escalation.step_id ?? "none"));
   lines.push("");
   lines.push("Steps");
   lines.push(...formatRepairPlan(plan));
@@ -759,6 +767,7 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     maintenance_pressure_count: session.maintenance_follow_through.maintenance_pressure_count,
     top_maintenance_pressure_step_id: session.maintenance_follow_through.top_maintenance_pressure_step_id,
     pressure: session.maintenance_follow_through.pressure,
+    escalation: session.maintenance_follow_through.escalation,
     summary: session.maintenance_follow_through.summary,
   });
   lines.push("Maintenance Session");

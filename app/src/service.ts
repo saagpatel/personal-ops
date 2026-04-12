@@ -60,7 +60,13 @@ import {
 import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
-import { buildMaintenanceFollowThroughSummary, buildMaintenanceWindowSummary, buildRepairPlan } from "./repair-plan.js";
+import {
+  buildMaintenanceEscalationSummary,
+  buildMaintenanceFollowThroughSummary,
+  buildMaintenanceWindowSummary,
+  buildRepairPlan,
+  MAINTENANCE_SESSION_COMMAND,
+} from "./repair-plan.js";
 import {
   deleteKeychainSecret,
   getKeychainSecret,
@@ -352,6 +358,20 @@ const TASK_IN_PROGRESS_STALE_HOURS = 72;
 const TASK_SUGGESTION_WARN_HOURS = 24;
 const PLANNING_TASK_BLOCK_MINUTES = 60;
 const PLANNING_FOLLOWUP_MINUTES = 30;
+const URGENT_CONCRETE_ATTENTION_KINDS = new Set([
+  "task_overdue",
+  "task_due_soon",
+  "task_reminder_due",
+  "task_unscheduled_due_soon",
+  "task_schedule_pressure",
+  "thread_needs_reply",
+  "thread_stale_followup",
+  "calendar_conflict",
+  "calendar_event_soon",
+  "github_review_requested",
+  "github_pr_checks_failing",
+  "github_pr_changes_requested",
+]);
 const PLANNING_PREP_MINUTES = 30;
 const PLANNING_SNOOZE_WARNING_MINUTES = 60;
 const PLANNING_RANKING_VERSION = "phase6-v1";
@@ -3519,13 +3539,6 @@ export class PersonalOpsService {
     const planningGroups = this.groupPlanningRecommendations(
       this.db.listPlanningRecommendations({ include_resolved: false }).filter((item) => item.status === "pending"),
     );
-    const countsBySeverity = items.reduce<Record<AttentionSeverity, number>>(
-      (accumulator, item) => {
-        accumulator[item.severity] += 1;
-        return accumulator;
-      },
-      { info: 0, warn: 0, critical: 0 },
-    );
     const latestSnapshot = this.getLatestSnapshotSummary();
     const installCheck = buildInstallCheckReport(this.paths);
     const desktopStatus = await getDesktopStatusReport(this.paths);
@@ -3563,6 +3576,40 @@ export class PersonalOpsService {
       repair_plan: repairPlan,
       recent_repair_executions: recentRepairExecutions,
     });
+    const maintenanceEscalation = buildMaintenanceEscalationSummary({
+      generated_at: new Date().toISOString(),
+      state,
+      maintenance_window: maintenanceWindow,
+      maintenance_follow_through: maintenanceFollowThrough,
+      repair_plan: repairPlan,
+      recent_repair_executions: recentRepairExecutions,
+    });
+    const finalItems = maintenanceEscalation.cue
+      ? [...items, {
+          item_id: maintenanceEscalation.cue.item_id,
+          kind: maintenanceEscalation.cue.kind,
+          severity: maintenanceEscalation.cue.severity,
+          title: maintenanceEscalation.cue.title,
+          summary: maintenanceEscalation.cue.summary,
+          target_type: maintenanceEscalation.cue.target_type,
+          target_id: maintenanceEscalation.cue.target_id,
+          created_at: new Date().toISOString(),
+          suggested_command: maintenanceEscalation.cue.suggested_command,
+          metadata_json: JSON.stringify({
+            state_marker: new Date().toISOString(),
+            maintenance_step_id: maintenanceEscalation.step_id,
+            handoff_count_30d: maintenanceEscalation.handoff_count_30d,
+            signals: maintenanceEscalation.cue.signals,
+          }),
+        }].sort((left, right) => this.compareAttentionItems(left, right))
+      : items;
+    const countsBySeverity = finalItems.reduce<Record<AttentionSeverity, number>>(
+      (accumulator, item) => {
+        accumulator[item.severity] += 1;
+        return accumulator;
+      },
+      { info: 0, warn: 0, critical: 0 },
+    );
     return {
       generated_at: new Date().toISOString(),
       state,
@@ -3574,7 +3621,8 @@ export class PersonalOpsService {
       planning_groups: planningGroups,
       maintenance_window: maintenanceWindow,
       maintenance_follow_through: maintenanceFollowThrough,
-      items,
+      maintenance_escalation: maintenanceEscalation,
+      items: finalItems,
     };
   }
 
@@ -10058,6 +10106,18 @@ export class PersonalOpsService {
     const severityDelta = severityRank[left.severity] - severityRank[right.severity];
     if (severityDelta !== 0) {
       return severityDelta;
+    }
+    if (left.severity === "warn" && right.severity === "warn") {
+      const leftConcrete = URGENT_CONCRETE_ATTENTION_KINDS.has(left.kind);
+      const rightConcrete = URGENT_CONCRETE_ATTENTION_KINDS.has(right.kind);
+      if (leftConcrete !== rightConcrete) {
+        return leftConcrete ? -1 : 1;
+      }
+      const leftEscalation = left.kind === "maintenance_escalation";
+      const rightEscalation = right.kind === "maintenance_escalation";
+      if (leftEscalation !== rightEscalation) {
+        return leftEscalation ? -1 : 1;
+      }
     }
     const leftRank = left.sort_rank ?? Number.NEGATIVE_INFINITY;
     const rightRank = right.sort_rank ?? Number.NEGATIVE_INFINITY;

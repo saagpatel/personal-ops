@@ -5,6 +5,7 @@ import type {
   DoctorReport,
   InstallCheckReport,
   MaintenanceBundleOutcome,
+  MaintenanceEscalationSummary,
   MaintenanceFollowThroughSummary,
   MaintenanceOutcomeSignal,
   MaintenancePressureSummary,
@@ -39,6 +40,7 @@ const PREVENTIVE_LIMIT = 3;
 const MAINTENANCE_RECENTLY_HANDLED_DAYS = 7;
 export const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
 export const MAINTENANCE_RUN_NEXT_COMMAND = "personal-ops maintenance run next";
+const MAINTENANCE_ESCALATION_COMMAND = MAINTENANCE_SESSION_COMMAND;
 const CONCRETE_PRESSURE_KINDS = new Set([
   "task_overdue",
   "task_due_soon",
@@ -263,6 +265,18 @@ function emptyMaintenancePressureSummary(): MaintenancePressureSummary {
   };
 }
 
+export function emptyMaintenanceEscalationSummary(): MaintenanceEscalationSummary {
+  return {
+    eligible: false,
+    step_id: null,
+    signal: null,
+    summary: null,
+    suggested_command: null,
+    handoff_count_30d: 0,
+    cue: null,
+  };
+}
+
 export function emptyMaintenanceFollowThroughSummary(generatedAt: string): MaintenanceFollowThroughSummary {
   return {
     generated_at: generatedAt,
@@ -273,6 +287,7 @@ export function emptyMaintenanceFollowThroughSummary(generatedAt: string): Maint
     maintenance_pressure_count: 0,
     top_maintenance_pressure_step_id: null,
     pressure: emptyMaintenancePressureSummary(),
+    escalation: emptyMaintenanceEscalationSummary(),
     summary: null,
   };
 }
@@ -462,6 +477,72 @@ export function buildMaintenanceFollowThroughSummary(input: {
   return summary;
 }
 
+export function buildMaintenanceEscalationSummary(input: {
+  state: ServiceState;
+  maintenance_window: MaintenanceWindowSummary;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
+  repair_plan: Pick<RepairPlan, "steps">;
+  recent_repair_executions?: RepairExecutionRecord[];
+  generated_at?: string;
+}): MaintenanceEscalationSummary {
+  const summary = emptyMaintenanceEscalationSummary();
+  if (input.state === "degraded") {
+    return summary;
+  }
+  const stepId = input.maintenance_follow_through.pressure.top_step_id;
+  if (!stepId || input.maintenance_follow_through.pressure.signal !== "handed_off_to_repair") {
+    return summary;
+  }
+  if (input.repair_plan.steps.some((step) => step.id === stepId)) {
+    return summary;
+  }
+  const generatedAtDate = new Date(input.generated_at ?? new Date().toISOString());
+  const maintenanceExecutions = (input.recent_repair_executions ?? []).filter(
+    (execution) => execution.trigger_source === "maintenance_run" && execution.step_id === stepId,
+  );
+  const handoffExecutions = maintenanceExecutions.filter(
+    (execution) =>
+      execution.outcome === "resolved" &&
+      execution.resolved_target_step &&
+      Boolean(execution.after_first_step_id) &&
+      withinRecurringWindow(execution.completed_at, generatedAtDate),
+  );
+  if (handoffExecutions.length < RECURRING_THRESHOLD) {
+    return summary;
+  }
+  const recentSuccessfulMaintenance = maintenanceExecutions.some(
+    (execution) =>
+      execution.outcome === "resolved" &&
+      execution.resolved_target_step &&
+      !execution.after_first_step_id &&
+      withinRecentHandledWindow(execution.completed_at, generatedAtDate),
+  );
+  if (recentSuccessfulMaintenance) {
+    return summary;
+  }
+  const escalatedSummary =
+    "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.";
+  return {
+    eligible: true,
+    step_id: stepId,
+    signal: "handed_off_to_repair",
+    summary: escalatedSummary,
+    suggested_command: MAINTENANCE_ESCALATION_COMMAND,
+    handoff_count_30d: handoffExecutions.length,
+    cue: {
+      item_id: `maintenance-escalation:${stepId}`,
+      kind: "maintenance_escalation",
+      severity: "warn",
+      title: "Maintenance escalation",
+      summary: escalatedSummary,
+      target_type: "system",
+      target_id: `maintenance:${stepId}`,
+      suggested_command: MAINTENANCE_ESCALATION_COMMAND,
+      signals: ["maintenance_escalation", stepId],
+    },
+  };
+}
+
 function toMaintenanceSessionStep(
   recommendation: PreventiveMaintenanceRecommendation,
   latestByStep: Map<RepairStepId, RepairExecutionRecord>,
@@ -591,6 +672,7 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     maintenance_pressure_count: plan.maintenance_follow_through.maintenance_pressure_count,
     top_maintenance_pressure_step_id: plan.maintenance_follow_through.top_maintenance_pressure_step_id,
     maintenance_follow_through: plan.maintenance_follow_through,
+    maintenance_escalation: plan.maintenance_escalation,
     maintenance_window: plan.maintenance_window,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
@@ -904,6 +986,7 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       bundle: null,
     },
     maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
+    maintenance_escalation: emptyMaintenanceEscalationSummary(),
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

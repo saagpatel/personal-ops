@@ -460,6 +460,7 @@ function emptyWorkflowReport(
     actions: [],
     first_repair_step: null,
     maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
+    maintenance_escalation: emptyMaintenanceEscalationSummary(),
   };
 }
 
@@ -489,7 +490,20 @@ function emptyMaintenanceFollowThroughSummary(generatedAt: string): ServiceStatu
       summary: null,
       suggested_command: null,
     },
+    escalation: emptyMaintenanceEscalationSummary(),
     summary: null,
+  };
+}
+
+function emptyMaintenanceEscalationSummary(): ServiceStatusReport["maintenance_escalation"] {
+  return {
+    eligible: false,
+    step_id: null,
+    signal: null,
+    summary: null,
+    suggested_command: null,
+    handoff_count_30d: 0,
+    cue: null,
   };
 }
 
@@ -509,6 +523,7 @@ function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"
     },
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_escalation: emptyMaintenanceEscalationSummary(),
     last_repair: null,
     recurring_issue: null,
     steps: [],
@@ -569,6 +584,7 @@ function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
       maintenance_pressure_count: 0,
       top_maintenance_pressure_step_id: null,
       maintenance_follow_through: maintenanceFollowThrough,
+      maintenance_escalation: emptyMaintenanceEscalationSummary(),
       maintenance_window: maintenanceWindow,
       last_repair: null,
       recurring_issue: null,
@@ -588,6 +604,7 @@ function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
     repair_plan: repairPlan,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_escalation: emptyMaintenanceEscalationSummary(),
     daemon_reachable: true,
     send_enabled: false,
     send_policy: {
@@ -816,6 +833,7 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       planning_groups: [],
       maintenance_window: status.maintenance_window,
       maintenance_follow_through: status.maintenance_follow_through,
+      maintenance_escalation: status.maintenance_escalation,
       items: [],
     },
     nowNextWorkflow: {
@@ -838,6 +856,7 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       ],
       first_repair_step: null,
       maintenance_follow_through: status.maintenance_follow_through,
+      maintenance_escalation: status.maintenance_escalation,
     },
     prepDayWorkflow: emptyWorkflowReport(
       generatedAt,
@@ -1104,6 +1123,7 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       planning_groups: [],
       maintenance_window: statusResponse.status.maintenance_window,
       maintenance_follow_through: statusResponse.status.maintenance_follow_through,
+      maintenance_escalation: statusResponse.status.maintenance_escalation,
       items: [],
     },
     nowNextWorkflow: {
@@ -1126,6 +1146,7 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       ],
       first_repair_step: statusResponse.status.first_repair_step,
       maintenance_follow_through: statusResponse.status.maintenance_follow_through,
+      maintenance_escalation: statusResponse.status.maintenance_escalation,
     },
     prepDayWorkflow: emptyWorkflowReport(
       statusResponse.status.generated_at,
@@ -2614,10 +2635,16 @@ function renderOverview(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(repairPlan.recurring_issue ? `${repairPlan.recurring_issue.step_id}: ${repairPlan.recurring_issue.prevention_hint}` : "none")}</dd></div>
           <div class="detail-row"><dt>Preventive maintenance</dt><dd>${escapeHtml(repairPlan.preventive_maintenance?.top_step_id ? `${repairPlan.preventive_maintenance.top_step_id} (${repairPlan.preventive_maintenance.recommendations[0]?.urgency ?? "watch"})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance pressure</dt><dd>${escapeHtml(repairPlan.maintenance_follow_through?.pressure.summary ?? "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance escalation</dt><dd>${escapeHtml(repairPlan.maintenance_escalation?.summary ?? "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
           ${
             repairPlan.maintenance_follow_through?.current_bundle_outcome
               ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.current_bundle_outcome.summary)}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_escalation?.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_escalation.summary)}</p>`
               : ""
           }
           ${
