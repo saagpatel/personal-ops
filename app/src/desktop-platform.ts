@@ -44,6 +44,20 @@ const ALLOWED_UNSUPPORTED_RUST_PACKAGES = new Set([
   "webkit2gtk-sys",
 ]);
 
+function isAllowedUnsupportedRustFinding(entry: any): boolean {
+  const packageName = entry?.package?.name ?? "";
+  const packageVersion = String(entry?.package?.version ?? "");
+  if (ALLOWED_UNSUPPORTED_RUST_PACKAGES.has(packageName)) {
+    return true;
+  }
+  // Older rand releases currently arrive only through Tauri build/codegen dependencies,
+  // not through the supported macOS desktop runtime path.
+  if (packageName === "rand" && (packageVersion.startsWith("0.7.") || packageVersion.startsWith("0.8."))) {
+    return true;
+  }
+  return false;
+}
+
 interface DesktopToolchainInputs {
   platformSupported: boolean;
   projectPresent: boolean;
@@ -167,8 +181,8 @@ export function evaluateDesktopPlatformVerification(npmAudit: any, cargoAudit: a
   }
 
   const unsoundWarnings = Array.isArray(cargoAudit?.warnings?.unsound) ? cargoAudit.warnings.unsound : [];
-  const allowedUnsoundWarnings = unsoundWarnings.filter((entry: any) => ALLOWED_UNSUPPORTED_RUST_PACKAGES.has(entry.package?.name ?? ""));
-  const actionableUnsoundWarnings = unsoundWarnings.filter((entry: any) => !ALLOWED_UNSUPPORTED_RUST_PACKAGES.has(entry.package?.name ?? ""));
+  const allowedUnsoundWarnings = unsoundWarnings.filter((entry: any) => isAllowedUnsupportedRustFinding(entry));
+  const actionableUnsoundWarnings = unsoundWarnings.filter((entry: any) => !isAllowedUnsupportedRustFinding(entry));
 
   if (allowedUnsoundWarnings.length > 0) {
     info.push(
@@ -187,9 +201,7 @@ export function evaluateDesktopPlatformVerification(npmAudit: any, cargoAudit: a
   }
 
   const unmaintainedWarnings = Array.isArray(cargoAudit?.warnings?.unmaintained) ? cargoAudit.warnings.unmaintained : [];
-  const unsupportedPlatformWarnings = unmaintainedWarnings.filter((entry: any) =>
-    ALLOWED_UNSUPPORTED_RUST_PACKAGES.has(entry.package?.name ?? ""),
-  );
+  const unsupportedPlatformWarnings = unmaintainedWarnings.filter((entry: any) => isAllowedUnsupportedRustFinding(entry));
   if (unsupportedPlatformWarnings.length > 0) {
     info.push(
       `Unsupported-platform GTK3/WebKit warnings remain informational: ${unsupportedPlatformWarnings

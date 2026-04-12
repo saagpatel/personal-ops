@@ -1044,6 +1044,13 @@ export async function runRecoveryVerification(): Promise<void> {
       date.setHours(hour, 0, 0, 0);
       return date.toISOString();
     };
+    const localWeekDate = (weeksAgo: number, dayOffset: number, hour: number): string => {
+      const date = new Date();
+      const currentDay = date.getDay();
+      date.setDate(date.getDate() - currentDay - weeksAgo * 7 + dayOffset);
+      date.setHours(hour, 0, 0, 0);
+      return date.toISOString();
+    };
     writeFixtureSnapshot(env.paths, {
       snapshotId: "2026-03-20T18-00-00Z",
       createdAt: localDate(2, 18),
@@ -1054,11 +1061,11 @@ export async function runRecoveryVerification(): Promise<void> {
     });
     writeFixtureSnapshot(env.paths, {
       snapshotId: "2026-03-05T18-00-00Z",
-      createdAt: localDate(20, 18),
+      createdAt: localWeekDate(3, 2, 18),
     });
     writeFixtureSnapshot(env.paths, {
       snapshotId: "2026-03-03T09-00-00Z",
-      createdAt: localDate(19, 8),
+      createdAt: localWeekDate(3, 4, 8),
     });
     writeFixtureSnapshot(env.paths, {
       snapshotId: "2026-01-01T08-00-00Z",

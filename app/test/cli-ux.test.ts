@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import {
   formatDoctorReport,
   formatHealthCheckReport,
+  formatMaintenanceSessionPlan,
+  formatMaintenanceSessionRunResult,
   formatNowReport,
   formatStatusReport,
   formatWorkflowBundleReport,
@@ -354,7 +356,7 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
           {
             label: "Refresh wrappers before the next drift",
             summary: "Wrapper drift has repeated on this machine.",
-            command: "personal-ops install wrappers",
+            command: "personal-ops maintenance session",
             why_now: "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
             score_band: "medium" as const,
             signals: ["maintenance_window", "install_wrappers"],
@@ -367,8 +369,51 @@ test("phase 18 formatters surface maintenance windows only during calm periods",
 
   assert.match(formatWorklistReport(worklist), /Preventive Maintenance/);
   assert.match(formatNowReport(status, worklist), /Calm Window/);
+  assert.match(formatWorklistReport(worklist), /personal-ops maintenance session/);
+  assert.match(formatNowReport(status, worklist), /personal-ops maintenance session/);
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance Window/);
   assert.match(formatWorkflowBundleReport(prepDay), /calm window/i);
+});
+
+test("phase 19 maintenance session formatters show the calm-window entrypoint and next-step handoff", () => {
+  const sessionOutput = formatMaintenanceSessionPlan({
+    generated_at: "2026-04-11T10:00:00.000Z",
+    eligible_now: true,
+    deferred_reason: null,
+    bundle_id: "maintenance-window:install_wrappers",
+    title: "Preventive maintenance window",
+    summary: "A small wrapper refresh fits a calm window right now.",
+    start_command: "personal-ops maintenance session",
+    first_step_id: "install_wrappers",
+    steps: [
+      {
+        step_id: "install_wrappers",
+        title: "Refresh wrappers before the next drift",
+        reason: "Wrapper drift has repeated on this machine.",
+        suggested_command: "personal-ops install wrappers",
+        blocking: false,
+        latest_outcome: "resolved",
+        latest_completed_at: "2026-04-10T08:00:00.000Z",
+      },
+    ],
+  });
+  const runOutput = formatMaintenanceSessionRunResult({
+    generated_at: "2026-04-11T10:05:00.000Z",
+    step_id: "install_wrappers",
+    executed: true,
+    suggested_command: "personal-ops install wrappers",
+    outcome: "resolved",
+    session_complete: false,
+    next_step_id: "install_launchagent",
+    next_command: "personal-ops maintenance run next",
+    message: "Maintenance step resolved. Next safe maintenance step: `personal-ops maintenance run next`.",
+  });
+
+  assert.match(sessionOutput, /Maintenance Session/);
+  assert.match(sessionOutput, /personal-ops maintenance session/);
+  assert.match(sessionOutput, /inside session: personal-ops install wrappers/);
+  assert.match(runOutput, /Maintenance Run/);
+  assert.match(runOutput, /Next command: personal-ops maintenance run next/);
 });
 
 test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {

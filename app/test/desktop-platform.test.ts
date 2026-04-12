@@ -69,6 +69,10 @@ test("assistant-led phase 13 desktop platform verification allows unsupported GT
             package: { name: "glib" },
             advisory: { id: "RUSTSEC-2024-0429" },
           },
+          {
+            package: { name: "rand", version: "0.8.5" },
+            advisory: { id: "RUSTSEC-2026-0097" },
+          },
         ],
         unmaintained: [
           {
@@ -96,6 +100,7 @@ test("assistant-led phase 13 desktop platform verification allows unsupported GT
 
   assert.equal(allowed.ok, true);
   assert.match(allowed.info.join("\n"), /glib/i);
+  assert.match(allowed.info.join("\n"), /rand/i);
   assert.equal(blocked.ok, false);
   assert.match(blocked.errors.join("\n"), /npm audit/i);
   assert.match(blocked.errors.join("\n"), /some-supported-crate/i);

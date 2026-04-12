@@ -17,6 +17,7 @@ import type {
   WorkflowBundleSectionItem,
   WorklistReport,
 } from "../types.js";
+import { MAINTENANCE_SESSION_COMMAND } from "../repair-plan.js";
 import { listMeetingPrepCandidates, type MeetingPrepCandidate } from "./meeting-prep.js";
 
 const MAX_SECTION_ITEMS = 3;
@@ -964,7 +965,7 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
   return worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
     label: recommendation.title,
     summary: recommendation.reason,
-    command: recommendation.suggested_command,
+    command: MAINTENANCE_SESSION_COMMAND,
     target_type: "system",
     target_id: `maintenance:${recommendation.step_id}`,
     why_now: "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",

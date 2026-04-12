@@ -3707,6 +3707,8 @@ test("phase-14 planning hygiene reviews are audit-derived and re-open when evide
 
 test("phase-15 policy proposals add follow-through reporting without mutating recommendations", async () => {
   const now = Date.now();
+  const staleReviewAt = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString();
+  const staleEventAt = new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString();
   const { service } = createFixture();
   const familyTargetId = "urgent_unscheduled_tasks:schedule_task_block:system_generated";
 
@@ -3787,7 +3789,7 @@ test("phase-15 policy proposals add follow-through reporting without mutating re
          AND target_type = 'planning_recommendation_family'
          AND target_id = ?`,
     )
-    .run("2026-03-12T12:00:00.000Z", familyTargetId);
+    .run(staleEventAt, familyTargetId);
   rawDb
     .prepare(
       `UPDATE planning_recommendations
@@ -3800,10 +3802,10 @@ test("phase-15 policy proposals add follow-through reporting without mutating re
          AND source = 'system_generated'`,
     )
     .run(
-      "2026-03-10T12:00:00.000Z",
-      "2026-03-10T12:00:00.000Z",
-      "2026-03-10T12:00:00.000Z",
-      "2026-03-10T12:00:00.000Z",
+      staleReviewAt,
+      staleReviewAt,
+      staleReviewAt,
+      staleReviewAt,
     );
 
   const reviewedStale = service.getPlanningRecommendationHygieneReport({ group: "urgent_unscheduled_tasks" }).families[0];
@@ -3842,7 +3844,7 @@ test("phase-15 policy proposals add follow-through reporting without mutating re
   assert.ok(proposalId);
   rawDb
     .prepare(`UPDATE planning_hygiene_policy_proposals SET updated_at = ? WHERE proposal_id = ?`)
-    .run("2026-03-10T12:00:00.000Z", proposalId);
+    .run(staleReviewAt, proposalId);
 
   const staleProposal = service.getPlanningRecommendationHygieneReport({ group: "urgent_unscheduled_tasks" }).families[0];
   assert.ok(staleProposal);
@@ -6427,7 +6429,7 @@ test("phase 18 worklist and prep-day surface a maintenance window only during ca
 
   assert.equal(worklist.maintenance_window.eligible_now, true);
   assert.equal(worklist.maintenance_window.top_step_id, "install_wrappers");
-  assert.equal(maintenanceSection?.items[0]?.command, "personal-ops install wrappers");
+  assert.equal(maintenanceSection?.items[0]?.command, "personal-ops maintenance session");
   assert.equal(report.actions.some((action) => action.command === "personal-ops install wrappers"), false);
 });
 

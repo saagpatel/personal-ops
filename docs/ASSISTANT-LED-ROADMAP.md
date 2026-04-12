@@ -357,10 +357,28 @@ Delivered shape:
   - no new HTTP or MCP APIs
   - no change to send, approval, auth, restore, or ranking controls
 
+## Phase 19
+
+Phase 19 is now complete.
+
+Delivered shape:
+
+- a derived CLI-only maintenance session built directly from the existing calm-window maintenance bundle
+- `personal-ops maintenance session` for the current session preview or deferred reason
+- `personal-ops maintenance run next` for one safe maintenance step at a time
+- maintenance execution recorded in existing repair history as `maintenance_run`
+- calm-window read surfaces now point to the session start command without displacing repair or concrete work
+- unchanged trust boundaries:
+  - maintenance execution stays CLI-only
+  - browser and console remain read-only
+  - no new HTTP or MCP APIs
+  - no new persistence beyond the existing repair execution history
+  - no change to send, approval, auth, restore, or ranking controls
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, and 18 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, and 19 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

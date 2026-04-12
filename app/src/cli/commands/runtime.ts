@@ -20,6 +20,8 @@ import {
   formatGithubStatus,
   formatHealthCheckReport,
   formatMeetingPrepPacket,
+  formatMaintenanceSessionPlan,
+  formatMaintenanceSessionRunResult,
   formatNowReport,
   formatRepairExecutionResult,
   formatRepairPlanReport,
@@ -29,9 +31,24 @@ import {
   formatWorkflowBundleReport,
   formatWorklistReport,
 } from "../../formatters.js";
-import { buildRepairPlan, summarizeRepairPlan } from "../../repair-plan.js";
+import {
+  buildMaintenanceSessionPlan,
+  buildRepairPlan,
+  MAINTENANCE_RUN_NEXT_COMMAND,
+  MAINTENANCE_SESSION_COMMAND,
+  summarizeRepairPlan,
+} from "../../repair-plan.js";
 import type { Logger } from "../../logger.js";
-import type { Paths, RepairExecutionResult, RepairStepId } from "../../types.js";
+import type {
+  MaintenanceSessionPlan,
+  MaintenanceSessionRunResult,
+  Paths,
+  RepairExecutionResult,
+  RepairExecutionTriggerSource,
+  RepairStep,
+  RepairStepId,
+  ServiceStatusReport,
+} from "../../types.js";
 import { buildVersionReport } from "../../version.js";
 import type { CliContext } from "../shared.js";
 
@@ -61,6 +78,106 @@ function preventiveFollowUpForStep(stepId: RepairStepId): string | null {
     return "This permissions issue has repeated recently. Check the tool or workflow reopening broad secret-file permissions.";
   }
   return null;
+}
+
+const SAFE_EXECUTABLE_STEP_IDS = new Set<RepairStepId>([
+  "install_wrappers",
+  "fix_permissions",
+  "install_launchagent",
+  "install_desktop",
+]);
+
+async function runSafeExecutableStep(stepId: RepairStepId, paths: Paths): Promise<void> {
+  if (stepId === "install_wrappers") {
+    installWrappers(paths, process.execPath, { trackRepairExecution: false });
+    return;
+  }
+  if (stepId === "fix_permissions") {
+    fixInstallPermissions(paths, { trackRepairExecution: false });
+    return;
+  }
+  if (stepId === "install_launchagent") {
+    await installLaunchAgent(paths, process.execPath, {}, { trackRepairExecution: false });
+    return;
+  }
+  if (stepId === "install_desktop") {
+    await installDesktop(paths, process.execPath, { trackRepairExecution: false });
+    return;
+  }
+  throw new Error(`Repair step \`${stepId}\` is not executable from the CLI.`);
+}
+
+async function buildCurrentHealthReport(context: CliContext, paths: Paths) {
+  return buildHealthCheckReport(paths, context.requestJson, {
+    deep: false,
+    snapshotAgeLimitHours: 24,
+  });
+}
+
+function listRecentRepairExecutions(paths: Paths) {
+  const db = new PersonalOpsDb(paths.databaseFile);
+  try {
+    return db.listRepairExecutions({ days: 30, limit: 100 });
+  } finally {
+    db.close();
+  }
+}
+
+async function buildCurrentStatusReport(context: CliContext): Promise<ServiceStatusReport> {
+  const response = await context.requestJson<{ status: ServiceStatusReport }>("GET", "/v1/status");
+  return response.status;
+}
+
+async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths): Promise<MaintenanceSessionPlan> {
+  try {
+    const status = await buildCurrentStatusReport(context);
+    return buildMaintenanceSessionPlan({
+      generated_at: status.generated_at,
+      maintenance_window: status.maintenance_window,
+      recent_repair_executions: listRecentRepairExecutions(paths),
+    });
+  } catch {
+    return buildMaintenanceSessionPlan({
+      generated_at: new Date().toISOString(),
+      maintenance_window: {
+        eligible_now: false,
+        deferred_reason: "system_not_ready",
+        count: 0,
+        top_step_id: null,
+        bundle: null,
+      },
+      recent_repair_executions: listRecentRepairExecutions(paths),
+    });
+  }
+}
+
+async function executeTrackedSafeStep(input: {
+  step: Pick<RepairStep, "id">;
+  paths: Paths;
+  context: CliContext;
+}): Promise<{
+  beforeReport: Awaited<ReturnType<typeof buildHealthCheckReport>>;
+  afterReport: Awaited<ReturnType<typeof buildHealthCheckReport>>;
+  outcome: "resolved" | "still_pending";
+  resolvedTargetStep: boolean;
+  remainingStep: RepairStep | null;
+  startedAt: string;
+}> {
+  const beforeReport = await buildCurrentHealthReport(input.context, input.paths);
+  const startedAt = new Date().toISOString();
+  await runSafeExecutableStep(input.step.id, input.paths);
+  const afterReport = await buildCurrentHealthReport(input.context, input.paths);
+  const remainingStep = afterReport.repair_plan.steps.find((step) => step.id === input.step.id) ?? null;
+  const resolvedTargetStep = !remainingStep;
+  const outcome = resolvedTargetStep ? "resolved" : "still_pending";
+  return {
+    beforeReport,
+    afterReport,
+    outcome,
+    resolvedTargetStep,
+    remainingStep,
+    startedAt,
+  };
 }
 
 export function registerRuntimeCommands(program: Command, context: CliContext, logger: Logger, paths: Paths) {
@@ -145,10 +262,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
     .argument("<stepId>", "Use a repair step id or `next`")
     .option("--json", "Print raw JSON")
     .action(async (stepId, options) => {
-      const report = await buildHealthCheckReport(paths, context.requestJson, {
-        deep: false,
-        snapshotAgeLimitHours: 24,
-      });
+      const report = await buildCurrentHealthReport(context, paths);
       const plan = report.repair_plan;
       const targetStep =
         stepId === "next"
@@ -173,36 +287,30 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           message: `This step is advisory only. Run \`${targetStep.suggested_command}\` manually, then rerun \`personal-ops repair plan\`.`,
         };
       } else {
-        if (!["install_wrappers", "fix_permissions", "install_launchagent", "install_desktop"].includes(targetStep.id)) {
+        if (!SAFE_EXECUTABLE_STEP_IDS.has(targetStep.id)) {
           throw new Error(`Repair step \`${targetStep.id}\` is not executable from the CLI.`);
         }
-        const startedAt = new Date().toISOString();
-        if (targetStep.id === "install_wrappers") {
-          installWrappers(paths, process.execPath, { trackRepairExecution: false });
-        } else if (targetStep.id === "fix_permissions") {
-          fixInstallPermissions(paths, { trackRepairExecution: false });
-        } else if (targetStep.id === "install_launchagent") {
-          await installLaunchAgent(paths, process.execPath, {}, { trackRepairExecution: false });
-        } else if (targetStep.id === "install_desktop") {
-          await installDesktop(paths, process.execPath, { trackRepairExecution: false });
-        }
-
-        const refreshedReport = await buildHealthCheckReport(paths, context.requestJson, {
-          deep: false,
-          snapshotAgeLimitHours: 24,
+        const {
+          beforeReport,
+          afterReport,
+          outcome,
+          resolvedTargetStep,
+          remainingStep,
+          startedAt,
+        } = await executeTrackedSafeStep({
+          step: targetStep,
+          paths,
+          context,
         });
-        const remainingStep = refreshedReport.repair_plan.steps.find((step) => step.id === targetStep.id) ?? null;
-        const resolvedTargetStep = !remainingStep;
-        const outcome = resolvedTargetStep ? "resolved" : "still_pending";
         const message = resolvedTargetStep
-          ? refreshedReport.repair_plan.first_repair_step
-            ? `Step resolved. Next repair step: \`${refreshedReport.repair_plan.first_repair_step}\`.`
+          ? afterReport.repair_plan.first_repair_step
+            ? `Step resolved. Next repair step: \`${afterReport.repair_plan.first_repair_step}\`.`
             : "Step resolved. No repair steps are pending right now."
           : remainingStep
             ? `Step ran, but the targeted issue still needs attention: ${remainingStep.reason}`
             : "Step ran, but repair follow-up is still required.";
         let preventiveFollowUp: string | undefined;
-        if (resolvedTargetStep && (process.env.PERSONAL_OPS_STATE_DIR || paths.databaseFile)) {
+        if (resolvedTargetStep) {
           const db = new PersonalOpsDb(paths.databaseFile);
           try {
             const priorResolvedCount = db
@@ -211,11 +319,23 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             if (priorResolvedCount + 1 >= 2) {
               preventiveFollowUp = preventiveFollowUpForStep(targetStep.id) ?? undefined;
             }
+            db.createRepairExecution({
+              step_id: targetStep.id,
+              started_at: startedAt,
+              completed_at: new Date().toISOString(),
+              requested_by_client: "personal-ops-cli",
+              requested_by_actor: "operator",
+              trigger_source: "repair_run",
+              before_first_step_id: beforeReport.repair_plan.first_step_id,
+              after_first_step_id: afterReport.repair_plan.first_step_id,
+              outcome,
+              resolved_target_step: resolvedTargetStep,
+              message,
+            });
           } finally {
             db.close();
           }
-        }
-        if (process.env.PERSONAL_OPS_STATE_DIR || paths.databaseFile) {
+        } else {
           const db = new PersonalOpsDb(paths.databaseFile);
           try {
             db.createRepairExecution({
@@ -225,8 +345,8 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
               requested_by_client: "personal-ops-cli",
               requested_by_actor: "operator",
               trigger_source: "repair_run",
-              before_first_step_id: plan.first_step_id,
-              after_first_step_id: refreshedReport.repair_plan.first_step_id,
+              before_first_step_id: beforeReport.repair_plan.first_step_id,
+              after_first_step_id: afterReport.repair_plan.first_step_id,
               outcome,
               resolved_target_step: resolvedTargetStep,
               message,
@@ -243,13 +363,145 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
           suggested_command: targetStep.suggested_command,
           outcome,
           resolved_target_step: resolvedTargetStep,
-          next_repair_step: refreshedReport.repair_plan.first_repair_step ?? undefined,
+          next_repair_step: afterReport.repair_plan.first_repair_step ?? undefined,
           remaining_reason: remainingStep?.reason,
           preventive_follow_up: preventiveFollowUp,
           message,
         };
       }
       context.printOutput({ repair_execution: execution }, (value) => formatRepairExecutionResult(value.repair_execution), options.json);
+    });
+
+  const maintenance = program.command("maintenance").description("Run calm-window maintenance one safe step at a time.");
+  maintenance
+    .command("session")
+    .description("Show the current maintenance session plan or explain why it is deferred.")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const session = await buildCurrentMaintenanceSession(context, paths);
+      context.printOutput({ maintenance_session: session }, (value) => formatMaintenanceSessionPlan(value.maintenance_session), options.json);
+    });
+
+  maintenance
+    .command("run")
+    .description("Run the next safe maintenance step when a calm maintenance window is eligible.")
+    .command("next")
+    .option("--json", "Print raw JSON")
+    .action(async (options) => {
+      const session = await buildCurrentMaintenanceSession(context, paths);
+      let result: MaintenanceSessionRunResult;
+      if (!session.eligible_now || session.steps.length === 0) {
+        result = {
+          generated_at: new Date().toISOString(),
+          step_id: null,
+          executed: false,
+          suggested_command: MAINTENANCE_RUN_NEXT_COMMAND,
+          deferred_reason: session.deferred_reason ?? "no_preventive_work",
+          message: `Maintenance is not runnable right now. Current state: ${session.deferred_reason ?? "no preventive work"}. Start with \`${MAINTENANCE_SESSION_COMMAND}\` for the latest calm-window view.`,
+        };
+      } else {
+        const targetStep = session.steps[0]!;
+        try {
+          const {
+            beforeReport,
+            afterReport,
+            outcome,
+            resolvedTargetStep,
+            remainingStep,
+            startedAt,
+          } = await executeTrackedSafeStep({
+            step: { id: targetStep.step_id },
+            paths,
+            context,
+          });
+          const afterStatus = await buildCurrentStatusReport(context);
+          const afterSession = buildMaintenanceSessionPlan({
+            generated_at: afterStatus.generated_at,
+            maintenance_window: afterStatus.maintenance_window,
+            recent_repair_executions: listRecentRepairExecutions(paths),
+          });
+          const handedOffToRepair = afterReport.repair_plan.steps.length > 0;
+          const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;
+          const nextMaintenanceStep = !handedOffToRepair ? afterSession.steps[0] ?? null : null;
+          const message = !resolvedTargetStep
+            ? remainingStep
+              ? `Maintenance step ran, but the target still needs attention: ${remainingStep.reason}`
+              : "Maintenance step ran, but the issue still needs attention."
+            : handedOffToRepair
+              ? `Maintenance resolved the step, but active repair is now pending. Hand off to \`${afterReport.repair_plan.first_repair_step ?? "personal-ops repair plan"}\`.`
+              : sessionComplete
+                ? "Maintenance step resolved cleanly and the maintenance session is complete."
+                : `Maintenance step resolved. Next safe maintenance step: \`${MAINTENANCE_RUN_NEXT_COMMAND}\`.`;
+          const db = new PersonalOpsDb(paths.databaseFile);
+          try {
+            db.createRepairExecution({
+              step_id: targetStep.step_id,
+              started_at: startedAt,
+              completed_at: new Date().toISOString(),
+              requested_by_client: "personal-ops-cli",
+              requested_by_actor: "operator",
+              trigger_source: "maintenance_run",
+              before_first_step_id: beforeReport.repair_plan.first_step_id,
+              after_first_step_id: afterReport.repair_plan.first_step_id,
+              outcome,
+              resolved_target_step: resolvedTargetStep,
+              message,
+            });
+          } finally {
+            db.close();
+          }
+          result = {
+            generated_at: new Date().toISOString(),
+            step_id: targetStep.step_id,
+            executed: true,
+            suggested_command: targetStep.suggested_command,
+            outcome,
+            resolved_target_step: resolvedTargetStep,
+            session_complete: sessionComplete,
+            handed_off_to_repair: handedOffToRepair,
+            next_step_id: nextMaintenanceStep?.step_id,
+            next_command: nextMaintenanceStep ? MAINTENANCE_RUN_NEXT_COMMAND : undefined,
+            next_repair_step: afterReport.repair_plan.first_repair_step ?? undefined,
+            remaining_reason: remainingStep?.reason,
+            message,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Maintenance step failed.";
+          const db = new PersonalOpsDb(paths.databaseFile);
+          try {
+            db.createRepairExecution({
+              step_id: targetStep.step_id,
+              started_at: new Date().toISOString(),
+              completed_at: new Date().toISOString(),
+              requested_by_client: "personal-ops-cli",
+              requested_by_actor: "operator",
+              trigger_source: "maintenance_run",
+              before_first_step_id: session.first_step_id ?? null,
+              after_first_step_id: session.first_step_id ?? null,
+              outcome: "failed",
+              resolved_target_step: false,
+              message,
+            });
+          } finally {
+            db.close();
+          }
+          result = {
+            generated_at: new Date().toISOString(),
+            step_id: targetStep.step_id,
+            executed: true,
+            suggested_command: targetStep.suggested_command,
+            outcome: "failed",
+            next_step_id: targetStep.step_id,
+            next_command: MAINTENANCE_RUN_NEXT_COMMAND,
+            message,
+          };
+        }
+      }
+      context.printOutput(
+        { maintenance_run: result },
+        (value) => formatMaintenanceSessionRunResult(value.maintenance_run),
+        options.json,
+      );
     });
 
   program

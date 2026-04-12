@@ -2237,7 +2237,7 @@ export type RepairStepId =
 export type RepairStepStatus = "pending" | "done";
 export type RepairStepScope = "install" | "desktop" | "runtime" | "recovery" | "auth";
 export type RepairExecutionOutcome = "resolved" | "still_pending" | "failed";
-export type RepairExecutionTriggerSource = "repair_run" | "direct_command";
+export type RepairExecutionTriggerSource = "repair_run" | "direct_command" | "maintenance_run";
 
 export interface RepairOutcomeSummary {
   step_id: RepairStepId;
@@ -2294,6 +2294,28 @@ export interface MaintenanceWindowSummary {
   count: number;
   top_step_id: RepairStepId | null;
   bundle: PreventiveMaintenanceBundle | null;
+}
+
+export interface MaintenanceSessionStep {
+  step_id: RepairStepId;
+  title: string;
+  reason: string;
+  suggested_command: string;
+  blocking: boolean;
+  latest_outcome?: RepairExecutionOutcome | undefined;
+  latest_completed_at?: string | undefined;
+}
+
+export interface MaintenanceSessionPlan {
+  generated_at: string;
+  eligible_now: boolean;
+  deferred_reason: MaintenanceWindowDeferredReason | null;
+  bundle_id: string | null;
+  title: string | null;
+  summary: string | null;
+  start_command: string;
+  steps: MaintenanceSessionStep[];
+  first_step_id: RepairStepId | null;
 }
 
 export interface RepairExecutionRecord {
@@ -2362,6 +2384,23 @@ export interface RepairExecutionResult {
   next_repair_step?: string | undefined;
   remaining_reason?: string | undefined;
   preventive_follow_up?: string | undefined;
+  message: string;
+}
+
+export interface MaintenanceSessionRunResult {
+  generated_at: string;
+  step_id: RepairStepId | null;
+  executed: boolean;
+  suggested_command: string;
+  outcome?: RepairExecutionOutcome | undefined;
+  resolved_target_step?: boolean | undefined;
+  session_complete?: boolean | undefined;
+  handed_off_to_repair?: boolean | undefined;
+  next_step_id?: RepairStepId | undefined;
+  next_command?: string | undefined;
+  next_repair_step?: string | undefined;
+  deferred_reason?: MaintenanceWindowDeferredReason | undefined;
+  remaining_reason?: string | undefined;
   message: string;
 }
 

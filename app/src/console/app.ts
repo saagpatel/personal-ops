@@ -115,6 +115,8 @@ interface WorkflowResponse {
   workflow: WorkflowBundleReport;
 }
 
+const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
+
 interface MeetingPrepPacketResponse {
   meeting_prep_packet: MeetingPrepPacket;
 }
@@ -2631,8 +2633,9 @@ function renderOverview(payload: ConsolePayload): string {
                     <span class="pill pill--good">calm window</span>
                   </div>
                   <p>${escapeHtml(repairPlan.maintenance_window.bundle.summary)}</p>
+                  <p class="subtle subtle--body">Start the maintenance session from the CLI, then work through the safe steps one at a time.</p>
                   <div class="list-item__actions list-item__actions--stack">
-                    ${commandStack(repairPlan.maintenance_window.bundle.recommended_commands)}
+                    ${commandStack([MAINTENANCE_SESSION_COMMAND])}
                   </div>
                 </article>
               `
