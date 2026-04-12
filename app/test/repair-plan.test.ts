@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceSchedulingSummary,
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -824,4 +825,148 @@ test("phase 21 maintenance escalation is suppressed by a recent successful maint
 
   assert.equal(recentSuccessSuppressed.eligible, false);
   assert.equal(activeRepairSuppressed.eligible, false);
+});
+
+test("phase 22 maintenance scheduling places escalations into now when no urgent concrete work is present", () => {
+  const scheduling = buildMaintenanceSchedulingSummary({
+    state: "ready",
+    worklist_items: [],
+    repair_plan: { steps: [] },
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "concrete_work_present",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
+    maintenance_escalation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      signal: "handed_off_to_repair",
+      summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      handoff_count_30d: 2,
+      cue: null,
+    },
+  });
+
+  assert.equal(scheduling.eligible, true);
+  assert.equal(scheduling.placement, "now");
+  assert.equal(scheduling.step_id, "install_wrappers");
+});
+
+test("phase 22 maintenance scheduling places escalations into prep_day when urgent concrete work is present", () => {
+  const scheduling = buildMaintenanceSchedulingSummary({
+    state: "ready",
+    worklist_items: [
+      {
+        item_id: "task-22",
+        kind: "task_due_soon",
+        severity: "warn",
+        title: "Urgent task",
+        summary: "A real task is due soon.",
+        target_type: "task",
+        target_id: "task-22",
+        created_at: "2026-04-12T20:00:00.000Z",
+        suggested_command: "personal-ops task show task-22",
+        metadata_json: "{}",
+      },
+    ],
+    repair_plan: { steps: [] },
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "concrete_work_present",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
+    maintenance_escalation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      signal: "handed_off_to_repair",
+      summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      handoff_count_30d: 2,
+      cue: null,
+    },
+  });
+
+  assert.equal(scheduling.eligible, true);
+  assert.equal(scheduling.placement, "prep_day");
+  assert.equal(scheduling.step_id, "install_wrappers");
+});
+
+test("phase 22 maintenance scheduling keeps preventive upkeep in calm_window and suppresses matching repair families", () => {
+  const maintenanceWindow = {
+    eligible_now: true,
+    deferred_reason: null,
+    count: 1,
+    top_step_id: "install_wrappers" as const,
+    bundle: {
+      bundle_id: "maintenance-window:install_wrappers",
+      title: "Preventive maintenance window",
+      summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
+      recommended_commands: ["personal-ops install wrappers"],
+      recommendations: [
+        {
+          step_id: "install_wrappers" as const,
+          title: "Refresh wrappers before the next drift",
+          reason: "Wrapper drift has repeated on this machine.",
+          suggested_command: "personal-ops install wrappers",
+          urgency: "watch" as const,
+          last_resolved_at: "2026-04-06T18:05:00.000Z",
+          repeat_count_30d: 2,
+        },
+      ],
+    },
+  };
+
+  const calmWindow = buildMaintenanceSchedulingSummary({
+    state: "ready",
+    worklist_items: [],
+    repair_plan: { steps: [] },
+    maintenance_window: maintenanceWindow,
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+  });
+  const suppressed = buildMaintenanceSchedulingSummary({
+    state: "ready",
+    worklist_items: [],
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Refresh wrappers",
+          reason: "Wrapper repair is pending again.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    maintenance_window: maintenanceWindow,
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+  });
+
+  assert.equal(calmWindow.eligible, true);
+  assert.equal(calmWindow.placement, "calm_window");
+  assert.equal(suppressed.eligible, false);
+  assert.equal(suppressed.placement, "suppressed");
 });

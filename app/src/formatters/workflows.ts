@@ -26,6 +26,14 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
     lines.push(`Maintenance escalation: ${report.maintenance_escalation.summary}`);
     lines.push(`Next: ${report.maintenance_escalation.suggested_command}`);
   }
+  if (report.maintenance_scheduling.eligible && report.maintenance_scheduling.summary) {
+    lines.push(
+      `Maintenance scheduling (${report.maintenance_scheduling.placement.replaceAll("_", " ")}): ${report.maintenance_scheduling.summary}`,
+    );
+    if (report.maintenance_scheduling.suggested_command) {
+      lines.push(`Next: ${report.maintenance_scheduling.suggested_command}`);
+    }
+  }
   lines.push("");
 
   for (const section of report.sections) {

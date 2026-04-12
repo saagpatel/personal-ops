@@ -1242,6 +1242,7 @@ export interface WorklistReport {
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
   items: AttentionItem[];
 }
 
@@ -2077,6 +2078,7 @@ export interface WorkflowBundleReport {
   first_repair_step: string | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
 }
 
 export interface MailSyncState {
@@ -2345,6 +2347,18 @@ export interface MaintenanceEscalationSummary {
   cue: MaintenanceEscalationCue | null;
 }
 
+export type MaintenanceSchedulingPlacement = "now" | "prep_day" | "calm_window" | "suppressed";
+
+export interface MaintenanceSchedulingSummary {
+  eligible: boolean;
+  placement: MaintenanceSchedulingPlacement;
+  step_id: RepairStepId | null;
+  summary: string | null;
+  suggested_command: string | null;
+  reason: string | null;
+  bundle_step_ids: RepairStepId[];
+}
+
 export interface MaintenanceFollowThroughSummary {
   generated_at: string;
   last_maintenance_outcome: MaintenanceOutcomeSignal | null;
@@ -2379,6 +2393,7 @@ export interface MaintenanceSessionPlan {
   steps: MaintenanceSessionStep[];
   first_step_id: RepairStepId | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
 }
 
 export interface RepairExecutionRecord {
@@ -2419,6 +2434,7 @@ export interface RepairPlan {
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2439,6 +2455,7 @@ export interface RepairPlanSummary {
   top_maintenance_pressure_step_id: RepairStepId | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_window: MaintenanceWindowSummary;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
@@ -2616,6 +2633,7 @@ export interface ServiceStatusReport {
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

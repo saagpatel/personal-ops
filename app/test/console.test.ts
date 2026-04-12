@@ -502,6 +502,15 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           },
           summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
         },
+        maintenance_scheduling: {
+          eligible: true,
+          placement: "now",
+          step_id: "install_wrappers",
+          summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+          suggested_command: "personal-ops maintenance session",
+          reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+          bundle_step_ids: ["install_wrappers"],
+        },
         repair_plan: {
           ...status.repair_plan,
           maintenance_window: maintenanceWindow,
@@ -547,6 +556,15 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
             },
             summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
           },
+          maintenance_scheduling: {
+            eligible: true,
+            placement: "now",
+            step_id: "install_wrappers",
+            summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+            suggested_command: "personal-ops maintenance session",
+            reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+            bundle_step_ids: ["install_wrappers"],
+          },
         },
       };
     };
@@ -579,6 +597,11 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           step_id?: string | null;
           suggested_command?: string | null;
         };
+        maintenance_scheduling?: {
+          eligible?: boolean;
+          placement?: string | null;
+          step_id?: string | null;
+        };
       };
     };
 
@@ -588,6 +611,9 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
     assert.equal(payload.status?.maintenance_escalation?.eligible, true);
     assert.equal(payload.status?.maintenance_escalation?.step_id, "install_wrappers");
     assert.equal(payload.status?.maintenance_escalation?.suggested_command, "personal-ops maintenance session");
+    assert.equal(payload.status?.maintenance_scheduling?.eligible, true);
+    assert.equal(payload.status?.maintenance_scheduling?.placement, "now");
+    assert.equal(payload.status?.maintenance_scheduling?.step_id, "install_wrappers");
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

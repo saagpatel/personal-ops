@@ -63,6 +63,7 @@ import { sendMacNotification } from "./notifications.js";
 import {
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
   MAINTENANCE_SESSION_COMMAND,
@@ -3584,6 +3585,13 @@ export class PersonalOpsService {
       repair_plan: repairPlan,
       recent_repair_executions: recentRepairExecutions,
     });
+    const maintenanceScheduling = buildMaintenanceSchedulingSummary({
+      state,
+      worklist_items: items,
+      repair_plan: repairPlan,
+      maintenance_window: maintenanceWindow,
+      maintenance_escalation: maintenanceEscalation,
+    });
     const finalItems = maintenanceEscalation.cue
       ? [...items, {
           item_id: maintenanceEscalation.cue.item_id,
@@ -3622,6 +3630,7 @@ export class PersonalOpsService {
       maintenance_window: maintenanceWindow,
       maintenance_follow_through: maintenanceFollowThrough,
       maintenance_escalation: maintenanceEscalation,
+      maintenance_scheduling: maintenanceScheduling,
       items: finalItems,
     };
   }

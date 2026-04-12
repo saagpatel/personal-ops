@@ -1321,6 +1321,15 @@ export function buildInstallCheckReport(paths: Paths, dependencies: InstallDepen
           handoff_count_30d: 0,
           cue: null,
         },
+        maintenance_scheduling: {
+          eligible: false,
+          placement: "suppressed",
+          step_id: null,
+          summary: null,
+          suggested_command: null,
+          reason: null,
+          bundle_step_ids: [],
+        },
         maintenance_window: {
           eligible_now: false,
           deferred_reason: "no_preventive_work",

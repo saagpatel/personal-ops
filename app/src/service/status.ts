@@ -13,6 +13,7 @@ import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from 
 import {
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
   summarizeRepairPlan,
@@ -195,11 +196,21 @@ export async function buildStatusReport(
       repair_plan: repairPlan,
       recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
     });
+  const maintenanceScheduling =
+    worklist.maintenance_scheduling ??
+    buildMaintenanceSchedulingSummary({
+      state: classifiedState,
+      worklist_items: worklist.items,
+      repair_plan: repairPlan,
+      maintenance_window: maintenanceWindow,
+      maintenance_escalation: maintenanceEscalation,
+    });
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
     maintenance_escalation: maintenanceEscalation,
+    maintenance_scheduling: maintenanceScheduling,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -214,6 +225,7 @@ export async function buildStatusReport(
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
     maintenance_escalation: maintenanceEscalation,
+    maintenance_scheduling: maintenanceScheduling,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {
