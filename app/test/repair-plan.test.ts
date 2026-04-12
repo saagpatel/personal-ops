@@ -7,6 +7,7 @@ import {
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
+  deriveMaintenanceCommitmentState,
   summarizeRepairPlan,
 } from "../src/repair-plan.js";
 import type { DoctorCheck, RepairExecutionRecord } from "../src/types.js";
@@ -969,4 +970,207 @@ test("phase 22 maintenance scheduling keeps preventive upkeep in calm_window and
   assert.equal(calmWindow.placement, "calm_window");
   assert.equal(suppressed.eligible, false);
   assert.equal(suppressed.placement, "suppressed");
+});
+
+test("phase 23 commitment memory creates active commitments only for now and prep_day placements", () => {
+  const nowCommitment = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Wrappers should be handled in the current operating block.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+    existing_commitments: [],
+  });
+  const calmWindowCommitment = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "calm_window",
+      step_id: "install_wrappers",
+      summary: "Keep this for a calm window.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+    existing_commitments: [],
+  });
+
+  assert.equal(nowCommitment.maintenance_commitment.active, true);
+  assert.equal(nowCommitment.maintenance_commitment.step_id, "install_wrappers");
+  assert.equal(calmWindowCommitment.maintenance_commitment.active, false);
+  assert.equal(calmWindowCommitment.records.length, 0);
+});
+
+test("phase 23 commitment memory increments defer_count only after a fresh resurfacing window", () => {
+  const existing = {
+    commitment_id: "commitment-23",
+    step_id: "install_wrappers" as const,
+    created_at: "2026-04-11T06:00:00.000Z",
+    updated_at: "2026-04-11T06:00:00.000Z",
+    last_presented_at: "2026-04-11T06:00:00.000Z",
+    last_placement: "now" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+    state: "active" as const,
+    defer_count: 0,
+  };
+
+  const resurfaced = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:30:00.000Z",
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Wrappers should be handled in the current operating block.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+    existing_commitments: [existing],
+  });
+  const withinWindow = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-11T12:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Wrappers should be handled in the current operating block.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+    existing_commitments: [existing],
+  });
+
+  assert.equal(resurfaced.maintenance_commitment.defer_count, 1);
+  assert.equal(resurfaced.maintenance_defer_memory.active, true);
+  assert.equal(withinWindow.maintenance_commitment.defer_count, 0);
+  assert.equal(withinWindow.maintenance_defer_memory.active, false);
+});
+
+test("phase 23 commitment memory records completion and handoff outcomes from maintenance runs", () => {
+  const existing = {
+    commitment_id: "commitment-23",
+    step_id: "install_wrappers" as const,
+    created_at: "2026-04-11T06:00:00.000Z",
+    updated_at: "2026-04-11T06:00:00.000Z",
+    last_presented_at: "2026-04-11T06:00:00.000Z",
+    last_placement: "prep_day" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+    state: "active" as const,
+    defer_count: 2,
+  };
+
+  const completed = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: false,
+      placement: "suppressed",
+      step_id: null,
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
+      bundle_step_ids: [],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [
+      maintenanceExecution("install_wrappers", "2026-04-12T19:30:00.000Z", "maintenance-complete-1"),
+    ],
+    existing_commitments: [existing],
+  });
+  const handedOff = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: false,
+      placement: "suppressed",
+      step_id: null,
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
+      bundle_step_ids: [],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [
+      maintenanceExecution("install_wrappers", "2026-04-12T19:30:00.000Z", "maintenance-handoff-1", {
+        after_first_step_id: "doctor",
+      }),
+    ],
+    existing_commitments: [existing],
+  });
+
+  assert.equal(completed.maintenance_commitment.state, "completed");
+  assert.equal(handedOff.maintenance_commitment.state, "handed_off_to_repair");
+});
+
+test("phase 23 commitment memory is superseded by active repair and expires after a week without resurfacing", () => {
+  const existing = {
+    commitment_id: "commitment-23",
+    step_id: "install_wrappers" as const,
+    created_at: "2026-04-01T06:00:00.000Z",
+    updated_at: "2026-04-01T06:00:00.000Z",
+    last_presented_at: "2026-04-01T06:00:00.000Z",
+    last_placement: "prep_day" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+    state: "active" as const,
+    defer_count: 1,
+  };
+
+  const superseded = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: false,
+      placement: "suppressed",
+      step_id: null,
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because repair is already pending.",
+      bundle_step_ids: [],
+    },
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Refresh wrappers",
+          reason: "Wrapper repair is pending again.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    recent_repair_executions: [],
+    existing_commitments: [existing],
+  });
+  const expired = deriveMaintenanceCommitmentState({
+    generated_at: "2026-04-12T20:00:00.000Z",
+    maintenance_scheduling: {
+      eligible: false,
+      placement: "suppressed",
+      step_id: null,
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
+      bundle_step_ids: [],
+    },
+    repair_plan: { steps: [] },
+    recent_repair_executions: [],
+    existing_commitments: [existing],
+  });
+
+  assert.equal(superseded.maintenance_commitment.state, "superseded_by_repair");
+  assert.equal(expired.maintenance_commitment.state, "expired");
 });

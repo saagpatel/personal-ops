@@ -80,6 +80,8 @@ import {
   ReviewPackageState,
   ReviewPackageSurface,
   ReviewReadModelRefreshState,
+  MaintenanceCommitmentRecord,
+  MaintenanceCommitmentState,
   RepairExecutionOutcome,
   RepairExecutionRecord,
   RepairExecutionTriggerSource,
@@ -99,7 +101,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 25;
+export const CURRENT_SCHEMA_VERSION = 26;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -4099,6 +4101,73 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapRepairExecution(row));
   }
 
+  upsertMaintenanceCommitment(input: MaintenanceCommitmentRecord): MaintenanceCommitmentRecord {
+    const stored: MaintenanceCommitmentRecord = {
+      ...input,
+      bundle_step_ids: [...input.bundle_step_ids],
+    };
+    this.db
+      .prepare(
+        `INSERT INTO maintenance_commitments (
+          commitment_id, step_id, created_at, updated_at, last_presented_at, last_placement,
+          bundle_step_ids_json, state, defer_count, last_deferred_at, fulfilled_at, fulfilled_by_execution_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(commitment_id) DO UPDATE SET
+          step_id = excluded.step_id,
+          updated_at = excluded.updated_at,
+          last_presented_at = excluded.last_presented_at,
+          last_placement = excluded.last_placement,
+          bundle_step_ids_json = excluded.bundle_step_ids_json,
+          state = excluded.state,
+          defer_count = excluded.defer_count,
+          last_deferred_at = excluded.last_deferred_at,
+          fulfilled_at = excluded.fulfilled_at,
+          fulfilled_by_execution_id = excluded.fulfilled_by_execution_id`,
+      )
+      .run(
+        stored.commitment_id,
+        stored.step_id,
+        stored.created_at,
+        stored.updated_at,
+        stored.last_presented_at,
+        stored.last_placement,
+        toJson(stored.bundle_step_ids),
+        stored.state,
+        stored.defer_count,
+        stored.last_deferred_at ?? null,
+        stored.fulfilled_at ?? null,
+        stored.fulfilled_by_execution_id ?? null,
+      );
+    return stored;
+  }
+
+  listMaintenanceCommitments(options: {
+    step_id?: RepairStepId;
+    state?: MaintenanceCommitmentState;
+    states?: MaintenanceCommitmentState[];
+    limit?: number;
+  } = {}): MaintenanceCommitmentRecord[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.step_id) {
+      clauses.push(`step_id = ?`);
+      params.push(options.step_id);
+    }
+    if (options.state) {
+      clauses.push(`state = ?`);
+      params.push(options.state);
+    } else if (options.states && options.states.length > 0) {
+      clauses.push(`state IN (${options.states.map(() => `?`).join(", ")})`);
+      params.push(...options.states);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = options.limit ? ` LIMIT ${Math.max(1, options.limit)}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM maintenance_commitments ${whereClause} ORDER BY updated_at DESC${limitClause}`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapMaintenanceCommitment(row));
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -4890,6 +4959,31 @@ export class PersonalOpsDb {
       CREATE INDEX IF NOT EXISTS idx_repair_executions_step_completed_at
         ON repair_executions(step_id, completed_at DESC);
 
+      CREATE TABLE IF NOT EXISTS maintenance_commitments (
+        commitment_id TEXT PRIMARY KEY,
+        step_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_presented_at TEXT NOT NULL,
+        last_placement TEXT NOT NULL,
+        bundle_step_ids_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        defer_count INTEGER NOT NULL DEFAULT 0,
+        last_deferred_at TEXT,
+        fulfilled_at TEXT,
+        fulfilled_by_execution_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_maintenance_commitments_updated_at
+        ON maintenance_commitments(updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_maintenance_commitments_step_state
+        ON maintenance_commitments(step_id, state, updated_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_commitments_active_step
+        ON maintenance_commitments(step_id)
+        WHERE state = 'active';
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -5166,6 +5260,10 @@ export class PersonalOpsDb {
       } else if (version === 24) {
         this.migrateToV25();
         version = 25;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 25) {
+        this.migrateToV26();
+        version = 26;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -6166,6 +6264,35 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV26() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS maintenance_commitments (
+        commitment_id TEXT PRIMARY KEY,
+        step_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_presented_at TEXT NOT NULL,
+        last_placement TEXT NOT NULL,
+        bundle_step_ids_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        defer_count INTEGER NOT NULL DEFAULT 0,
+        last_deferred_at TEXT,
+        fulfilled_at TEXT,
+        fulfilled_by_execution_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_maintenance_commitments_updated_at
+        ON maintenance_commitments(updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_maintenance_commitments_step_state
+        ON maintenance_commitments(step_id, state, updated_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_commitments_active_step
+        ON maintenance_commitments(step_id)
+        WHERE state = 'active';
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6567,6 +6694,23 @@ export class PersonalOpsDb {
       outcome: String(row.outcome) as RepairExecutionOutcome,
       resolved_target_step: Number(row.resolved_target_step ?? 0) === 1,
       message: String(row.message),
+    };
+  }
+
+  private mapMaintenanceCommitment(row: Record<string, unknown>): MaintenanceCommitmentRecord {
+    return {
+      commitment_id: String(row.commitment_id),
+      step_id: String(row.step_id) as RepairStepId,
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+      last_presented_at: String(row.last_presented_at),
+      last_placement: String(row.last_placement) as "now" | "prep_day",
+      bundle_step_ids: fromJsonArray(String(row.bundle_step_ids_json ?? "[]")).map((item) => item as RepairStepId),
+      state: String(row.state) as MaintenanceCommitmentState,
+      defer_count: Number(row.defer_count ?? 0),
+      last_deferred_at: row.last_deferred_at ? String(row.last_deferred_at) : undefined,
+      fulfilled_at: row.fulfilled_at ? String(row.fulfilled_at) : undefined,
+      fulfilled_by_execution_id: row.fulfilled_by_execution_id ? String(row.fulfilled_by_execution_id) : undefined,
     };
   }
 

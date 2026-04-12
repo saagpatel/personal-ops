@@ -22,6 +22,12 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
   if (report.maintenance_follow_through.pressure.summary) {
     lines.push(`Maintenance pressure: ${report.maintenance_follow_through.pressure.summary}`);
   }
+  if (report.maintenance_commitment?.summary) {
+    lines.push(`Maintenance commitment: ${report.maintenance_commitment.summary}`);
+  }
+  if (report.maintenance_defer_memory?.summary) {
+    lines.push(`Defer memory: ${report.maintenance_defer_memory.summary}`);
+  }
   if (report.maintenance_escalation.eligible && report.maintenance_escalation.summary) {
     lines.push(`Maintenance escalation: ${report.maintenance_escalation.summary}`);
     lines.push(`Next: ${report.maintenance_escalation.suggested_command}`);

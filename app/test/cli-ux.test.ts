@@ -59,6 +59,8 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
       cue: null,
     },
     summary: null,
+    commitment: emptyMaintenanceCommitment(),
+    defer_memory: emptyMaintenanceDeferMemory(),
   };
 }
 
@@ -71,6 +73,32 @@ function emptyMaintenanceScheduling() {
     suggested_command: null,
     reason: null,
     bundle_step_ids: [],
+    commitment: emptyMaintenanceCommitment(),
+    defer_memory: emptyMaintenanceDeferMemory(),
+  };
+}
+
+function emptyMaintenanceCommitment() {
+  return {
+    active: false,
+    step_id: null,
+    placement: null,
+    state: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    last_presented_at: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceDeferMemory() {
+  return {
+    active: false,
+    step_id: null,
+    defer_count: 0,
+    last_deferred_at: null,
+    summary: null,
   };
 }
 
@@ -756,6 +784,155 @@ test("phase 22 formatter surfaces show maintenance timing only in the intended p
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance scheduling/i);
   assert.match(formatMaintenanceSessionPlan(session), /Scheduling/);
   assert.match(formatMaintenanceSessionPlan(session), /prep day/i);
+});
+
+test("phase 23 formatter surfaces agree on the same maintenance commitment and defer memory", async () => {
+  const { service } = createServiceFixture();
+  const status = await service.getStatusReport({ httpReachable: true });
+  const commitment = {
+    active: true,
+    step_id: "install_wrappers" as const,
+    placement: "now" as const,
+    state: "active" as const,
+    summary: "This maintenance block has been deferred multiple times and is no longer just a passive reminder.",
+    suggested_command: "personal-ops maintenance session",
+    defer_count: 2,
+    last_presented_at: "2026-04-12T09:00:00.000Z",
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const deferMemory = {
+    active: true,
+    step_id: "install_wrappers" as const,
+    defer_count: 2,
+    last_deferred_at: "2026-04-12T09:00:00.000Z",
+    summary: "This maintenance block has been deferred multiple times and should be treated as committed upkeep.",
+  };
+  const statusWithCommitment = {
+    ...status,
+    maintenance_commitment: commitment,
+    maintenance_defer_memory: deferMemory,
+    maintenance_follow_through: {
+      ...status.maintenance_follow_through,
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_scheduling: {
+      ...status.maintenance_scheduling,
+      commitment,
+      defer_memory: deferMemory,
+    },
+    repair_plan: {
+      ...status.repair_plan,
+      maintenance_commitment: commitment,
+      maintenance_defer_memory: deferMemory,
+      maintenance_follow_through: {
+        ...status.repair_plan.maintenance_follow_through,
+        commitment,
+        defer_memory: deferMemory,
+      },
+      maintenance_scheduling: {
+        ...status.repair_plan.maintenance_scheduling,
+        commitment,
+        defer_memory: deferMemory,
+      },
+    },
+  };
+  const worklist = {
+    ...(await service.getWorklistReport({ httpReachable: true })),
+    maintenance_commitment: commitment,
+    maintenance_defer_memory: deferMemory,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_scheduling: {
+      ...emptyMaintenanceScheduling(),
+      eligible: true,
+      placement: "now" as const,
+      step_id: "install_wrappers" as const,
+      summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers" as const],
+      commitment,
+      defer_memory: deferMemory,
+    },
+  };
+  const prepDay = {
+    workflow: "prep-day" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Ready for the day.",
+    first_repair_step: null,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: {
+      ...emptyMaintenanceScheduling(),
+      eligible: true,
+      placement: "prep_day" as const,
+      step_id: "install_wrappers" as const,
+      summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      bundle_step_ids: ["install_wrappers" as const],
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_commitment: commitment,
+    maintenance_defer_memory: deferMemory,
+    actions: [],
+    sections: [],
+  };
+  const session = {
+    generated_at: new Date().toISOString(),
+    eligible_now: false,
+    deferred_reason: "concrete_work_present" as const,
+    bundle_id: null,
+    title: null,
+    summary: null,
+    start_command: "personal-ops maintenance session",
+    first_step_id: null,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_scheduling: {
+      ...emptyMaintenanceScheduling(),
+      eligible: true,
+      placement: "prep_day" as const,
+      step_id: "install_wrappers" as const,
+      summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      bundle_step_ids: ["install_wrappers" as const],
+      commitment,
+      defer_memory: deferMemory,
+    },
+    maintenance_commitment: commitment,
+    maintenance_defer_memory: deferMemory,
+    steps: [],
+  };
+
+  assert.match(formatStatusReport(statusWithCommitment), /Maintenance commitment/i);
+  assert.match(formatRepairPlanReport(statusWithCommitment.repair_plan), /Maintenance commitment/i);
+  assert.match(formatWorklistReport(worklist), /Maintenance Commitment/i);
+  assert.match(formatWorkflowBundleReport(prepDay), /Maintenance commitment/i);
+  assert.match(formatMaintenanceSessionPlan(session), /Deferred 2 times/i);
+  assert.match(formatMaintenanceSessionPlan(session), /Defer memory/i);
 });
 
 test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {

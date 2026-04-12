@@ -66,6 +66,7 @@ import {
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
+  deriveMaintenanceCommitmentState,
   MAINTENANCE_SESSION_COMMAND,
 } from "./repair-plan.js";
 import {
@@ -3592,13 +3593,36 @@ export class PersonalOpsService {
       maintenance_window: maintenanceWindow,
       maintenance_escalation: maintenanceEscalation,
     });
+    const maintenanceCommitmentState = deriveMaintenanceCommitmentState({
+      generated_at: new Date().toISOString(),
+      maintenance_scheduling: maintenanceScheduling,
+      repair_plan: repairPlan,
+      recent_repair_executions: recentRepairExecutions,
+      existing_commitments: this.db.listMaintenanceCommitments({ limit: 100 }),
+    });
+    for (const record of maintenanceCommitmentState.records) {
+      this.db.upsertMaintenanceCommitment(record);
+    }
+    const maintenanceFollowThroughWithCommitment = {
+      ...maintenanceFollowThrough,
+      commitment: maintenanceCommitmentState.maintenance_commitment,
+      defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+    };
+    const maintenanceSchedulingWithCommitment = {
+      ...maintenanceScheduling,
+      commitment: maintenanceCommitmentState.maintenance_commitment,
+      defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+    };
     const finalItems = maintenanceEscalation.cue
       ? [...items, {
           item_id: maintenanceEscalation.cue.item_id,
           kind: maintenanceEscalation.cue.kind,
           severity: maintenanceEscalation.cue.severity,
           title: maintenanceEscalation.cue.title,
-          summary: maintenanceEscalation.cue.summary,
+          summary:
+            maintenanceCommitmentState.maintenance_commitment.active && maintenanceCommitmentState.maintenance_commitment.summary
+              ? `${maintenanceCommitmentState.maintenance_commitment.summary} ${maintenanceEscalation.cue.summary}`
+              : maintenanceEscalation.cue.summary,
           target_type: maintenanceEscalation.cue.target_type,
           target_id: maintenanceEscalation.cue.target_id,
           created_at: new Date().toISOString(),
@@ -3607,6 +3631,8 @@ export class PersonalOpsService {
             state_marker: new Date().toISOString(),
             maintenance_step_id: maintenanceEscalation.step_id,
             handoff_count_30d: maintenanceEscalation.handoff_count_30d,
+            maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+            maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
             signals: maintenanceEscalation.cue.signals,
           }),
         }].sort((left, right) => this.compareAttentionItems(left, right))
@@ -3628,9 +3654,11 @@ export class PersonalOpsService {
       },
       planning_groups: planningGroups,
       maintenance_window: maintenanceWindow,
-      maintenance_follow_through: maintenanceFollowThrough,
+      maintenance_follow_through: maintenanceFollowThroughWithCommitment,
       maintenance_escalation: maintenanceEscalation,
-      maintenance_scheduling: maintenanceScheduling,
+      maintenance_scheduling: maintenanceSchedulingWithCommitment,
+      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
       items: finalItems,
     };
   }

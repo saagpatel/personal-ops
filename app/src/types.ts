@@ -1243,6 +1243,8 @@ export interface WorklistReport {
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
   items: AttentionItem[];
 }
 
@@ -2079,6 +2081,8 @@ export interface WorkflowBundleReport {
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
 }
 
 export interface MailSyncState {
@@ -2349,6 +2353,48 @@ export interface MaintenanceEscalationSummary {
 
 export type MaintenanceSchedulingPlacement = "now" | "prep_day" | "calm_window" | "suppressed";
 
+export type MaintenanceCommitmentState =
+  | "active"
+  | "completed"
+  | "handed_off_to_repair"
+  | "superseded_by_repair"
+  | "expired";
+
+export interface MaintenanceCommitmentRecord {
+  commitment_id: string;
+  step_id: RepairStepId;
+  created_at: string;
+  updated_at: string;
+  last_presented_at: string;
+  last_placement: Extract<MaintenanceSchedulingPlacement, "now" | "prep_day">;
+  bundle_step_ids: RepairStepId[];
+  state: MaintenanceCommitmentState;
+  defer_count: number;
+  last_deferred_at?: string | undefined;
+  fulfilled_at?: string | undefined;
+  fulfilled_by_execution_id?: string | undefined;
+}
+
+export interface MaintenanceCommitmentSummary {
+  active: boolean;
+  step_id: RepairStepId | null;
+  placement: Extract<MaintenanceSchedulingPlacement, "now" | "prep_day"> | null;
+  state: MaintenanceCommitmentState | null;
+  summary: string | null;
+  suggested_command: string | null;
+  defer_count: number;
+  last_presented_at: string | null;
+  bundle_step_ids: RepairStepId[];
+}
+
+export interface MaintenanceDeferMemorySummary {
+  active: boolean;
+  step_id: RepairStepId | null;
+  defer_count: number;
+  last_deferred_at: string | null;
+  summary: string | null;
+}
+
 export interface MaintenanceSchedulingSummary {
   eligible: boolean;
   placement: MaintenanceSchedulingPlacement;
@@ -2357,6 +2403,8 @@ export interface MaintenanceSchedulingSummary {
   suggested_command: string | null;
   reason: string | null;
   bundle_step_ids: RepairStepId[];
+  commitment?: MaintenanceCommitmentSummary | undefined;
+  defer_memory?: MaintenanceDeferMemorySummary | undefined;
 }
 
 export interface MaintenanceFollowThroughSummary {
@@ -2370,6 +2418,8 @@ export interface MaintenanceFollowThroughSummary {
   pressure: MaintenancePressureSummary;
   escalation: MaintenanceEscalationSummary;
   summary: string | null;
+  commitment?: MaintenanceCommitmentSummary | undefined;
+  defer_memory?: MaintenanceDeferMemorySummary | undefined;
 }
 
 export interface MaintenanceSessionStep {
@@ -2394,6 +2444,8 @@ export interface MaintenanceSessionPlan {
   first_step_id: RepairStepId | null;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
 }
 
 export interface RepairExecutionRecord {
@@ -2435,6 +2487,8 @@ export interface RepairPlan {
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2457,6 +2511,8 @@ export interface RepairPlanSummary {
   maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_window: MaintenanceWindowSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
 }
@@ -2634,6 +2690,8 @@ export interface ServiceStatusReport {
   maintenance_follow_through: MaintenanceFollowThroughSummary;
   maintenance_escalation: MaintenanceEscalationSummary;
   maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

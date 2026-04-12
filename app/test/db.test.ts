@@ -807,3 +807,45 @@ test("database migrates schema-v24 installs to schema v25 and stores repair exec
   assert.equal(db.getLatestRepairExecution()?.execution_id, execution.execution_id);
   assert.equal(db.listRepairExecutions({ step_id: "install_wrappers", limit: 1 })[0]?.outcome, "resolved");
 });
+
+test("database migrates schema-v25 installs to schema v26 and stores maintenance commitments", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-db-"));
+  const dbPath = path.join(dir, "personal-ops.db");
+  const raw = new DatabaseSync(dbPath);
+  raw.exec(`
+    CREATE TABLE schema_meta (version INTEGER NOT NULL);
+    INSERT INTO schema_meta (version) VALUES (25);
+    CREATE TABLE repair_executions (
+      execution_id TEXT PRIMARY KEY,
+      step_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      requested_by_client TEXT NOT NULL,
+      requested_by_actor TEXT,
+      trigger_source TEXT NOT NULL,
+      before_first_step_id TEXT,
+      after_first_step_id TEXT,
+      outcome TEXT NOT NULL,
+      resolved_target_step INTEGER NOT NULL DEFAULT 0,
+      message TEXT NOT NULL
+    );
+  `);
+  raw.close();
+
+  const db = new PersonalOpsDb(dbPath);
+  assert.equal(db.getSchemaVersion(), CURRENT_SCHEMA_VERSION);
+  const commitment = db.upsertMaintenanceCommitment({
+    commitment_id: "commitment-1",
+    step_id: "install_wrappers",
+    created_at: "2026-04-12T20:00:00.000Z",
+    updated_at: "2026-04-12T20:00:00.000Z",
+    last_presented_at: "2026-04-12T20:00:00.000Z",
+    last_placement: "now",
+    bundle_step_ids: ["install_wrappers"],
+    state: "active",
+    defer_count: 0,
+  });
+
+  assert.equal(db.listMaintenanceCommitments({ state: "active" })[0]?.commitment_id, commitment.commitment_id);
+  assert.equal(db.listMaintenanceCommitments({ step_id: "install_wrappers", limit: 1 })[0]?.state, "active");
+});

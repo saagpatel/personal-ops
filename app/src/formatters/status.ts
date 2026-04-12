@@ -79,6 +79,30 @@ function maintenanceSchedulingRows(summary: RepairPlan["maintenance_scheduling"]
   return rows;
 }
 
+function maintenanceCommitmentRows(summary: RepairPlan["maintenance_commitment"] | undefined): string[] {
+  if (!summary || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  const rows = [
+    `- Maintenance commitment${summary.placement ? ` (${summary.placement.replaceAll("_", " ")})` : ""}: ${summary.summary}${
+      summary.suggested_command ? ` Next: \`${summary.suggested_command}\`.` : ""
+    }`,
+  ];
+  if (summary.defer_count > 0) {
+    rows.push(`- Deferred ${summary.defer_count} time${summary.defer_count === 1 ? "" : "s"}${summary.last_presented_at ? ` since ${summary.last_presented_at}` : ""}.`);
+  }
+  return rows;
+}
+
+function maintenanceDeferMemoryRows(summary: RepairPlan["maintenance_defer_memory"] | undefined): string[] {
+  if (!summary || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  return [
+    `- Defer memory: ${summary.summary}${summary.last_deferred_at ? ` Last deferred: ${summary.last_deferred_at}.` : ""}`,
+  ];
+}
+
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
 
@@ -153,6 +177,8 @@ function formatRepairPlan(plan: RepairPlan): string[] {
     );
   }
   lines.push(...maintenanceFollowThroughRows(plan.maintenance_follow_through));
+  lines.push(...maintenanceCommitmentRows(plan.maintenance_commitment));
+  lines.push(...maintenanceDeferMemoryRows(plan.maintenance_defer_memory));
   lines.push(...maintenanceSchedulingRows(plan.maintenance_scheduling));
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
@@ -199,6 +225,22 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
     ),
   );
   lines.push(line("Maintenance escalation", plan.maintenance_escalation.step_id ?? "none"));
+  lines.push(
+    line(
+      "Maintenance commitment",
+      plan.maintenance_commitment?.step_id
+        ? `${plan.maintenance_commitment.step_id}${plan.maintenance_commitment.placement ? ` (${plan.maintenance_commitment.placement.replaceAll("_", " ")})` : ""}`
+        : "none",
+    ),
+  );
+  lines.push(
+    line(
+      "Maintenance defer memory",
+      plan.maintenance_defer_memory?.step_id
+        ? `${plan.maintenance_defer_memory.step_id} (${plan.maintenance_defer_memory.defer_count})`
+        : "none",
+    ),
+  );
   lines.push(
     line(
       "Maintenance scheduling",
@@ -590,6 +632,8 @@ export function formatSendWindowStatus(status: SendWindowStatus): string {
 export function formatWorklistReport(report: WorklistReport): string {
   const lines: string[] = [];
   const followThroughRows = maintenanceFollowThroughRows(report.maintenance_follow_through);
+  const commitmentRows = maintenanceCommitmentRows(report.maintenance_commitment);
+  const deferMemoryRows = maintenanceDeferMemoryRows(report.maintenance_defer_memory);
   const schedulingRows = maintenanceSchedulingRows(report.maintenance_scheduling);
   const maintenanceRows =
     report.maintenance_window.eligible_now && report.maintenance_window.bundle
@@ -628,6 +672,12 @@ export function formatWorklistReport(report: WorklistReport): string {
       if (followThroughRows.length > 0) {
         pushSection(lines, "Maintenance Follow-Through", followThroughRows);
       }
+      if (commitmentRows.length > 0) {
+        pushSection(lines, "Maintenance Commitment", commitmentRows);
+      }
+      if (deferMemoryRows.length > 0) {
+        pushSection(lines, "Defer Memory", deferMemoryRows);
+      }
       if (schedulingRows.length > 0) {
         pushSection(lines, "Maintenance Scheduling", schedulingRows);
       }
@@ -653,6 +703,14 @@ export function formatWorklistReport(report: WorklistReport): string {
 
   if (followThroughRows.length > 0) {
     pushSection(lines, "Maintenance Follow-Through", followThroughRows);
+  }
+
+  if (commitmentRows.length > 0) {
+    pushSection(lines, "Maintenance Commitment", commitmentRows);
+  }
+
+  if (deferMemoryRows.length > 0) {
+    pushSection(lines, "Defer Memory", deferMemoryRows);
   }
 
   if (schedulingRows.length > 0) {
@@ -801,7 +859,11 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     pressure: session.maintenance_follow_through.pressure,
     escalation: session.maintenance_follow_through.escalation,
     summary: session.maintenance_follow_through.summary,
+    commitment: session.maintenance_follow_through.commitment,
+    defer_memory: session.maintenance_follow_through.defer_memory,
   });
+  const commitmentRows = maintenanceCommitmentRows(session.maintenance_commitment);
+  const deferMemoryRows = maintenanceDeferMemoryRows(session.maintenance_defer_memory);
   const schedulingRows = maintenanceSchedulingRows(session.maintenance_scheduling);
   lines.push("Maintenance Session");
   lines.push(line("Generated", session.generated_at));
@@ -813,6 +875,12 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
   if (!session.eligible_now || session.steps.length === 0) {
     if (followThroughRows.length > 0) {
       pushSection(lines, "Follow-Through", followThroughRows);
+    }
+    if (commitmentRows.length > 0) {
+      pushSection(lines, "Commitment", commitmentRows);
+    }
+    if (deferMemoryRows.length > 0) {
+      pushSection(lines, "Defer Memory", deferMemoryRows);
     }
     if (schedulingRows.length > 0) {
       pushSection(lines, "Scheduling", schedulingRows);
@@ -830,6 +898,12 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
   }
   if (followThroughRows.length > 0) {
     pushSection(lines, "Follow-Through", followThroughRows);
+  }
+  if (commitmentRows.length > 0) {
+    pushSection(lines, "Commitment", commitmentRows);
+  }
+  if (deferMemoryRows.length > 0) {
+    pushSection(lines, "Defer Memory", deferMemoryRows);
   }
   if (schedulingRows.length > 0) {
     pushSection(lines, "Scheduling", schedulingRows);

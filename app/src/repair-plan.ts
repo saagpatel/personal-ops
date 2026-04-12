@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   AttentionItem,
   DesktopStatusReport,
@@ -5,6 +6,10 @@ import type {
   DoctorReport,
   InstallCheckReport,
   MaintenanceBundleOutcome,
+  MaintenanceCommitmentRecord,
+  MaintenanceCommitmentSummary,
+  MaintenanceCommitmentState,
+  MaintenanceDeferMemorySummary,
   MaintenanceEscalationSummary,
   MaintenanceFollowThroughSummary,
   MaintenanceOutcomeSignal,
@@ -39,6 +44,8 @@ const RECURRING_PRIORITY: RepairStepId[] = [
 const PREVENTIVE_QUIET_PERIOD_HOURS = 24;
 const PREVENTIVE_LIMIT = 3;
 const MAINTENANCE_RECENTLY_HANDLED_DAYS = 7;
+const MAINTENANCE_COMMITMENT_DEFER_HOURS = 12;
+const MAINTENANCE_COMMITMENT_EXPIRY_DAYS = 7;
 export const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
 export const MAINTENANCE_RUN_NEXT_COMMAND = "personal-ops maintenance run next";
 const MAINTENANCE_ESCALATION_COMMAND = MAINTENANCE_SESSION_COMMAND;
@@ -266,6 +273,30 @@ function emptyMaintenancePressureSummary(): MaintenancePressureSummary {
   };
 }
 
+export function emptyMaintenanceCommitmentSummary(): MaintenanceCommitmentSummary {
+  return {
+    active: false,
+    step_id: null,
+    placement: null,
+    state: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    last_presented_at: null,
+    bundle_step_ids: [],
+  };
+}
+
+export function emptyMaintenanceDeferMemorySummary(): MaintenanceDeferMemorySummary {
+  return {
+    active: false,
+    step_id: null,
+    defer_count: 0,
+    last_deferred_at: null,
+    summary: null,
+  };
+}
+
 export function emptyMaintenanceEscalationSummary(): MaintenanceEscalationSummary {
   return {
     eligible: false,
@@ -287,6 +318,8 @@ export function emptyMaintenanceSchedulingSummary(): MaintenanceSchedulingSummar
     suggested_command: null,
     reason: null,
     bundle_step_ids: [],
+    commitment: emptyMaintenanceCommitmentSummary(),
+    defer_memory: emptyMaintenanceDeferMemorySummary(),
   };
 }
 
@@ -302,6 +335,8 @@ export function emptyMaintenanceFollowThroughSummary(generatedAt: string): Maint
     pressure: emptyMaintenancePressureSummary(),
     escalation: emptyMaintenanceEscalationSummary(),
     summary: null,
+    commitment: emptyMaintenanceCommitmentSummary(),
+    defer_memory: emptyMaintenanceDeferMemorySummary(),
   };
 }
 
@@ -627,6 +662,7 @@ export function buildMaintenanceSchedulingSummary(input: {
     const hasConcretePressure = input.worklist_items.some((item) => CONCRETE_PRESSURE_KINDS.has(item.kind));
     const placement = hasConcretePressure ? "prep_day" : "now";
     return {
+      ...summary,
       eligible: true,
       placement,
       step_id: stepId,
@@ -639,6 +675,7 @@ export function buildMaintenanceSchedulingSummary(input: {
 
   if (input.maintenance_window.eligible_now && input.maintenance_window.bundle) {
     return {
+      ...summary,
       eligible: true,
       placement: "calm_window",
       step_id: stepId,
@@ -654,6 +691,228 @@ export function buildMaintenanceSchedulingSummary(input: {
     step_id: stepId,
     reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
     bundle_step_ids: bundleStepIds,
+  };
+}
+
+function maintenanceCommitmentSummaryFor(record: MaintenanceCommitmentRecord): string {
+  if (record.state === "handed_off_to_repair") {
+    return "This maintenance commitment stopped for the right reason and moved into repair.";
+  }
+  if (record.state === "superseded_by_repair") {
+    return "This maintenance commitment is no longer active because the same family is now in repair.";
+  }
+  if (record.state === "completed") {
+    return "This maintenance commitment was completed without handing off into repair.";
+  }
+  if (record.state === "expired") {
+    return "This maintenance commitment expired after it stopped resurfacing in scheduled maintenance windows.";
+  }
+  if (record.defer_count > 0) {
+    return "This maintenance block has been deferred multiple times and is no longer just a passive reminder.";
+  }
+  return "This maintenance block is now committed work for this operating window.";
+}
+
+function maintenanceDeferMemorySummaryFor(record: MaintenanceCommitmentRecord): string {
+  if (record.state === "handed_off_to_repair") {
+    return "This maintenance block was deferred multiple times before it moved into repair.";
+  }
+  if (record.state === "superseded_by_repair") {
+    return "This maintenance block was deferred multiple times before repair took priority.";
+  }
+  if (record.defer_count > 0) {
+    return "This maintenance block has been deferred multiple times and should be treated as committed upkeep.";
+  }
+  return "This maintenance block has not been deferred yet.";
+}
+
+function buildMaintenanceCommitmentSummary(
+  record: MaintenanceCommitmentRecord | null,
+): MaintenanceCommitmentSummary {
+  if (!record) {
+    return emptyMaintenanceCommitmentSummary();
+  }
+  return {
+    active: record.state === "active",
+    step_id: record.step_id,
+    placement: record.last_placement,
+    state: record.state,
+    summary: maintenanceCommitmentSummaryFor(record),
+    suggested_command: MAINTENANCE_SESSION_COMMAND,
+    defer_count: record.defer_count,
+    last_presented_at: record.last_presented_at,
+    bundle_step_ids: [...record.bundle_step_ids],
+  };
+}
+
+function buildMaintenanceDeferMemorySummary(
+  record: MaintenanceCommitmentRecord | null,
+): MaintenanceDeferMemorySummary {
+  if (!record || record.defer_count < 1) {
+    return emptyMaintenanceDeferMemorySummary();
+  }
+  return {
+    active: record.state === "active",
+    step_id: record.step_id,
+    defer_count: record.defer_count,
+    last_deferred_at: record.last_deferred_at ?? null,
+    summary: maintenanceDeferMemorySummaryFor(record),
+  };
+}
+
+function maintenanceRunAfterPresentation(
+  record: MaintenanceCommitmentRecord,
+  recentExecutions: RepairExecutionRecord[],
+): RepairExecutionRecord | null {
+  return (
+    recentExecutions.find(
+      (execution) =>
+        execution.trigger_source === "maintenance_run" &&
+        execution.step_id === record.step_id &&
+        execution.completed_at >= record.last_presented_at &&
+        execution.outcome === "resolved" &&
+        execution.resolved_target_step,
+    ) ?? null
+  );
+}
+
+function successfulMaintenanceSince(
+  record: MaintenanceCommitmentRecord,
+  recentExecutions: RepairExecutionRecord[],
+): boolean {
+  return maintenanceRunAfterPresentation(record, recentExecutions) !== null;
+}
+
+function stepPriority(stepId: RepairStepId | null | undefined): number {
+  if (!stepId) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const priority = RECURRING_PRIORITY.indexOf(stepId);
+  return priority === -1 ? Number.MAX_SAFE_INTEGER : priority;
+}
+
+function pickTopCommitment(records: MaintenanceCommitmentRecord[]): MaintenanceCommitmentRecord | null {
+  if (records.length === 0) {
+    return null;
+  }
+  return [...records].sort((left, right) => {
+    const priorityDelta = stepPriority(left.step_id) - stepPriority(right.step_id);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return right.updated_at.localeCompare(left.updated_at);
+  })[0] ?? null;
+}
+
+export function deriveMaintenanceCommitmentState(input: {
+  generated_at?: string;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
+  repair_plan: Pick<RepairPlan, "steps">;
+  recent_repair_executions?: RepairExecutionRecord[];
+  existing_commitments?: MaintenanceCommitmentRecord[];
+}): {
+  records: MaintenanceCommitmentRecord[];
+  maintenance_commitment: MaintenanceCommitmentSummary;
+  maintenance_defer_memory: MaintenanceDeferMemorySummary;
+} {
+  const generatedAt = input.generated_at ?? new Date().toISOString();
+  const now = new Date(generatedAt);
+  const recentExecutions = [...(input.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const activeRepairStepIds = new Set(input.repair_plan.steps.map((step) => step.id));
+  const recordsById = new Map<string, MaintenanceCommitmentRecord>();
+  for (const record of input.existing_commitments ?? []) {
+    recordsById.set(record.commitment_id, { ...record, bundle_step_ids: [...record.bundle_step_ids] });
+  }
+
+  for (const record of [...recordsById.values()].filter((candidate) => candidate.state === "active")) {
+    const successfulExecution = maintenanceRunAfterPresentation(record, recentExecutions);
+    if (successfulExecution) {
+      recordsById.set(record.commitment_id, {
+        ...record,
+        updated_at: successfulExecution.completed_at,
+        state: successfulExecution.after_first_step_id ? "handed_off_to_repair" : "completed",
+        fulfilled_at: successfulExecution.completed_at,
+        fulfilled_by_execution_id: successfulExecution.execution_id,
+      });
+      continue;
+    }
+    if (activeRepairStepIds.has(record.step_id)) {
+      recordsById.set(record.commitment_id, {
+        ...record,
+        updated_at: generatedAt,
+        state: "superseded_by_repair",
+      });
+      continue;
+    }
+    const ageMs = now.getTime() - new Date(record.last_presented_at).getTime();
+    if (ageMs >= MAINTENANCE_COMMITMENT_EXPIRY_DAYS * 24 * 60 * 60 * 1000) {
+      recordsById.set(record.commitment_id, {
+        ...record,
+        updated_at: generatedAt,
+        state: "expired",
+      });
+    }
+  }
+
+  const candidateStepId =
+    input.maintenance_scheduling.eligible &&
+    (input.maintenance_scheduling.placement === "now" || input.maintenance_scheduling.placement === "prep_day")
+      ? input.maintenance_scheduling.step_id
+      : null;
+  const candidatePlacement = candidateStepId ? input.maintenance_scheduling.placement : null;
+  const candidateBundleStepIds = candidateStepId ? input.maintenance_scheduling.bundle_step_ids : [];
+
+  if (candidateStepId && candidatePlacement && (candidatePlacement === "now" || candidatePlacement === "prep_day")) {
+    const activeCommitment = pickTopCommitment(
+      [...recordsById.values()].filter((record) => record.step_id === candidateStepId && record.state === "active"),
+    );
+    if (activeCommitment) {
+      const lastPresentedAt = new Date(activeCommitment.last_presented_at);
+      const enoughTimePassed =
+        !Number.isNaN(lastPresentedAt.getTime()) &&
+        now.getTime() - lastPresentedAt.getTime() >= MAINTENANCE_COMMITMENT_DEFER_HOURS * 60 * 60 * 1000;
+      const nextRecord: MaintenanceCommitmentRecord = {
+        ...activeCommitment,
+        updated_at: generatedAt,
+        last_placement: candidatePlacement,
+        bundle_step_ids: [...candidateBundleStepIds],
+      };
+      if (enoughTimePassed && !successfulMaintenanceSince(activeCommitment, recentExecutions)) {
+        nextRecord.defer_count += 1;
+        nextRecord.last_deferred_at = generatedAt;
+        nextRecord.last_presented_at = generatedAt;
+      }
+      recordsById.set(activeCommitment.commitment_id, nextRecord);
+    } else {
+      const newRecord: MaintenanceCommitmentRecord = {
+        commitment_id: randomUUID(),
+        step_id: candidateStepId,
+        created_at: generatedAt,
+        updated_at: generatedAt,
+        last_presented_at: generatedAt,
+        last_placement: candidatePlacement,
+        bundle_step_ids: [...candidateBundleStepIds],
+        state: "active",
+        defer_count: 0,
+      };
+      recordsById.set(newRecord.commitment_id, newRecord);
+    }
+  }
+
+  const records = [...recordsById.values()].sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  const activeCommitment = pickTopCommitment(records.filter((record) => record.state === "active"));
+  const latestRelevantCommitment = activeCommitment ?? pickTopCommitment(records);
+  const deferMemoryRecord =
+    activeCommitment && activeCommitment.defer_count > 0
+      ? activeCommitment
+      : pickTopCommitment(records.filter((record) => record.defer_count > 0));
+
+  return {
+    records,
+    maintenance_commitment: buildMaintenanceCommitmentSummary(latestRelevantCommitment),
+    maintenance_defer_memory: buildMaintenanceDeferMemorySummary(deferMemoryRecord),
   };
 }
 
@@ -744,6 +1003,8 @@ export function buildMaintenanceSessionPlan(input: {
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through?: MaintenanceFollowThroughSummary | null;
   maintenance_scheduling?: MaintenanceSchedulingSummary | null;
+  maintenance_commitment?: MaintenanceCommitmentSummary | null;
+  maintenance_defer_memory?: MaintenanceDeferMemorySummary | null;
   recent_repair_executions?: RepairExecutionRecord[];
 }): MaintenanceSessionPlan {
   const generatedAt = input.generated_at ?? new Date().toISOString();
@@ -768,8 +1029,20 @@ export function buildMaintenanceSessionPlan(input: {
     start_command: MAINTENANCE_SESSION_COMMAND,
     steps,
     first_step_id: steps[0]?.step_id ?? null,
-    maintenance_follow_through: input.maintenance_follow_through ?? emptyMaintenanceFollowThroughSummary(generatedAt),
-    maintenance_scheduling: input.maintenance_scheduling ?? emptyMaintenanceSchedulingSummary(),
+    maintenance_follow_through: {
+      ...(input.maintenance_follow_through ?? emptyMaintenanceFollowThroughSummary(generatedAt)),
+      commitment: input.maintenance_commitment ?? input.maintenance_follow_through?.commitment ?? emptyMaintenanceCommitmentSummary(),
+      defer_memory: input.maintenance_defer_memory ?? input.maintenance_follow_through?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+    },
+    maintenance_scheduling: {
+      ...(input.maintenance_scheduling ?? emptyMaintenanceSchedulingSummary()),
+      commitment: input.maintenance_commitment ?? input.maintenance_scheduling?.commitment ?? emptyMaintenanceCommitmentSummary(),
+      defer_memory: input.maintenance_defer_memory ?? input.maintenance_scheduling?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+    },
+    maintenance_commitment:
+      input.maintenance_commitment ?? input.maintenance_follow_through?.commitment ?? input.maintenance_scheduling?.commitment ?? emptyMaintenanceCommitmentSummary(),
+    maintenance_defer_memory:
+      input.maintenance_defer_memory ?? input.maintenance_follow_through?.defer_memory ?? input.maintenance_scheduling?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
   };
 }
 
@@ -791,6 +1064,8 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     maintenance_escalation: plan.maintenance_escalation,
     maintenance_scheduling: plan.maintenance_scheduling,
     maintenance_window: plan.maintenance_window,
+    maintenance_commitment: plan.maintenance_commitment,
+    maintenance_defer_memory: plan.maintenance_defer_memory,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
   };
@@ -1105,6 +1380,8 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
     maintenance_escalation: emptyMaintenanceEscalationSummary(),
     maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+    maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,
