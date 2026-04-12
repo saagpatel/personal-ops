@@ -12,6 +12,8 @@ import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
 import {
   buildMaintenanceEscalationSummary,
+  emptyMaintenanceCommitmentSummary,
+  emptyMaintenanceDeferMemorySummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
@@ -205,12 +207,34 @@ export async function buildStatusReport(
       maintenance_window: maintenanceWindow,
       maintenance_escalation: maintenanceEscalation,
     });
+  const maintenanceCommitment =
+    worklist.maintenance_commitment ??
+    maintenanceFollowThrough.commitment ??
+    maintenanceScheduling.commitment ??
+    emptyMaintenanceCommitmentSummary();
+  const maintenanceDeferMemory =
+    worklist.maintenance_defer_memory ??
+    maintenanceFollowThrough.defer_memory ??
+    maintenanceScheduling.defer_memory ??
+    emptyMaintenanceDeferMemorySummary();
+  const maintenanceFollowThroughWithCommitment = {
+    ...maintenanceFollowThrough,
+    commitment: maintenanceCommitment,
+    defer_memory: maintenanceDeferMemory,
+  };
+  const maintenanceSchedulingWithCommitment = {
+    ...maintenanceScheduling,
+    commitment: maintenanceCommitment,
+    defer_memory: maintenanceDeferMemory,
+  };
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_follow_through: maintenanceFollowThroughWithCommitment,
     maintenance_escalation: maintenanceEscalation,
-    maintenance_scheduling: maintenanceScheduling,
+    maintenance_scheduling: maintenanceSchedulingWithCommitment,
+    maintenance_commitment: maintenanceCommitment,
+    maintenance_defer_memory: maintenanceDeferMemory,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -223,9 +247,11 @@ export async function buildStatusReport(
     first_repair_step: repairPlanWithMaintenance.first_repair_step,
     repair_plan: repairPlanWithMaintenance,
     maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_follow_through: maintenanceFollowThroughWithCommitment,
     maintenance_escalation: maintenanceEscalation,
-    maintenance_scheduling: maintenanceScheduling,
+    maintenance_scheduling: maintenanceSchedulingWithCommitment,
+    maintenance_commitment: maintenanceCommitment,
+    maintenance_defer_memory: maintenanceDeferMemory,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

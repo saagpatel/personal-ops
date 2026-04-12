@@ -265,6 +265,8 @@ function buildWorkflowReport(input: {
     maintenance_follow_through: input.worklist.maintenance_follow_through,
     maintenance_escalation: input.worklist.maintenance_escalation,
     maintenance_scheduling: input.worklist.maintenance_scheduling,
+    maintenance_commitment: input.worklist.maintenance_commitment,
+    maintenance_defer_memory: input.worklist.maintenance_defer_memory,
   };
 }
 
@@ -971,7 +973,10 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
   if (scheduling.placement === "now" || scheduling.placement === "prep_day") {
     items.push({
       label: scheduling.placement === "now" ? "Maintenance now" : "Plan maintenance block",
-      summary: scheduling.summary ?? "Recurring maintenance is behaving more like repair-priority upkeep.",
+      summary:
+        worklist.maintenance_commitment?.summary ??
+        scheduling.summary ??
+        "Recurring maintenance is behaving more like repair-priority upkeep.",
       command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
       target_type: "system",
       target_id: `maintenance:${scheduling.step_id}`,

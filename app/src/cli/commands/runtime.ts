@@ -137,6 +137,8 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
       maintenance_window: status.maintenance_window,
       maintenance_follow_through: status.maintenance_follow_through,
       maintenance_scheduling: status.maintenance_scheduling,
+      maintenance_commitment: status.maintenance_commitment ?? null,
+      maintenance_defer_memory: status.maintenance_defer_memory ?? null,
       recent_repair_executions: listRecentRepairExecutions(paths),
     });
   } catch {
@@ -158,6 +160,24 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
         repair_plan: { steps: [], first_repair_step: null },
         recent_repair_executions: recentExecutions,
       }),
+      maintenance_commitment: {
+        active: false,
+        step_id: null,
+        placement: null,
+        state: null,
+        summary: null,
+        suggested_command: null,
+        defer_count: 0,
+        last_presented_at: null,
+        bundle_step_ids: [],
+      },
+      maintenance_defer_memory: {
+        active: false,
+        step_id: null,
+        defer_count: 0,
+        last_deferred_at: null,
+        summary: null,
+      },
       recent_repair_executions: recentExecutions,
     });
   }
@@ -434,6 +454,8 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             maintenance_window: afterStatus.maintenance_window,
             maintenance_follow_through: afterStatus.maintenance_follow_through,
             maintenance_scheduling: afterStatus.maintenance_scheduling,
+            maintenance_commitment: afterStatus.maintenance_commitment ?? null,
+            maintenance_defer_memory: afterStatus.maintenance_defer_memory ?? null,
             recent_repair_executions: currentRecentExecutions,
           });
           const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;

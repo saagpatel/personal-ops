@@ -430,13 +430,37 @@ Delivered shape:
   - no new HTTP or MCP APIs
   - no browser execution path
   - no new persistence layer
+- no new maintenance commands
+- maintenance still stays behind active repair and urgent concrete work
+
+## Phase 23
+
+Phase 23 is now complete.
+
+Delivered shape:
+
+- a small local `maintenance_commitments` memory source to track scheduled maintenance commitments and repeated deferral
+- commitment state limited to:
+  - `active`
+  - `completed`
+  - `handed_off_to_repair`
+  - `superseded_by_repair`
+  - `expired`
+- additive commitment and defer-memory summaries across `status`, `worklist`, `now`, `prep-day`, `repair plan`, `maintenance session`, and the console
+- commitment creation limited to scheduled maintenance placed in:
+  - `now`
+  - `prep_day`
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
   - no new maintenance commands
-  - maintenance still stays behind active repair and urgent concrete work
+  - no planning-recommendation, task, or automation creation path
+  - active repair and urgent concrete work still outrank maintenance
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, and 22 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, and 23 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work
