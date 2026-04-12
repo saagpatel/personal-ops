@@ -9,6 +9,8 @@ export {
   formatWorklistReport,
   formatVersionReport,
   formatNowReport,
+  formatMaintenanceSessionPlan,
+  formatMaintenanceSessionRunResult,
 } from "./formatters/status.js";
 export {
   formatReviewItems,

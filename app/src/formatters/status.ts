@@ -3,6 +3,8 @@ import type {
   DoctorCheck,
   DoctorReport,
   HealthCheckReport,
+  MaintenanceSessionPlan,
+  MaintenanceSessionRunResult,
   RepairExecutionResult,
   RepairPlan,
   ServiceStatusReport,
@@ -89,9 +91,10 @@ function formatRepairPlan(plan: RepairPlan): string[] {
       ? []
       : [
           `- Maintenance window: ${plan.maintenance_window.bundle.summary}`,
+          `- Start session: \`personal-ops maintenance session\`.`,
           ...plan.maintenance_window.bundle.recommendations.map(
             (recommendation) =>
-              `- Calm window (${recommendation.urgency}): ${recommendation.title}. ${recommendation.reason} Next: \`${recommendation.suggested_command}\`.`,
+              `- Calm window (${recommendation.urgency}): ${recommendation.title}. ${recommendation.reason} Inside the session: \`${recommendation.suggested_command}\`.`,
           ),
         ];
   if (plan.last_repair) {
@@ -525,8 +528,9 @@ export function formatWorklistReport(report: WorklistReport): string {
     report.maintenance_window.eligible_now && report.maintenance_window.bundle
       ? [
           `- ${report.maintenance_window.bundle.summary}`,
+          "- Start with `personal-ops maintenance session`.",
           ...report.maintenance_window.bundle.recommendations.map(
-            (recommendation) => `- ${recommendation.title}: ${recommendation.suggested_command}`,
+            (recommendation) => `- ${recommendation.title}: inside session use ${recommendation.suggested_command}`,
           ),
         ]
       : [];
@@ -703,6 +707,77 @@ export function formatRepairExecutionResult(result: RepairExecutionResult): stri
   return lines.join("\n");
 }
 
+export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): string {
+  const lines: string[] = [];
+  lines.push("Maintenance Session");
+  lines.push(line("Generated", session.generated_at));
+  lines.push(line("Eligible now", yesNo(session.eligible_now)));
+  lines.push(line("Start command", session.start_command));
+  lines.push(line("Deferred reason", session.deferred_reason ?? "none"));
+  lines.push(line("First step", session.first_step_id ?? "none"));
+  lines.push("");
+  if (!session.eligible_now || session.steps.length === 0) {
+    lines.push(
+      session.deferred_reason
+        ? `Maintenance is deferred right now: ${session.deferred_reason}.`
+        : "No calm-window maintenance session is available right now.",
+    );
+    return lines.join("\n");
+  }
+  if (session.summary) {
+    lines.push(session.summary);
+    lines.push("");
+  }
+  lines.push("Steps");
+  for (const [index, step] of session.steps.entries()) {
+    lines.push(
+      `${index + 1}. ${step.title}: ${step.reason}${step.latest_outcome ? ` Last outcome: ${step.latest_outcome}${step.latest_completed_at ? ` at ${step.latest_completed_at}` : ""}.` : ""}`,
+    );
+    lines.push(`   inside session: ${step.suggested_command}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatMaintenanceSessionRunResult(result: MaintenanceSessionRunResult): string {
+  const lines: string[] = [];
+  lines.push("Maintenance Run");
+  lines.push(line("Generated", result.generated_at));
+  lines.push(line("Executed", yesNo(result.executed)));
+  lines.push(line("Command", result.suggested_command));
+  if (result.step_id) {
+    lines.push(line("Step", result.step_id));
+  }
+  if (result.outcome) {
+    lines.push(line("Outcome", result.outcome));
+  }
+  if (result.deferred_reason) {
+    lines.push(line("Deferred reason", result.deferred_reason));
+  }
+  if (result.session_complete !== undefined) {
+    lines.push(line("Session complete", yesNo(result.session_complete)));
+  }
+  if (result.handed_off_to_repair !== undefined) {
+    lines.push(line("Handed off to repair", yesNo(result.handed_off_to_repair)));
+  }
+  if (result.next_step_id) {
+    lines.push(line("Next maintenance step", result.next_step_id));
+  }
+  if (result.next_repair_step) {
+    lines.push(line("Next repair step", result.next_repair_step));
+  }
+  lines.push("");
+  lines.push(result.message);
+  if (result.remaining_reason) {
+    lines.push("");
+    lines.push(`Remaining reason: ${result.remaining_reason}`);
+  }
+  if (result.next_command) {
+    lines.push("");
+    lines.push(`Next command: ${result.next_command}`);
+  }
+  return lines.join("\n");
+}
+
 export function formatVersionReport(report: VersionReport): string {
   return [
     `personal-ops ${report.service_version}`,
@@ -735,9 +810,10 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
       lines.push("");
       lines.push("Calm Window");
       lines.push(`- ${maintenanceWindow.summary}`);
+      lines.push("- Start with `personal-ops maintenance session`.");
       for (const recommendation of maintenanceWindow.recommendations) {
         lines.push(`- ${recommendation.title}`);
-        lines.push(`  ${recommendation.suggested_command}`);
+        lines.push(`  inside session: ${recommendation.suggested_command}`);
       }
       lines.push("");
     }
@@ -754,9 +830,10 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
     lines.push("");
     lines.push("Calm Window");
     lines.push(`- ${maintenanceWindow.summary}`);
+    lines.push("- Start with `personal-ops maintenance session`.");
     for (const recommendation of maintenanceWindow.recommendations) {
       lines.push(`- ${recommendation.title}`);
-      lines.push(`  ${recommendation.suggested_command}`);
+      lines.push(`  inside session: ${recommendation.suggested_command}`);
     }
   }
   lines.push("");

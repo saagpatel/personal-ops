@@ -4,6 +4,8 @@ import type {
   DoctorCheck,
   DoctorReport,
   InstallCheckReport,
+  MaintenanceSessionPlan,
+  MaintenanceSessionStep,
   MaintenanceWindowDeferredReason,
   MaintenanceWindowSummary,
   MachineStateOrigin,
@@ -30,6 +32,8 @@ const RECURRING_PRIORITY: RepairStepId[] = [
 ];
 const PREVENTIVE_QUIET_PERIOD_HOURS = 24;
 const PREVENTIVE_LIMIT = 3;
+export const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
+export const MAINTENANCE_RUN_NEXT_COMMAND = "personal-ops maintenance run next";
 const CONCRETE_PRESSURE_KINDS = new Set([
   "task_overdue",
   "task_due_soon",
@@ -244,6 +248,22 @@ function maintenanceBundleFor(recommendations: PreventiveMaintenanceRecommendati
   };
 }
 
+function toMaintenanceSessionStep(
+  recommendation: PreventiveMaintenanceRecommendation,
+  latestByStep: Map<RepairStepId, RepairExecutionRecord>,
+): MaintenanceSessionStep {
+  const latestExecution = latestByStep.get(recommendation.step_id);
+  return {
+    step_id: recommendation.step_id,
+    title: recommendation.title,
+    reason: recommendation.reason,
+    suggested_command: recommendation.suggested_command,
+    blocking: false,
+    latest_outcome: latestExecution?.outcome,
+    latest_completed_at: latestExecution?.completed_at,
+  };
+}
+
 function maintenanceDeferredReason(input: {
   state: ServiceState;
   hasPendingRepair: boolean;
@@ -307,6 +327,36 @@ export function buildMaintenanceWindowSummary(input: {
     count: actionableRecommendations.length,
     top_step_id: topRecommendation?.step_id ?? null,
     bundle: eligibleNow ? maintenanceBundleFor(visibleRecommendations) : null,
+  };
+}
+
+export function buildMaintenanceSessionPlan(input: {
+  generated_at?: string;
+  maintenance_window: MaintenanceWindowSummary;
+  recent_repair_executions?: RepairExecutionRecord[];
+}): MaintenanceSessionPlan {
+  const generatedAt = input.generated_at ?? new Date().toISOString();
+  const recentExecutions = [...(input.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const latestByStep = new Map<RepairStepId, RepairExecutionRecord>();
+  for (const execution of recentExecutions) {
+    if (!latestByStep.has(execution.step_id)) {
+      latestByStep.set(execution.step_id, execution);
+    }
+  }
+  const bundle = input.maintenance_window.eligible_now ? input.maintenance_window.bundle : null;
+  const steps = (bundle?.recommendations ?? []).map((recommendation) => toMaintenanceSessionStep(recommendation, latestByStep));
+  return {
+    generated_at: generatedAt,
+    eligible_now: input.maintenance_window.eligible_now,
+    deferred_reason: input.maintenance_window.deferred_reason,
+    bundle_id: bundle?.bundle_id ?? null,
+    title: bundle?.title ?? null,
+    summary: bundle?.summary ?? null,
+    start_command: MAINTENANCE_SESSION_COMMAND,
+    steps,
+    first_step_id: steps[0]?.step_id ?? null,
   };
 }
 
