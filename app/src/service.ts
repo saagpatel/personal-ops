@@ -302,7 +302,7 @@ function maintenanceHomeSummary(
     };
   }
   const decision = report.maintenance_decision_explanation;
-  if (decision?.eligible && decision.summary) {
+  if (decision?.eligible && decision.state !== "suppressed" && decision.summary) {
     return {
       summary: decision.summary,
       why_now: decision.why_now ?? decision.why_not_higher,
