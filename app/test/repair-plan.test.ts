@@ -6,6 +6,7 @@ import {
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceOperatingBlockSummary,
+  buildMaintenanceRepairConvergenceSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
@@ -1921,4 +1922,312 @@ test("phase 26 maintenance decision explanation follows driver precedence and op
   assert.equal(suppressedByState.state, "suppressed");
   assert.equal(suppressedByState.driver, "readiness_blocked");
   assert.ok(suppressedByState.reasons.includes("system_not_ready"));
+});
+
+test("phase 28 maintenance repair convergence follows ownership and handoff rules", () => {
+  const repairOwned = buildMaintenanceRepairConvergenceSummary({
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Repair wrappers",
+          reason: "Repair is pending.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence("2026-04-12T12:00:00.000Z", [
+      maintenanceExecution("install_wrappers", "2026-04-11T12:00:00.000Z", "exec-1"),
+    ]),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers",
+      placement: "now",
+      state: "active",
+      summary: "Committed.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 1,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "medium",
+      trend: "rising",
+      summary: "Rising confidence.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 1,
+      handoff_count_30d: 0,
+      cooldown_active: false,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: false,
+      placement: "suppressed",
+      step_id: "install_wrappers",
+      summary: null,
+      suggested_command: null,
+      reason: "Suppressed because repair already owns this family.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_decision_explanation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      state: "suppressed",
+      driver: "repair_blocked",
+      summary: "Suppressed by repair.",
+      why_now: null,
+      why_not_higher: "Active repair already owns this family.",
+      suggested_command: null,
+      confidence_level: "medium",
+      operating_block: "suppressed",
+      reasons: ["active_repair_present"],
+      bundle_step_ids: ["install_wrappers"],
+    },
+  });
+
+  const repairPriority = buildMaintenanceRepairConvergenceSummary({
+    repair_plan: { steps: [] },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence("2026-04-12T12:00:00.000Z", [
+      maintenanceExecution("install_wrappers", "2026-04-10T12:00:00.000Z", "handoff-1", {
+        after_first_step_id: "install_check",
+      }),
+      maintenanceExecution("install_wrappers", "2026-04-08T12:00:00.000Z", "handoff-2", {
+        after_first_step_id: "doctor",
+      }),
+    ]),
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 2,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers",
+      defer_count: 2,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred twice.",
+    },
+    maintenance_escalation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      signal: "handed_off_to_repair",
+      summary: "Escalated.",
+      suggested_command: "personal-ops maintenance session",
+      handoff_count_30d: 2,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "high",
+      trend: "rising",
+      summary: "High and rising.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 2,
+      handoff_count_30d: 2,
+      cooldown_active: false,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Budget this later today.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_decision_explanation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      state: "budget_today",
+      driver: "escalation",
+      summary: "Budget today.",
+      why_now: "Escalation is active.",
+      why_not_higher: "Time-sensitive work still comes first.",
+      suggested_command: "personal-ops maintenance session",
+      confidence_level: "high",
+      operating_block: "later_today",
+      reasons: ["escalation_active"],
+      bundle_step_ids: ["install_wrappers"],
+    },
+  });
+
+  const maintenanceOwned = buildMaintenanceRepairConvergenceSummary({
+    repair_plan: { steps: [] },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence("2026-04-12T12:00:00.000Z"),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers",
+      placement: "prep_day",
+      state: "active",
+      summary: "Still maintenance owned.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 0,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "medium",
+      trend: "steady",
+      summary: "Committed work.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 0,
+      handoff_count_30d: 0,
+      cooldown_active: false,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Budget this later today.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_decision_explanation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      state: "budget_today",
+      driver: "commitment",
+      summary: "Budget today.",
+      why_now: "This should be handled today.",
+      why_not_higher: "Urgent work still comes first.",
+      suggested_command: "personal-ops maintenance session",
+      confidence_level: "medium",
+      operating_block: "later_today",
+      reasons: ["commitment_active"],
+      bundle_step_ids: ["install_wrappers"],
+    },
+  });
+
+  const quietPreventive = buildMaintenanceRepairConvergenceSummary({
+    repair_plan: { steps: [] },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence("2026-04-12T12:00:00.000Z", [
+      maintenanceExecution("install_wrappers", "2026-04-11T12:00:00.000Z", "cooling-1"),
+    ]),
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: "completed",
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "low",
+      trend: "cooling",
+      summary: "Cooling.",
+      suggested_command: null,
+      defer_count: 0,
+      handoff_count_30d: 0,
+      cooldown_active: true,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "calm_window",
+      step_id: "install_wrappers",
+      summary: "Calm window only.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_decision_explanation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      state: "calm_window",
+      driver: "confidence",
+      summary: "Calm window guidance.",
+      why_now: "This is preventive upkeep only.",
+      why_not_higher: "It should stay quiet for now.",
+      suggested_command: "personal-ops maintenance session",
+      confidence_level: "low",
+      operating_block: "calm_window",
+      reasons: ["confidence_cooling", "scheduled_for_calm_window"],
+      bundle_step_ids: ["install_wrappers"],
+    },
+  });
+
+  assert.equal(repairOwned.eligible, true);
+  assert.equal(repairOwned.state, "repair_owned");
+  assert.equal(repairOwned.driver, "active_repair");
+  assert.equal(repairOwned.primary_command, "personal-ops repair plan");
+
+  assert.equal(repairPriority.eligible, true);
+  assert.equal(repairPriority.state, "repair_priority_upkeep");
+  assert.equal(repairPriority.driver, "repeated_handoff");
+  assert.equal(repairPriority.primary_command, "personal-ops maintenance session");
+
+  assert.equal(maintenanceOwned.eligible, true);
+  assert.equal(maintenanceOwned.state, "maintenance_owned");
+  assert.equal(maintenanceOwned.driver, "active_commitment");
+
+  assert.equal(quietPreventive.eligible, true);
+  assert.equal(quietPreventive.state, "quiet_preventive");
+  assert.equal(quietPreventive.driver, "cooling_success");
 });

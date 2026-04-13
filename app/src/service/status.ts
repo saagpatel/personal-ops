@@ -18,6 +18,7 @@ import {
   emptyMaintenanceDeferMemorySummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceOperatingBlockSummary,
+  buildMaintenanceRepairConvergenceSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -65,6 +66,21 @@ function topCalibrationSurface(summaries: ReviewCalibrationSurfaceSummary[]): Re
           (left.surface ?? "").localeCompare(right.surface ?? ""),
       )[0]?.surface ?? null
   );
+}
+
+function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
+  return {
+    ready: false,
+    state: "caught_up",
+    title: "The workspace is loading",
+    summary: "The shared workspace focus is loading local operator state.",
+    why_now: null,
+    primary_command: null,
+    secondary_summary: null,
+    assistant_action_id: null,
+    workflow: null,
+    maintenance_state: null,
+  };
 }
 
 export async function buildStatusReport(
@@ -277,10 +293,27 @@ export async function buildStatusReport(
     ...maintenanceSchedulingWithBlock,
     decision_explanation: maintenanceDecisionExplanation,
   };
+  const maintenanceRepairConvergence =
+    worklist.maintenance_repair_convergence ??
+    maintenanceFollowThroughWithCommitment.convergence ??
+    buildMaintenanceRepairConvergenceSummary({
+      repair_plan: repairPlan,
+      maintenance_follow_through: maintenanceFollowThroughWithCommitment,
+      maintenance_commitment: maintenanceCommitment,
+      maintenance_escalation: maintenanceEscalation,
+      maintenance_defer_memory: maintenanceDeferMemory,
+      maintenance_confidence: maintenanceConfidence,
+      maintenance_scheduling: maintenanceSchedulingWithExplanation,
+      maintenance_decision_explanation: maintenanceDecisionExplanation,
+    });
+  const maintenanceFollowThroughWithConvergence = {
+    ...maintenanceFollowThroughWithCommitment,
+    convergence: maintenanceRepairConvergence,
+  };
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThroughWithCommitment,
+    maintenance_follow_through: maintenanceFollowThroughWithConvergence,
     maintenance_escalation: maintenanceEscalation,
     maintenance_scheduling: maintenanceSchedulingWithExplanation,
     maintenance_commitment: maintenanceCommitment,
@@ -288,6 +321,7 @@ export async function buildStatusReport(
     maintenance_confidence: maintenanceConfidence,
     maintenance_operating_block: maintenanceOperatingBlock,
     maintenance_decision_explanation: maintenanceDecisionExplanation,
+    maintenance_repair_convergence: maintenanceRepairConvergence,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -298,9 +332,10 @@ export async function buildStatusReport(
     service_version: service.getServiceVersion(),
     state: classifiedState,
     first_repair_step: repairPlanWithMaintenance.first_repair_step,
+    workspace_home: emptyWorkspaceHomeSummary(),
     repair_plan: repairPlanWithMaintenance,
     maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThroughWithCommitment,
+    maintenance_follow_through: maintenanceFollowThroughWithConvergence,
     maintenance_escalation: maintenanceEscalation,
     maintenance_scheduling: maintenanceSchedulingWithExplanation,
     maintenance_commitment: maintenanceCommitment,
@@ -308,6 +343,7 @@ export async function buildStatusReport(
     maintenance_confidence: maintenanceConfidence,
     maintenance_operating_block: maintenanceOperatingBlock,
     maintenance_decision_explanation: maintenanceDecisionExplanation,
+    maintenance_repair_convergence: maintenanceRepairConvergence,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

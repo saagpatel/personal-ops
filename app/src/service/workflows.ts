@@ -7,11 +7,16 @@ import type {
   OutboundAutopilotGroup,
   OutboundAutopilotReport,
   PlanningAutopilotBundle,
+  PlanningRecommendation,
   PlanningAutopilotReport,
   PlanningRecommendationDetail,
   ServiceState,
   WorkflowBundleAction,
   WorkflowBundleReport,
+  WorkflowPersonalizationCategory,
+  WorkflowPersonalizationFit,
+  WorkflowPersonalizationSummary,
+  WorkflowPreferenceWindow,
   WorkflowScoreBand,
   WorkflowBundleSection,
   WorkflowBundleSectionItem,
@@ -43,11 +48,21 @@ interface WorkflowContext {
   planningAutopilot: PlanningAutopilotReport;
   outboundAutopilot: OutboundAutopilotReport;
   recommendationDetails: PlanningRecommendationDetail[];
+  recommendationHistory: PlanningRecommendation[];
   inboxAutopilot: InboxAutopilotReport;
   needsReplyThreads: InboxThreadSummary[];
   staleFollowupThreads: InboxThreadSummary[];
   upcomingEvents: CalendarEvent[];
   meetingPrepCandidates: MeetingPrepCandidate[];
+}
+
+type ActiveWorkflowWindow = Exclude<WorkflowPreferenceWindow, "anytime">;
+
+interface WorkflowPersonalizationProfile {
+  category: WorkflowPersonalizationCategory;
+  eligible: boolean;
+  preferred_window: WorkflowPreferenceWindow;
+  sample_count_30d: number;
 }
 
 function commandForThread(threadId: string): string {
@@ -111,6 +126,69 @@ function formatTimestamp(value: string | undefined): string {
   return new Date(value).toLocaleString();
 }
 
+function parseLocalHourMinute(value: string | undefined, fallbackHour: number): [number, number] {
+  const match = typeof value === "string" ? value.match(/^(\d{1,2}):(\d{2})$/) : null;
+  if (!match) {
+    return [fallbackHour, 0];
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return [fallbackHour, 0];
+  }
+  return [hour, minute];
+}
+
+function minutesSinceMidnight(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function activeWindowIndex(window: ActiveWorkflowWindow): number {
+  if (window === "early_day") {
+    return 0;
+  }
+  if (window === "mid_day") {
+    return 1;
+  }
+  return 2;
+}
+
+function categoryForRecommendationKind(kind: PlanningRecommendation["kind"]): WorkflowPersonalizationCategory | null {
+  if (kind === "schedule_task_block") {
+    return "task";
+  }
+  if (kind === "schedule_thread_followup") {
+    return "followup";
+  }
+  if (kind === "schedule_event_prep") {
+    return "meeting";
+  }
+  return null;
+}
+
+function currentWorkflowWindow(config: { workdayStartLocal?: string; workdayEndLocal?: string }): ActiveWorkflowWindow | null {
+  const [startHour, startMinute] = parseLocalHourMinute(config.workdayStartLocal, 9);
+  const [endHour, endMinute] = parseLocalHourMinute(config.workdayEndLocal, 18);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  if (endMinutes <= startMinutes) {
+    return null;
+  }
+  const nowMinutes = minutesSinceMidnight(new Date(Date.now()));
+  if (nowMinutes < startMinutes || nowMinutes >= endMinutes) {
+    return null;
+  }
+  const segmentLength = (endMinutes - startMinutes) / 3;
+  const offset = nowMinutes - startMinutes;
+  if (offset < segmentLength) {
+    return "early_day";
+  }
+  if (offset < segmentLength * 2) {
+    return "mid_day";
+  }
+  return "late_day";
+}
+
 function describeReadiness(readiness: ServiceState): string {
   if (readiness === "ready") {
     return "ready";
@@ -121,8 +199,195 @@ function describeReadiness(readiness: ServiceState): string {
   return "degraded";
 }
 
+function buildWorkflowPersonalizationProfiles(
+  history: PlanningRecommendation[],
+  config: { workdayStartLocal?: string; workdayEndLocal?: string },
+): Map<WorkflowPersonalizationCategory, WorkflowPersonalizationProfile> {
+  const profiles = new Map<WorkflowPersonalizationCategory, WorkflowPersonalizationProfile>();
+  const [startHour, startMinute] = parseLocalHourMinute(config.workdayStartLocal, 9);
+  const [endHour, endMinute] = parseLocalHourMinute(config.workdayEndLocal, 18);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  if (endMinutes <= startMinutes) {
+    return profiles;
+  }
+  const windowLength = (endMinutes - startMinutes) / 3;
+  const cutoff = Date.now() - 30 * 24 * 60 * 60_000;
+  const counts = new Map<WorkflowPersonalizationCategory, Record<ActiveWorkflowWindow, number>>();
+  const totals = new Map<WorkflowPersonalizationCategory, number>();
+
+  for (const recommendation of history) {
+    const category = categoryForRecommendationKind(recommendation.kind);
+    if (!category || !recommendation.first_action_at) {
+      continue;
+    }
+    const firstActionAt = Date.parse(recommendation.first_action_at);
+    if (!Number.isFinite(firstActionAt) || firstActionAt < cutoff) {
+      continue;
+    }
+    const actionDate = new Date(firstActionAt);
+    const actionMinutes = minutesSinceMidnight(actionDate);
+    if (actionMinutes < startMinutes || actionMinutes >= endMinutes) {
+      continue;
+    }
+    const offset = actionMinutes - startMinutes;
+    const window: ActiveWorkflowWindow =
+      offset < windowLength
+        ? "early_day"
+        : offset < windowLength * 2
+          ? "mid_day"
+          : "late_day";
+    if (!counts.has(category)) {
+      counts.set(category, { early_day: 0, mid_day: 0, late_day: 0 });
+    }
+    counts.get(category)![window] += 1;
+    totals.set(category, (totals.get(category) ?? 0) + 1);
+  }
+
+  for (const category of ["task", "followup", "meeting"] as const) {
+    const sampleCount = totals.get(category) ?? 0;
+    const categoryCounts = counts.get(category) ?? { early_day: 0, mid_day: 0, late_day: 0 };
+    if (sampleCount < 3) {
+      profiles.set(category, {
+        category,
+        eligible: false,
+        preferred_window: "anytime",
+        sample_count_30d: sampleCount,
+      });
+      continue;
+    }
+    const orderedWindows: ActiveWorkflowWindow[] = ["early_day", "mid_day", "late_day"];
+    const preferredWindow = orderedWindows.reduce<ActiveWorkflowWindow>(
+      (best, current) => (categoryCounts[current] > categoryCounts[best] ? current : best),
+      "early_day",
+    );
+    const dominantShare = categoryCounts[preferredWindow] / sampleCount;
+    profiles.set(category, {
+      category,
+      eligible: true,
+      preferred_window: dominantShare >= 0.6 ? preferredWindow : "anytime",
+      sample_count_30d: sampleCount,
+    });
+  }
+
+  return profiles;
+}
+
+function buildWorkflowPersonalizationSummary(
+  profile: WorkflowPersonalizationProfile | undefined,
+  currentWindow: ActiveWorkflowWindow | null,
+): WorkflowPersonalizationSummary {
+  const category = profile?.category ?? "task";
+  if (!profile || !profile.eligible || !currentWindow) {
+    return {
+      eligible: false,
+      category,
+      preferred_window: profile?.preferred_window ?? null,
+      current_window: currentWindow,
+      fit: "neutral",
+      reason: "insufficient_history",
+      summary: null,
+      sample_count_30d: profile?.sample_count_30d ?? 0,
+    };
+  }
+
+  if (profile.preferred_window === "anytime") {
+    return {
+      eligible: true,
+      category,
+      preferred_window: "anytime",
+      current_window: currentWindow,
+      fit: "neutral",
+      reason: "no_strong_pattern",
+      summary: "There is no strong timing pattern for this kind of work yet.",
+      sample_count_30d: profile.sample_count_30d,
+    };
+  }
+
+  if (profile.preferred_window === currentWindow) {
+    return {
+      eligible: true,
+      category,
+      preferred_window: profile.preferred_window,
+      current_window: currentWindow,
+      fit: "favored",
+      reason: "aligned_with_habit",
+      summary: "This is a good fit for how you usually handle this kind of work.",
+      sample_count_30d: profile.sample_count_30d,
+    };
+  }
+
+  if (activeWindowIndex(currentWindow) < activeWindowIndex(profile.preferred_window)) {
+    return {
+      eligible: true,
+      category,
+      preferred_window: profile.preferred_window,
+      current_window: currentWindow,
+      fit: "defer",
+      reason: "usually_later_today",
+      summary: "You usually handle this kind of work later in the day, so it is being held back for now.",
+      sample_count_30d: profile.sample_count_30d,
+    };
+  }
+
+  return {
+    eligible: true,
+    category,
+    preferred_window: profile.preferred_window,
+    current_window: currentWindow,
+    fit: "neutral",
+    reason: "usually_earlier_today",
+    summary: "There is no strong timing pattern for this kind of work yet.",
+    sample_count_30d: profile.sample_count_30d,
+  };
+}
+
 function candidateKey(candidate: Pick<WorkflowCandidate, "source_key" | "command" | "target_type" | "target_id" | "label">): string {
   return [candidate.source_key, candidate.command, candidate.target_type ?? "", candidate.target_id ?? "", candidate.label].join("::");
+}
+
+function applyWorkflowPersonalization(
+  candidates: WorkflowCandidate[],
+  context: WorkflowContext,
+  service: any,
+): WorkflowCandidate[] {
+  if (context.status.state !== "ready") {
+    return candidates;
+  }
+  const currentWindow = currentWorkflowWindow(service.config ?? {});
+  if (!currentWindow) {
+    return candidates;
+  }
+  const profiles = buildWorkflowPersonalizationProfiles(context.recommendationHistory, service.config ?? {});
+
+  return candidates.map((candidate) => {
+    if (candidate.category !== "task" && candidate.category !== "followup" && candidate.category !== "meeting") {
+      return candidate;
+    }
+    const profile = profiles.get(candidate.category);
+    const personalization = buildWorkflowPersonalizationSummary(profile, currentWindow);
+    if (!personalization.eligible) {
+      return candidate;
+    }
+    const scoreAdjustment =
+      personalization.fit === "favored"
+        ? 30
+        : personalization.fit === "defer"
+          ? -20
+          : 0;
+    const personalizationSignal =
+      personalization.fit === "favored"
+        ? "workflow_personalization_favored"
+        : personalization.fit === "defer"
+          ? "workflow_personalization_defer"
+          : "workflow_personalization_neutral";
+    return {
+      ...candidate,
+      score: candidate.score + scoreAdjustment,
+      workflow_personalization: personalization,
+      signals: [...(candidate.signals ?? []), personalizationSignal],
+    };
+  });
 }
 
 function pushUniqueCandidate(candidates: WorkflowCandidate[], candidate: WorkflowCandidate, limit?: number): void {
@@ -145,7 +410,11 @@ function scoreBandFor(score: number, topScore: number): WorkflowScoreBand {
   return "medium";
 }
 
-function toBundleAction(candidate: WorkflowCandidate, topScore: number): WorkflowBundleAction {
+function toBundleAction(
+  candidate: WorkflowCandidate,
+  topScore: number,
+  options: { includePersonalization?: boolean } = {},
+): WorkflowBundleAction {
   return {
     label: candidate.label,
     summary: candidate.summary,
@@ -155,13 +424,18 @@ function toBundleAction(candidate: WorkflowCandidate, topScore: number): Workflo
     why_now: candidate.why_now,
     score_band: scoreBandFor(candidate.score, topScore),
     signals: candidate.signals,
+    workflow_personalization: options.includePersonalization ? candidate.workflow_personalization : undefined,
     related_docs: candidate.related_docs,
     related_files: candidate.related_files,
   };
 }
 
-function toBundleItem(candidate: WorkflowCandidate, topScore: number): WorkflowBundleSectionItem {
-  const action = toBundleAction(candidate, topScore);
+function toBundleItem(
+  candidate: WorkflowCandidate,
+  topScore: number,
+  options: { includePersonalization?: boolean } = {},
+): WorkflowBundleSectionItem {
+  const action = toBundleAction(candidate, topScore, options);
   return {
     label: action.label,
     summary: action.summary,
@@ -171,6 +445,7 @@ function toBundleItem(candidate: WorkflowCandidate, topScore: number): WorkflowB
     why_now: action.why_now,
     score_band: action.score_band,
     signals: action.signals,
+    workflow_personalization: action.workflow_personalization,
     related_docs: action.related_docs,
     related_files: action.related_files,
   };
@@ -185,13 +460,14 @@ function pickSectionItems(
   topScore: number,
   predicate: (candidate: WorkflowCandidate) => boolean,
   excluded: Set<string>,
+  options: { includePersonalization?: boolean } = {},
 ): WorkflowBundleSectionItem[] {
   const items: WorkflowBundleSectionItem[] = [];
   for (const candidate of candidates) {
     if (!predicate(candidate)) {
       continue;
     }
-    const item = toBundleItem(candidate, topScore);
+    const item = toBundleItem(candidate, topScore, options);
     const key = uniqueItemKey(item);
     if (excluded.has(key)) {
       continue;
@@ -212,6 +488,7 @@ function buildWorkflowReport(input: {
   sections: WorkflowBundleSection[];
   worklist: WorklistReport;
   actions: WorkflowCandidate[];
+  workflowPersonalization?: WorkflowPersonalizationSummary | undefined;
 }): WorkflowBundleReport {
   const firstRepair = firstRepairStep(input.readiness, input.worklist);
   const seededActions = [...input.actions];
@@ -233,7 +510,9 @@ function buildWorkflowReport(input: {
 
   const rankedActions = dedupeAndSortCandidates(seededActions).slice(0, MAX_ACTIONS);
   const topScore = rankedActions[0]?.score ?? 0;
-  const actions = rankedActions.map((candidate) => toBundleAction(candidate, topScore));
+  const actions = rankedActions.map((candidate, index) =>
+    toBundleAction(candidate, topScore, { includePersonalization: index === 0 }),
+  );
   const sections = input.sections.map((section) =>
     section.title === "Next Commands"
       ? {
@@ -247,6 +526,7 @@ function buildWorkflowReport(input: {
             why_now: action.why_now,
             score_band: action.score_band,
             signals: action.signals,
+            workflow_personalization: action.workflow_personalization,
             related_docs: action.related_docs,
             related_files: action.related_files,
           })),
@@ -270,6 +550,8 @@ function buildWorkflowReport(input: {
     maintenance_confidence: input.worklist.maintenance_confidence,
     maintenance_operating_block: input.worklist.maintenance_operating_block,
     maintenance_decision_explanation: input.worklist.maintenance_decision_explanation,
+    maintenance_repair_convergence: input.worklist.maintenance_repair_convergence,
+    workflow_personalization: input.workflowPersonalization,
   };
 }
 
@@ -786,9 +1068,10 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
           },
           groups: [],
         });
-  const [worklist, recommendations, planningAutopilot, outboundAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
+  const [worklist, recommendations, recommendationHistory, planningAutopilot, outboundAutopilot, inboxAutopilot, needsReplyThreads, staleFollowupThreads, upcomingEvents, meetingPrepCandidates] = await Promise.all([
     service.getWorklistReport(options),
     Promise.resolve(service.listPlanningRecommendations({ status: "pending" })),
+    Promise.resolve(service.listPlanningRecommendations({ include_resolved: true, limit: 300 })),
     planningAutopilotPromise,
     outboundAutopilotPromise,
     service.getInboxAutopilotReport(options),
@@ -825,6 +1108,7 @@ async function loadWorkflowContext(service: any, options: { httpReachable: boole
     planningAutopilot,
     outboundAutopilot,
     recommendationDetails,
+    recommendationHistory,
     inboxAutopilot,
     needsReplyThreads,
     staleFollowupThreads,
@@ -940,7 +1224,7 @@ function buildIntelligenceCandidates(service: any, context: WorkflowContext): Wo
     }
   }
 
-  return dedupeAndSortCandidates(candidates);
+  return dedupeAndSortCandidates(applyWorkflowPersonalization(candidates, context, service));
 }
 
 function buildPrepDayTopAttention(candidates: WorkflowCandidate[], topScore: number): WorkflowBundleSectionItem[] {
@@ -950,6 +1234,7 @@ function buildPrepDayTopAttention(candidates: WorkflowCandidate[], topScore: num
     topScore,
     (candidate) => candidate.category !== "system" && candidate.category !== "meeting",
     excluded,
+    { includePersonalization: true },
   );
 }
 
@@ -963,6 +1248,7 @@ function buildPrepDayTimeSensitive(
     topScore,
     (candidate) => candidate.category === "task" || candidate.category === "followup" || candidate.category === "meeting",
     excluded,
+    { includePersonalization: true },
   );
 }
 
@@ -971,9 +1257,14 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
   const scheduling = worklist.maintenance_scheduling;
   const operatingBlock = worklist.maintenance_operating_block;
   const decisionExplanation = worklist.maintenance_decision_explanation;
+  const convergence = worklist.maintenance_repair_convergence;
   if (!operatingBlock?.eligible || !operatingBlock.step_id) {
     return items;
   }
+  const matchingConvergence =
+    convergence?.eligible && convergence.step_id === operatingBlock.step_id ? convergence : null;
+  const repairOwned = matchingConvergence?.state === "repair_owned";
+  const repairPriority = matchingConvergence?.state === "repair_priority_upkeep";
 
   if (operatingBlock.block === "current_block" || operatingBlock.block === "later_today") {
     const confidenceSummary =
@@ -981,8 +1272,13 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
         ? worklist.maintenance_confidence.summary
         : null;
     items.push({
-      label: operatingBlock.block === "current_block" ? "Maintenance now" : "Plan maintenance block",
+      label: repairOwned
+        ? "Repair-owned recurring family"
+        : operatingBlock.block === "current_block"
+          ? "Maintenance now"
+          : "Plan maintenance block",
       summary:
+        (matchingConvergence?.summary ?? null) ??
         (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
           ? decisionExplanation.summary
           : null) ??
@@ -991,19 +1287,29 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
         operatingBlock.summary ??
         scheduling.summary ??
         "Recurring maintenance is behaving more like repair-priority upkeep.",
-      command: operatingBlock.suggested_command ?? scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+      command:
+        matchingConvergence?.primary_command ??
+        operatingBlock.suggested_command ??
+        scheduling.suggested_command ??
+        MAINTENANCE_SESSION_COMMAND,
       target_type: "system",
       target_id: `maintenance:${operatingBlock.step_id}`,
       why_now:
+        (matchingConvergence?.why ?? null) ??
         (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
           ? decisionExplanation.why_now
           : null) ??
         operatingBlock.reason ??
-        (operatingBlock.block === "current_block"
-          ? "This upkeep has become repair-priority work in the current operating block."
-          : "This upkeep should be planned after time-sensitive work, not surfaced as the immediate next move."),
+        (repairOwned
+          ? "This recurring family is already active repair, so the repair plan is the single source of truth."
+          : repairPriority
+            ? "This upkeep is still executed through maintenance, but it now behaves more like early repair."
+            : operatingBlock.block === "current_block"
+              ? "This upkeep has become repair-priority work in the current operating block."
+              : "This upkeep should be planned after time-sensitive work, not surfaced as the immediate next move."),
       score_band: operatingBlock.block === "current_block" ? "high" : "medium",
       signals: [
+        ...(matchingConvergence?.state ? [`maintenance_repair_convergence_${matchingConvergence.state}`] : []),
         operatingBlock.block === "current_block" ? "maintenance_operating_block_current" : "maintenance_operating_block_later_today",
         operatingBlock.step_id,
       ],
@@ -1017,16 +1323,22 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
   items.push({
     label: "Calm-window maintenance",
     summary:
+      (matchingConvergence?.summary ?? null) ??
       (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
         ? decisionExplanation.summary
         : null) ??
       operatingBlock.summary ??
       scheduling.summary ??
       worklist.maintenance_window.bundle.summary,
-    command: operatingBlock.suggested_command ?? scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    command:
+      matchingConvergence?.primary_command ??
+      operatingBlock.suggested_command ??
+      scheduling.suggested_command ??
+      MAINTENANCE_SESSION_COMMAND,
     target_type: "system",
     target_id: `maintenance:${operatingBlock.step_id}`,
     why_now:
+      (matchingConvergence?.why ?? null) ??
       (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
         ? decisionExplanation.why_now
         : null) ??
@@ -1034,7 +1346,11 @@ function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSe
       scheduling.reason ??
       "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
     score_band: "medium",
-    signals: ["maintenance_operating_block_calm_window", operatingBlock.step_id],
+    signals: [
+      ...(matchingConvergence?.state ? [`maintenance_repair_convergence_${matchingConvergence.state}`] : []),
+      "maintenance_operating_block_calm_window",
+      operatingBlock.step_id,
+    ],
   });
   return items.concat(worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
     label: recommendation.title,
@@ -1076,7 +1392,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
     sections: [
       {
         title: "Best Next Move",
-        items: primary ? [toBundleItem(primary, topScore)] : [],
+        items: primary ? [toBundleItem(primary, topScore, { includePersonalization: true })] : [],
       },
       {
         title: "Why Now",
@@ -1084,16 +1400,8 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
           primary
             ? [
                 {
-                  label: primary.label,
+                  ...toBundleItem(primary, topScore, { includePersonalization: true }),
                   summary: primary.why_now ?? "This is currently the strongest bounded next move.",
-                  command: primary.command,
-                  target_type: primary.target_type,
-                  target_id: primary.target_id,
-                  why_now: primary.why_now,
-                  score_band: scoreBandFor(primary.score, topScore),
-                  signals: primary.signals,
-                  related_docs: primary.related_docs,
-                  related_files: primary.related_files,
                 },
               ]
             : [],
@@ -1109,6 +1417,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
     ],
     worklist: context.worklist,
     actions: primary ? [primary, ...alternatives] : [],
+    workflowPersonalization: primary?.workflow_personalization?.eligible ? primary.workflow_personalization : undefined,
   });
 }
 
@@ -1169,6 +1478,7 @@ export async function buildPrepDayWorkflowReport(service: any, options: { httpRe
     ],
     worklist: context.worklist,
     actions: candidates,
+    workflowPersonalization: candidates[0]?.workflow_personalization?.eligible ? candidates[0].workflow_personalization : undefined,
   });
 }
 

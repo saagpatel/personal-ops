@@ -459,6 +459,18 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
       };
       return {
         ...status,
+        workspace_home: {
+          ready: true,
+          state: "maintenance",
+          title: "Upkeep is the main focus right now",
+          summary: "This recurring family behaves like early repair and should be treated as repair-priority upkeep when surfaced.",
+          why_now: "This recurring family should be handled through the maintenance session before it becomes active repair again.",
+          primary_command: "personal-ops maintenance session",
+          secondary_summary: "Review the strongest assistant-prepared action after upkeep is clear.",
+          assistant_action_id: null,
+          workflow: null,
+          maintenance_state: "repair_priority_upkeep",
+        },
         maintenance_window: maintenanceWindow,
         maintenance_confidence: {
           eligible: true,
@@ -579,6 +591,20 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           confidence_level: "high",
           operating_block: "current_block",
           reasons: ["escalation_active", "confidence_rising", "scheduled_for_current_block"],
+          bundle_step_ids: ["install_wrappers"],
+        },
+        maintenance_repair_convergence: {
+          eligible: true,
+          step_id: "install_wrappers",
+          state: "repair_priority_upkeep",
+          driver: "repeated_handoff",
+          summary: "This recurring family behaves like early repair and should be treated as repair-priority upkeep when surfaced.",
+          why: "This family has repeatedly handed off into repair, so maintenance should carry stronger ownership language.",
+          primary_command: "personal-ops maintenance session",
+          repair_command: "personal-ops repair plan",
+          maintenance_command: "personal-ops maintenance session",
+          handoff_count_30d: 2,
+          active_repair_step_id: null,
           bundle_step_ids: ["install_wrappers"],
         },
         repair_plan: {
@@ -705,6 +731,20 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
             reasons: ["escalation_active", "confidence_rising", "scheduled_for_current_block"],
             bundle_step_ids: ["install_wrappers"],
           },
+          maintenance_repair_convergence: {
+            eligible: true,
+            step_id: "install_wrappers",
+            state: "repair_priority_upkeep",
+            driver: "repeated_handoff",
+            summary: "This recurring family behaves like early repair and should be treated as repair-priority upkeep when surfaced.",
+            why: "This family has repeatedly handed off into repair, so maintenance should carry stronger ownership language.",
+            primary_command: "personal-ops maintenance session",
+            repair_command: "personal-ops repair plan",
+            maintenance_command: "personal-ops maintenance session",
+            handoff_count_30d: 2,
+            active_repair_step_id: null,
+            bundle_step_ids: ["install_wrappers"],
+          },
         },
       };
     };
@@ -728,6 +768,11 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
     assert.equal(statusResponse.status, 200);
     const payload = (await statusResponse.json()) as {
       status?: {
+        workspace_home?: {
+          state?: string | null;
+          title?: string | null;
+          primary_command?: string | null;
+        };
         maintenance_window?: {
           eligible_now?: boolean;
           bundle?: { title?: string; recommended_commands?: string[] };
@@ -758,10 +803,19 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           state?: string | null;
           driver?: string | null;
         };
+        maintenance_repair_convergence?: {
+          eligible?: boolean;
+          step_id?: string | null;
+          state?: string | null;
+          driver?: string | null;
+        };
       };
     };
 
     assert.equal(payload.status?.maintenance_window?.eligible_now, true);
+    assert.equal(payload.status?.workspace_home?.state, "maintenance");
+    assert.equal(payload.status?.workspace_home?.title, "Upkeep is the main focus right now");
+    assert.equal(payload.status?.workspace_home?.primary_command, "personal-ops maintenance session");
     assert.equal(payload.status?.maintenance_window?.bundle?.title, "Preventive maintenance window");
     assert.equal(payload.status?.maintenance_window?.bundle?.recommended_commands?.[0], "personal-ops install wrappers");
     assert.equal(payload.status?.maintenance_escalation?.eligible, true);
@@ -780,6 +834,10 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
     assert.equal(payload.status?.maintenance_decision_explanation?.step_id, "install_wrappers");
     assert.equal(payload.status?.maintenance_decision_explanation?.state, "do_now");
     assert.equal(payload.status?.maintenance_decision_explanation?.driver, "escalation");
+    assert.equal(payload.status?.maintenance_repair_convergence?.eligible, true);
+    assert.equal(payload.status?.maintenance_repair_convergence?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_repair_convergence?.state, "repair_priority_upkeep");
+    assert.equal(payload.status?.maintenance_repair_convergence?.driver, "repeated_handoff");
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });
@@ -939,6 +997,102 @@ test("assistant-led Phase 1 console sessions can read the assistant queue and ru
     const reviewRunPayload = (await reviewRunResponse.json()) as { error?: string };
     assert.match(reviewRunPayload.error ?? "", /requires operator review/i);
   } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("phase 27 console payloads carry workflow-first personalization through now-next and assistant queue", async () => {
+  const fixture = await createConsoleFixture();
+  const originalNow = Date.now;
+  try {
+    const serviceAny = fixture.service as any;
+    serviceAny.collectDoctorChecks = async () => [];
+    serviceAny.classifyState = () => "ready";
+    const favoredNow = new Date(2026, 3, 12, 10, 15, 0).toISOString();
+    const followupHistoryTimestamps = [
+      new Date(2026, 3, 10, 9, 30, 0).toISOString(),
+      new Date(2026, 3, 9, 9, 40, 0).toISOString(),
+      new Date(2026, 3, 8, 9, 50, 0).toISOString(),
+    ];
+    fixture.service.db.createPlanningRecommendation(TEST_IDENTITY, {
+      kind: "schedule_thread_followup",
+      status: "pending",
+      priority: "normal",
+      source: "system_generated",
+      reason_summary: "Reply to the open client thread.",
+      reason_code: "needs_reply",
+      dedupe_key: "console:followup:pending",
+      source_fingerprint: "console:followup:pending",
+      rank_score: 560,
+      ranking_version: "console-test",
+      slot_state: "ready",
+      outcome_state: "none",
+      source_thread_id: "thread-console-personalization",
+      source_last_seen_at: "2026-04-12T09:55:00.000Z",
+      trigger_signals: ["reply_needed"],
+      suppressed_signals: [],
+    });
+    for (const timestamp of followupHistoryTimestamps) {
+      fixture.service.db.createPlanningRecommendation(TEST_IDENTITY, {
+        kind: "schedule_thread_followup",
+        status: "applied",
+        priority: "normal",
+        source: "system_generated",
+        reason_summary: "Historical follow-up block.",
+        reason_code: "needs_reply",
+        dedupe_key: `console:followup:${timestamp}`,
+        source_fingerprint: `console:followup:${timestamp}`,
+        rank_score: 500,
+        ranking_version: "console-test",
+        slot_state: "ready",
+        outcome_state: "completed",
+        source_thread_id: `history-${timestamp}`,
+        source_last_seen_at: timestamp,
+        first_action_at: timestamp,
+        trigger_signals: ["reply_needed"],
+        suppressed_signals: [],
+      });
+    }
+
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-personalization-test",
+      },
+    });
+    assert.equal(grantResponse.status, 200);
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    Date.now = () => Date.parse(favoredNow);
+
+    const workflowResponse = await fetch(`${baseUrl}/v1/workflows/now-next`, {
+      headers: { cookie },
+    });
+    assert.equal(workflowResponse.status, 200);
+    const workflowPayload = (await workflowResponse.json()) as {
+      workflow?: { actions?: Array<{ workflow_personalization?: { fit?: string | null } }> };
+    };
+
+    const assistantResponse = await fetch(`${baseUrl}/v1/assistant/actions`, {
+      headers: { cookie },
+    });
+    assert.equal(assistantResponse.status, 200);
+    const assistantPayload = (await assistantResponse.json()) as {
+      assistant_queue?: { actions?: Array<{ action_id?: string; workflow_personalization?: { fit?: string | null } }> };
+    };
+
+    assert.equal(workflowPayload.workflow?.actions?.[0]?.workflow_personalization?.fit, "favored");
+    assert.equal(
+      assistantPayload.assistant_queue?.actions?.find((action) => action.action_id === "assistant.review-top-attention")?.workflow_personalization?.fit,
+      "favored",
+    );
+  } finally {
+    Date.now = originalNow;
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });
   }

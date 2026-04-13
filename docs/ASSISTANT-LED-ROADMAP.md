@@ -550,10 +550,104 @@ Delivered shape:
   - no new maintenance commands
   - no change to repair-first or urgent-work-first precedence
 
+## Phase 27
+
+Phase 27 is now complete.
+
+Delivered shape:
+
+- a derived `workflow_personalization` summary layered onto existing planning-recommendation history, workflow candidates, readiness state, and configured workday hours
+- descriptive personalization categories only:
+  - `task`
+  - `followup`
+  - `meeting`
+- descriptive preference windows only:
+  - `early_day`
+  - `mid_day`
+  - `late_day`
+  - `anytime`
+- descriptive fit states only:
+  - `favored`
+  - `neutral`
+  - `defer`
+- additive personalization visibility across:
+  - `workflow now-next`
+  - `workflow prep-day`
+  - assistant top-action emphasis
+  - console workflow and assistant surfaces
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new commands
+  - no change to repair-first or urgent-work-first precedence
+  - no change to core worklist ordering
+
+## Phase 28
+
+Phase 28 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_repair_convergence` summary layered onto the existing repair plan, maintenance follow-through, escalation, commitment, confidence, operating-block, and decision-explanation state
+- descriptive convergence states only:
+  - `repair_owned`
+  - `repair_priority_upkeep`
+  - `maintenance_owned`
+  - `quiet_preventive`
+  - `none`
+- additive convergence visibility across:
+  - `status`
+  - `worklist`
+  - `repair plan`
+  - `maintenance session`
+  - `workflow now-next`
+  - `workflow prep-day`
+  - the console
+- active repair remains the single owner when the same recurring family is already in repair
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new maintenance commands
+  - no new queue kinds
+  - no change to repair-first or urgent-work-first precedence
+  - no change to core worklist ordering
+
+## Phase 29
+
+Phase 29 is now complete.
+
+Delivered shape:
+
+- a derived `workspace_home` summary layered onto the existing status, assistant queue, `now-next`, and maintenance ownership signals
+- descriptive workspace-home states only:
+  - `repair`
+  - `assistant`
+  - `workflow`
+  - `maintenance`
+  - `caught_up`
+- additive workspace-focus visibility across:
+  - `status`
+  - the console overview
+  - the console-backed desktop shell
+- calmer overview behavior:
+  - one primary "what matters now" story
+  - less duplicate assistant-versus-workflow explanation text
+  - repair-owned maintenance stays referential instead of conflicting imperative copy
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new commands
+  - no new queue kinds
+  - no change to repair-first or urgent-work-first precedence
+  - no change to the macOS-only desktop support contract
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, and 26 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, and 29 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

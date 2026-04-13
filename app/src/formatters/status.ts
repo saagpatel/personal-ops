@@ -24,6 +24,14 @@ function topSummary(value: string | null | undefined, fallback: string): string 
   return value && value.trim().length > 0 ? value : fallback;
 }
 
+function workspaceHomeSummary(report: ServiceStatusReport): string {
+  const home = report.workspace_home;
+  if (!home?.summary) {
+    return home?.title ?? "loading";
+  }
+  return `${home.title}: ${home.summary}`;
+}
+
 function maintenanceSignalLabel(value: string | null | undefined): string {
   return value ? value.replaceAll("_", " ") : "none";
 }
@@ -148,6 +156,21 @@ function maintenanceDecisionExplanationRows(summary: RepairPlan["maintenance_dec
   return rows;
 }
 
+function maintenanceRepairConvergenceRows(summary: RepairPlan["maintenance_repair_convergence"] | undefined): string[] {
+  if (!summary || !summary.eligible || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  const rows = [
+    `- Maintenance/repair convergence (${summary.state.replaceAll("_", " ")} / ${summary.driver?.replaceAll("_", " ") ?? "none"}): ${summary.summary}${
+      summary.primary_command ? ` Next: \`${summary.primary_command}\`.` : ""
+    }`,
+  ];
+  if (summary.why) {
+    rows.push(`- Why: ${summary.why}`);
+  }
+  return rows;
+}
+
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
 
@@ -180,7 +203,9 @@ function statusActionItems(report: ServiceStatusReport): string[] {
   }
 
   if (report.worklist_summary.top_item_summary) {
-    actions.push(`Top attention item: ${report.worklist_summary.top_item_summary}`);
+    if (report.workspace_home.summary !== report.worklist_summary.top_item_summary) {
+      actions.push(`Top attention item: ${report.worklist_summary.top_item_summary}`);
+    }
     actions.push("Run `personal-ops worklist` for the full queue or `personal-ops now` for the shortest summary.");
   }
 
@@ -227,6 +252,7 @@ function formatRepairPlan(plan: RepairPlan): string[] {
   lines.push(...maintenanceConfidenceRows(plan.maintenance_confidence));
   lines.push(...maintenanceOperatingBlockRows(plan.maintenance_operating_block));
   lines.push(...maintenanceDecisionExplanationRows(plan.maintenance_decision_explanation));
+  lines.push(...maintenanceRepairConvergenceRows(plan.maintenance_repair_convergence));
   lines.push(...maintenanceSchedulingRows(plan.maintenance_scheduling));
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
@@ -318,6 +344,14 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
       "Maintenance decision",
       plan.maintenance_decision_explanation?.eligible
         ? `${plan.maintenance_decision_explanation.step_id ?? "none"} (${plan.maintenance_decision_explanation.state.replaceAll("_", " ")} / ${plan.maintenance_decision_explanation.driver?.replaceAll("_", " ") ?? "none"})`
+        : "none",
+    ),
+  );
+  lines.push(
+    line(
+      "Maintenance convergence",
+      plan.maintenance_repair_convergence?.eligible
+        ? `${plan.maintenance_repair_convergence.step_id ?? "none"} (${plan.maintenance_repair_convergence.state.replaceAll("_", " ")} / ${plan.maintenance_repair_convergence.driver?.replaceAll("_", " ") ?? "none"})`
         : "none",
     ),
   );
@@ -431,6 +465,7 @@ export function formatStatusReport(report: ServiceStatusReport): string {
   lines.push(`Personal Ops Status: ${formatStateLabel(report.state)}`);
   lines.push(line("Version", report.service_version));
   lines.push(line("Generated", report.generated_at));
+  lines.push(line("Workspace focus", workspaceHomeSummary(report)));
   lines.push(line("Next attention", topSummary(report.worklist_summary.top_item_summary, "nothing urgent right now")));
   lines.push(line("First repair step", report.first_repair_step ?? "none"));
   lines.push(line("Send enabled", yesNo(report.send_policy.effective_enabled)));
@@ -707,6 +742,7 @@ export function formatWorklistReport(report: WorklistReport): string {
   const confidenceRows = maintenanceConfidenceRows(report.maintenance_confidence);
   const operatingBlockRows = maintenanceOperatingBlockRows(report.maintenance_operating_block);
   const decisionRows = maintenanceDecisionExplanationRows(report.maintenance_decision_explanation);
+  const convergenceRows = maintenanceRepairConvergenceRows(report.maintenance_repair_convergence);
   const commitmentRows = maintenanceCommitmentRows(report.maintenance_commitment);
   const deferMemoryRows = maintenanceDeferMemoryRows(report.maintenance_defer_memory);
   if (confidenceRows.length > 0) {
@@ -733,12 +769,29 @@ export function formatWorklistReport(report: WorklistReport): string {
       operatingBlockRows.push(...decisionRows);
     }
   }
+  if (convergenceRows.length > 0) {
+    if (operatingBlockRows.length > 0) {
+      operatingBlockRows.push(...convergenceRows);
+    } else if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...convergenceRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...convergenceRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...convergenceRows);
+    } else {
+      operatingBlockRows.push(...convergenceRows);
+    }
+  }
   const schedulingRows = maintenanceSchedulingRows(report.maintenance_scheduling);
+  const maintenanceStartCommand =
+    report.maintenance_repair_convergence?.eligible && report.maintenance_repair_convergence.state === "repair_owned"
+      ? report.maintenance_repair_convergence.primary_command ?? "personal-ops repair plan"
+      : "personal-ops maintenance session";
   const maintenanceRows =
     report.maintenance_window.eligible_now && report.maintenance_window.bundle
       ? [
           `- ${report.maintenance_window.bundle.summary}`,
-          "- Start with `personal-ops maintenance session`.",
+          `- Start with \`${maintenanceStartCommand}\`.`,
           ...report.maintenance_window.bundle.recommendations.map(
             (recommendation) => `- ${recommendation.title}: inside session use ${recommendation.suggested_command}`,
           ),
@@ -981,10 +1034,12 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     commitment: session.maintenance_follow_through.commitment,
     defer_memory: session.maintenance_follow_through.defer_memory,
     confidence: session.maintenance_follow_through.confidence,
+    convergence: session.maintenance_follow_through.convergence,
   });
   const confidenceRows = maintenanceConfidenceRows(session.maintenance_confidence);
   const operatingBlockRows = maintenanceOperatingBlockRows(session.maintenance_operating_block);
   const decisionRows = maintenanceDecisionExplanationRows(session.maintenance_decision_explanation);
+  const convergenceRows = maintenanceRepairConvergenceRows(session.maintenance_repair_convergence);
   const commitmentRows = maintenanceCommitmentRows(session.maintenance_commitment);
   const deferMemoryRows = maintenanceDeferMemoryRows(session.maintenance_defer_memory);
   if (confidenceRows.length > 0) {
@@ -1011,11 +1066,28 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
       operatingBlockRows.push(...decisionRows);
     }
   }
+  if (convergenceRows.length > 0) {
+    if (operatingBlockRows.length > 0) {
+      operatingBlockRows.push(...convergenceRows);
+    } else if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...convergenceRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...convergenceRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...convergenceRows);
+    } else {
+      operatingBlockRows.push(...convergenceRows);
+    }
+  }
   const schedulingRows = maintenanceSchedulingRows(session.maintenance_scheduling);
+  const maintenanceSessionCommand =
+    session.maintenance_repair_convergence?.eligible && session.maintenance_repair_convergence.state === "repair_owned"
+      ? session.maintenance_repair_convergence.primary_command ?? "personal-ops repair plan"
+      : session.start_command;
   lines.push("Maintenance Session");
   lines.push(line("Generated", session.generated_at));
   lines.push(line("Eligible now", yesNo(session.eligible_now)));
-  lines.push(line("Start command", session.start_command));
+  lines.push(line("Start command", maintenanceSessionCommand));
   lines.push(line("Deferred reason", session.deferred_reason ?? "none"));
   lines.push(line("First step", session.first_step_id ?? "none"));
   lines.push("");
@@ -1131,6 +1203,7 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
   const maintenanceConfidence = worklist.maintenance_confidence;
   const maintenanceOperatingBlock = worklist.maintenance_operating_block;
   const maintenanceDecisionExplanation = worklist.maintenance_decision_explanation;
+  const maintenanceRepairConvergence = worklist.maintenance_repair_convergence;
   const followThroughRows = maintenanceFollowThroughRows(worklist.maintenance_follow_through);
   lines.push(`Personal Ops Now: ${formatStateLabel(status.state)}`);
   lines.push(line("Next attention", topSummary(worklist.items[0]?.summary, "nothing urgent right now")));
@@ -1165,7 +1238,12 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
           lines.push(`- ${maintenanceDecisionExplanation.why_now}`);
         }
       }
-      lines.push("- Start with `personal-ops maintenance session`.");
+      if (maintenanceRepairConvergence?.eligible && maintenanceRepairConvergence.state === "repair_owned") {
+        lines.push(`- ${maintenanceRepairConvergence.summary}`);
+        lines.push(`- Start with \`${maintenanceRepairConvergence.primary_command ?? "personal-ops repair plan"}\`.`);
+      } else {
+        lines.push("- Start with `personal-ops maintenance session`.");
+      }
       if (maintenanceOperatingBlock.reason) {
         lines.push(`- ${maintenanceOperatingBlock.reason}`);
       }
@@ -1193,7 +1271,12 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
         lines.push(`- ${maintenanceDecisionExplanation.why_now}`);
       }
     }
-    lines.push("- Start with `personal-ops maintenance session`.");
+    if (maintenanceRepairConvergence?.eligible && maintenanceRepairConvergence.state === "repair_owned") {
+      lines.push(`- ${maintenanceRepairConvergence.summary}`);
+      lines.push(`- Start with \`${maintenanceRepairConvergence.primary_command ?? "personal-ops repair plan"}\`.`);
+    } else {
+      lines.push("- Start with `personal-ops maintenance session`.");
+    }
     if (maintenanceOperatingBlock.reason) {
       lines.push(`- ${maintenanceOperatingBlock.reason}`);
     }

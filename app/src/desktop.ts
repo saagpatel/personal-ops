@@ -26,6 +26,17 @@ interface CommandProbeResult {
   output: string;
 }
 
+const DESKTOP_CONSOLE_SESSION_TIMEOUT_MS = 200;
+const DESKTOP_STATUS_CACHE_TTL_MS = 1_000;
+
+type DesktopStatusCacheEntry = {
+  expires_at: number;
+  value?: DesktopStatusReport;
+  promise?: Promise<DesktopStatusReport>;
+};
+
+const desktopStatusCache = new Map<string, DesktopStatusCacheEntry>();
+
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -241,6 +252,7 @@ export async function createDesktopConsoleSession(paths: Paths): Promise<Console
   }
   const response = await fetch(`http://${config.serviceHost}:${config.servicePort}/v1/console/session`, {
     method: "POST",
+    signal: AbortSignal.timeout(DESKTOP_CONSOLE_SESSION_TIMEOUT_MS),
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/json",
@@ -258,22 +270,48 @@ export async function createDesktopConsoleSession(paths: Paths): Promise<Console
 }
 
 export async function getDesktopStatusReport(paths: Paths): Promise<DesktopStatusReport> {
-  const baseReport = getDesktopLocalStatusReport(paths);
-  let launchUrl: string | null = null;
-  let handoffReady = false;
-  try {
-    const session = await createDesktopConsoleSession(paths);
-    launchUrl = session.launch_url;
-    handoffReady = true;
-  } catch {
-    handoffReady = false;
+  const cacheKey = paths.appDir;
+  const now = Date.now();
+  const cached = desktopStatusCache.get(cacheKey);
+  if (cached?.value && cached.expires_at > now) {
+    return cached.value;
   }
+  if (cached?.promise) {
+    return cached.promise;
+  }
+  const promise = (async () => {
+    const baseReport = getDesktopLocalStatusReport(paths);
+    let launchUrl: string | null = null;
+    let handoffReady = false;
+    try {
+      const session = await createDesktopConsoleSession(paths);
+      launchUrl = session.launch_url;
+      handoffReady = true;
+    } catch {
+      handoffReady = false;
+    }
 
-  return {
-    ...baseReport,
-    daemon_session_handoff_ready: handoffReady,
-    launch_url: launchUrl,
-  };
+    const report = {
+      ...baseReport,
+      daemon_session_handoff_ready: handoffReady,
+      launch_url: launchUrl,
+    };
+    desktopStatusCache.set(cacheKey, {
+      expires_at: Date.now() + DESKTOP_STATUS_CACHE_TTL_MS,
+      value: report,
+    });
+    return report;
+  })();
+  desktopStatusCache.set(cacheKey, {
+    expires_at: now + DESKTOP_STATUS_CACHE_TTL_MS,
+    promise,
+  });
+  try {
+    return await promise;
+  } catch (error) {
+    desktopStatusCache.delete(cacheKey);
+    throw error;
+  }
 }
 
 function runDesktopCommand(projectPath: string, args: string[]): void {

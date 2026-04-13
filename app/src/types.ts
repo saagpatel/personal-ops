@@ -1248,6 +1248,7 @@ export interface WorklistReport {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   items: AttentionItem[];
 }
 
@@ -1277,6 +1278,7 @@ export interface AssistantActionItem {
   target_type?: string | undefined;
   target_id?: string | undefined;
   signals: string[];
+  workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   blocking_reason?: string | undefined;
   latest_run?: AssistantActionRunReport | undefined;
 }
@@ -2040,6 +2042,30 @@ export interface AutopilotStatusReport {
   profiles: AutopilotProfileStatus[];
 }
 
+export type WorkflowPersonalizationCategory = "task" | "followup" | "meeting";
+
+export type WorkflowPreferenceWindow = "early_day" | "mid_day" | "late_day" | "anytime";
+
+export type WorkflowPersonalizationFit = "favored" | "neutral" | "defer";
+
+export type WorkflowPersonalizationReason =
+  | "insufficient_history"
+  | "aligned_with_habit"
+  | "usually_later_today"
+  | "usually_earlier_today"
+  | "no_strong_pattern";
+
+export interface WorkflowPersonalizationSummary {
+  eligible: boolean;
+  category: WorkflowPersonalizationCategory;
+  preferred_window: WorkflowPreferenceWindow | null;
+  current_window: Exclude<WorkflowPreferenceWindow, "anytime"> | null;
+  fit: WorkflowPersonalizationFit;
+  reason: WorkflowPersonalizationReason;
+  summary: string | null;
+  sample_count_30d: number;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;
@@ -2049,6 +2075,7 @@ export interface WorkflowBundleSectionItem {
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
+  workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2069,6 +2096,7 @@ export interface WorkflowBundleAction {
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
+  workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2089,6 +2117,8 @@ export interface WorkflowBundleReport {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
+  workflow_personalization?: WorkflowPersonalizationSummary | undefined;
 }
 
 export interface MailSyncState {
@@ -2462,6 +2492,51 @@ export interface MaintenanceDecisionExplanationSummary {
   bundle_step_ids: RepairStepId[];
 }
 
+export type MaintenanceRepairConvergenceState =
+  | "repair_owned"
+  | "repair_priority_upkeep"
+  | "maintenance_owned"
+  | "quiet_preventive"
+  | "none";
+
+export type MaintenanceRepairConvergenceDriver =
+  | "active_repair"
+  | "recent_handoff"
+  | "repeated_handoff"
+  | "active_commitment"
+  | "cooling_success"
+  | "preventive_only";
+
+export interface MaintenanceRepairConvergenceSummary {
+  eligible: boolean;
+  step_id: RepairStepId | null;
+  state: MaintenanceRepairConvergenceState;
+  driver: MaintenanceRepairConvergenceDriver | null;
+  summary: string | null;
+  why: string | null;
+  primary_command: string | null;
+  repair_command: string | null;
+  maintenance_command: string | null;
+  handoff_count_30d: number;
+  active_repair_step_id: RepairStepId | null;
+  bundle_step_ids: RepairStepId[];
+}
+
+export type WorkspaceHomeState = "repair" | "assistant" | "workflow" | "maintenance" | "caught_up";
+
+export interface WorkspaceHomeSummary {
+  ready: boolean;
+  state: WorkspaceHomeState;
+  title: string;
+  summary: string | null;
+  why_now: string | null;
+  primary_command: string | null;
+  secondary_summary: string | null;
+  assistant_action_id: string | null;
+  workflow: WorkflowBundleReport["workflow"] | null;
+  maintenance_state: MaintenanceRepairConvergenceState | MaintenanceDecisionState | null;
+}
+
 export interface MaintenanceDeferMemorySummary {
   active: boolean;
   step_id: RepairStepId | null;
@@ -2499,6 +2574,7 @@ export interface MaintenanceFollowThroughSummary {
   commitment?: MaintenanceCommitmentSummary | undefined;
   defer_memory?: MaintenanceDeferMemorySummary | undefined;
   confidence?: MaintenanceConfidenceSummary | undefined;
+  convergence?: MaintenanceRepairConvergenceSummary | undefined;
 }
 
 export interface MaintenanceSessionStep {
@@ -2528,6 +2604,7 @@ export interface MaintenanceSessionPlan {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
 }
 
 export interface RepairExecutionRecord {
@@ -2574,6 +2651,7 @@ export interface RepairPlan {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2601,6 +2679,7 @@ export interface RepairPlanSummary {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
 }
@@ -2774,6 +2853,7 @@ export interface ServiceStatusReport {
   service_version: string;
   state: ServiceState;
   first_repair_step: string | null;
+  workspace_home: WorkspaceHomeSummary;
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;
@@ -2784,6 +2864,7 @@ export interface ServiceStatusReport {
   maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

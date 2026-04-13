@@ -535,7 +535,7 @@ async function buildBundle(service: any, kind: PlanningAutopilotBundleKind, deta
 }
 
 async function computeBundles(service: any, options: BuildOptions): Promise<{ readiness: ServiceState; bundles: BundleComputation[] }> {
-  const status = await service.getStatusReport(options);
+  const worklist = await service.getWorklistReport(options);
   const recommendations = service
     .listPlanningRecommendations({ include_resolved: false })
     .filter((recommendation: PlanningRecommendation) => ["pending", "snoozed"].includes(recommendation.status))
@@ -579,7 +579,7 @@ async function computeBundles(service: any, options: BuildOptions): Promise<{ re
   }
   computed.sort((left, right) => right.score - left.score || left.bundle.bundle_id.localeCompare(right.bundle.bundle_id));
   return {
-    readiness: status.state,
+    readiness: worklist.state,
     bundles: computed.slice(0, MAX_ACTIVE_BUNDLES),
   };
 }

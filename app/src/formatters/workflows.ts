@@ -7,6 +7,22 @@ function pushSection(lines: string[], title: string, items: string[]) {
   lines.push("");
 }
 
+function shouldRenderWorkflowPersonalization(
+  report: WorkflowBundleReport,
+  item: WorkflowBundleReport["sections"][number]["items"][number],
+): boolean {
+  if (!item.workflow_personalization?.eligible || !item.workflow_personalization.summary) {
+    return false;
+  }
+  if (report.workflow === "now-next") {
+    return item.workflow_personalization.fit !== "neutral";
+  }
+  if (report.workflow === "prep-day") {
+    return item.workflow_personalization.fit !== "neutral";
+  }
+  return false;
+}
+
 export function formatWorkflowBundleReport(report: WorkflowBundleReport): string {
   const lines: string[] = [];
   lines.push(`Personal Ops Workflow: ${formatStateLabel(report.workflow)}`);
@@ -35,6 +51,30 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
       (report.workflow === "prep-day" && report.maintenance_scheduling.placement === "prep_day"))
   ) {
     lines.push(`Maintenance confidence: ${report.maintenance_confidence.summary}`);
+  }
+  if (
+    report.maintenance_repair_convergence?.eligible &&
+    report.maintenance_repair_convergence.summary &&
+    ((report.workflow === "now-next" &&
+      report.maintenance_repair_convergence.state !== "quiet_preventive" &&
+      report.maintenance_operating_block?.step_id === report.maintenance_repair_convergence.step_id &&
+      report.maintenance_operating_block.block === "current_block") ||
+      (report.workflow === "prep-day" &&
+        report.maintenance_operating_block?.step_id === report.maintenance_repair_convergence.step_id &&
+        (report.maintenance_repair_convergence.state === "repair_owned" ||
+          report.maintenance_repair_convergence.state === "repair_priority_upkeep" ||
+          report.maintenance_repair_convergence.state === "maintenance_owned" ||
+          report.maintenance_repair_convergence.state === "quiet_preventive")))
+  ) {
+    lines.push(
+      `Maintenance convergence (${report.maintenance_repair_convergence.state.replaceAll("_", " ")}): ${report.maintenance_repair_convergence.summary}`,
+    );
+    if (report.maintenance_repair_convergence.why) {
+      lines.push(`Why: ${report.maintenance_repair_convergence.why}`);
+    }
+    if (report.maintenance_repair_convergence.primary_command) {
+      lines.push(`Next: ${report.maintenance_repair_convergence.primary_command}`);
+    }
   }
   if (
     report.maintenance_operating_block?.eligible &&
@@ -96,6 +136,9 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
         const rendered = [`- ${item.label}: ${item.summary}`];
         if (item.why_now) {
           rendered.push(`  why now: ${item.why_now}`);
+        }
+        if (shouldRenderWorkflowPersonalization(report, item)) {
+          rendered.push(`  workflow fit: ${item.workflow_personalization!.summary}`);
         }
         if (item.score_band) {
           rendered.push(`  score band: ${item.score_band}`);

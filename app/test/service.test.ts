@@ -18,7 +18,7 @@ import {
   buildNowNextWorkflowReport,
   buildPrepDayWorkflowReport,
 } from "../src/service/workflows.js";
-import { PersonalOpsService } from "../src/service.js";
+import { buildWorkspaceHomeSummary, PersonalOpsService } from "../src/service.js";
 import {
   GoogleCalendarEventsPage,
   GoogleCalendarListPage,
@@ -36,6 +36,8 @@ import {
   GmailHistoryPage,
   GmailMessageMetadata,
   GmailMessageRefPage,
+  PlanningRecommendation,
+  PlanningRecommendationDetail,
   Policy,
   WorklistReport,
 } from "../src/types.js";
@@ -172,6 +174,147 @@ function emptyMaintenanceDecisionExplanation() {
     operating_block: null,
     reasons: [],
     bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceRepairConvergence() {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "none" as const,
+    driver: null,
+    summary: null,
+    why: null,
+    primary_command: null,
+    repair_command: "personal-ops repair plan",
+    maintenance_command: "personal-ops maintenance session",
+    handoff_count_30d: 0,
+    active_repair_step_id: null,
+    bundle_step_ids: [],
+  };
+}
+
+function withMockedNow<T>(isoTimestamp: string, run: () => T): T {
+  const originalNow = Date.now;
+  Date.now = () => Date.parse(isoTimestamp);
+  let restored = false;
+  let deferRestore = false;
+  const restore = () => {
+    if (!restored) {
+      Date.now = originalNow;
+      restored = true;
+    }
+  };
+  try {
+    const result = run();
+    if (result && typeof (result as { then?: unknown }).then === "function") {
+      deferRestore = true;
+      return ((result as unknown as Promise<unknown>).finally(() => {
+        restore();
+      }) as unknown) as T;
+    }
+    return result;
+  } finally {
+    if (!deferRestore) {
+      restore();
+    }
+  }
+}
+
+function buildWorkflowRecommendation(
+  recommendationId: string,
+  input: Partial<PlanningRecommendation> & Pick<PlanningRecommendation, "kind" | "reason_summary">,
+): PlanningRecommendation {
+  return {
+    recommendation_id: recommendationId,
+    kind: input.kind,
+    status: input.status ?? "pending",
+    priority: input.priority ?? "normal",
+    source: input.source ?? "system_generated",
+    suggested_by_client: input.suggested_by_client ?? "workflow-test",
+    suggested_by_actor: input.suggested_by_actor,
+    created_at: input.created_at ?? "2026-04-10T12:00:00.000Z",
+    updated_at: input.updated_at ?? input.created_at ?? "2026-04-10T12:00:00.000Z",
+    reason_summary: input.reason_summary,
+    reason_code: input.reason_code ?? "task_due_soon",
+    dedupe_key: input.dedupe_key ?? `workflow:${recommendationId}`,
+    source_fingerprint: input.source_fingerprint ?? `fingerprint:${recommendationId}`,
+    rank_score: input.rank_score ?? 500,
+    rank_reason: input.rank_reason,
+    ranking_version: input.ranking_version ?? "workflow-test",
+    group_key: input.group_key,
+    group_summary: input.group_summary,
+    proposed_title: input.proposed_title,
+    proposed_notes: input.proposed_notes,
+    proposed_calendar_id: input.proposed_calendar_id,
+    proposed_start_at: input.proposed_start_at,
+    proposed_end_at: input.proposed_end_at,
+    snoozed_until: input.snoozed_until,
+    source_task_id: input.source_task_id,
+    source_thread_id: input.source_thread_id,
+    source_calendar_event_id: input.source_calendar_event_id,
+    source_last_seen_at: input.source_last_seen_at ?? "2026-04-10T12:00:00.000Z",
+    first_action_at: input.first_action_at,
+    first_action_type: input.first_action_type,
+    close_reason_code: input.close_reason_code,
+    closed_by_client: input.closed_by_client,
+    closed_by_actor: input.closed_by_actor,
+    closed_at: input.closed_at,
+    outcome_state: input.outcome_state ?? "none",
+    outcome_recorded_at: input.outcome_recorded_at,
+    outcome_source: input.outcome_source,
+    outcome_summary: input.outcome_summary,
+    slot_state: input.slot_state ?? "ready",
+    slot_state_reason: input.slot_state_reason,
+    slot_reason: input.slot_reason,
+    trigger_signals: input.trigger_signals ?? [],
+    suppressed_signals: input.suppressed_signals ?? [],
+    replan_count: input.replan_count ?? 0,
+    last_replanned_at: input.last_replanned_at,
+    decision_reason_code: input.decision_reason_code,
+    decision_note: input.decision_note,
+    applied_task_id: input.applied_task_id,
+    applied_calendar_event_id: input.applied_calendar_event_id,
+    last_error_code: input.last_error_code,
+    last_error_message: input.last_error_message,
+  };
+}
+
+function buildWorkflowRecommendationDetail(
+  recommendation: PlanningRecommendation,
+  options: {
+    taskDueAt?: string;
+    eventStartAt?: string;
+  } = {},
+): PlanningRecommendationDetail {
+  return {
+    recommendation,
+    task: options.taskDueAt
+      ? ({
+          task_id: recommendation.source_task_id ?? "task-1",
+          due_at: options.taskDueAt,
+        } as any)
+      : undefined,
+    thread: recommendation.source_thread_id
+      ? ({
+          thread_id: recommendation.source_thread_id,
+        } as any)
+      : undefined,
+    event: options.eventStartAt
+      ? ({
+          event_id: recommendation.source_calendar_event_id ?? "event-1",
+          start_at: options.eventStartAt,
+        } as any)
+      : undefined,
+    applied_task: undefined,
+    applied_event: undefined,
+    ranking_reason: recommendation.rank_reason,
+    slot_reason: recommendation.slot_state === "ready" ? "Slot is ready." : "Slot needs manual scheduling.",
+    trigger_signals: recommendation.trigger_signals,
+    suppressed_signals: recommendation.suppressed_signals,
+    source_resolved_since_created: false,
+    applied_task_current_state: undefined,
+    related_audit_events: [],
   };
 }
 
@@ -6461,7 +6604,7 @@ test("phase-5 prep-day workflow stays bounded and leads with a repair step when 
 
   assert.equal(report.workflow, "prep-day");
   assert.deepEqual(
-    report.sections.map((section) => section.title),
+    report.sections.map((section: any) => section.title),
     ["Overall State", "Top Attention", "Time-Sensitive Items", "Maintenance Window", "Next Commands"],
   );
   assert.ok(report.actions.length <= 3);
@@ -7927,6 +8070,478 @@ test("phase-7 workflows rank github pull request work above governance noise in 
   assert.equal(prepDay.actions[0]?.target_type, "github_pull_request");
 });
 
+test("phase 27 keeps workflow personalization ineligible when history is too thin", async () => {
+  const followupRecommendation = buildWorkflowRecommendation("followup-pending", {
+    kind: "schedule_thread_followup",
+    reason_summary: "Reply to an active thread.",
+    rank_score: 540,
+    source_thread_id: "thread-1",
+    trigger_signals: ["reply_needed"],
+  });
+  const detailById = new Map([
+    [
+      followupRecommendation.recommendation_id,
+      buildWorkflowRecommendationDetail(followupRecommendation),
+    ],
+  ]);
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "ready", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-04-12T16:00:00.000Z",
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { status?: string; include_resolved?: boolean }) =>
+      options?.include_resolved ? [followupRecommendation] : [followupRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "ready", summary: "No inbox autopilot groups are active.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "ready", summary: "Planning autopilot unavailable.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "ready", summary: "Outbound autopilot unavailable.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const report = withMockedNow("2026-04-12T16:00:00.000Z", () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+  const nowNext = await report;
+
+  assert.equal(nowNext.actions[0]?.workflow_personalization?.eligible ?? false, false);
+  assert.equal(nowNext.workflow_personalization?.eligible ?? false, false);
+});
+
+test("phase 27 de-emphasizes task work early in the day when history strongly prefers late-day task execution", async () => {
+  const earlyWorkdayNow = new Date(2026, 3, 12, 9, 0, 0).toISOString();
+  const lateTaskHistory = [
+    new Date(2026, 3, 10, 16, 30, 0).toISOString(),
+    new Date(2026, 3, 9, 16, 45, 0).toISOString(),
+    new Date(2026, 3, 8, 17, 10, 0).toISOString(),
+  ];
+  const earlyFollowupHistory = [
+    new Date(2026, 3, 10, 9, 30, 0).toISOString(),
+    new Date(2026, 3, 9, 9, 40, 0).toISOString(),
+    new Date(2026, 3, 8, 9, 50, 0).toISOString(),
+  ];
+  const taskRecommendation = buildWorkflowRecommendation("task-pending", {
+    kind: "schedule_task_block",
+    reason_summary: "Protect time for the current task block.",
+    rank_score: 560,
+    source_task_id: "task-1",
+    trigger_signals: ["task_due_today"],
+  });
+  const followupRecommendation = buildWorkflowRecommendation("followup-pending", {
+    kind: "schedule_thread_followup",
+    reason_summary: "Reply to the open client thread.",
+    rank_score: 530,
+    reason_code: "needs_reply",
+    source_thread_id: "thread-1",
+    trigger_signals: ["reply_needed"],
+  });
+  const recommendationHistory = [
+    buildWorkflowRecommendation("task-history-1", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical late-day task block.",
+      status: "applied",
+      first_action_at: lateTaskHistory[0],
+      source_task_id: "task-history-1",
+    }),
+    buildWorkflowRecommendation("task-history-2", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical late-day task block.",
+      status: "applied",
+      first_action_at: lateTaskHistory[1],
+      source_task_id: "task-history-2",
+    }),
+    buildWorkflowRecommendation("task-history-3", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical late-day task block.",
+      status: "applied",
+      first_action_at: lateTaskHistory[2],
+      source_task_id: "task-history-3",
+    }),
+    buildWorkflowRecommendation("followup-history-1", {
+      kind: "schedule_thread_followup",
+      reason_summary: "Historical follow-up block.",
+      status: "applied",
+      first_action_at: earlyFollowupHistory[0],
+      source_thread_id: "thread-history-1",
+    }),
+    buildWorkflowRecommendation("followup-history-2", {
+      kind: "schedule_thread_followup",
+      reason_summary: "Historical follow-up block.",
+      status: "applied",
+      first_action_at: earlyFollowupHistory[1],
+      source_thread_id: "thread-history-2",
+    }),
+    buildWorkflowRecommendation("followup-history-3", {
+      kind: "schedule_thread_followup",
+      reason_summary: "Historical follow-up block.",
+      status: "applied",
+      first_action_at: earlyFollowupHistory[2],
+      source_thread_id: "thread-history-3",
+    }),
+  ];
+  const detailById = new Map([
+    [taskRecommendation.recommendation_id, buildWorkflowRecommendationDetail(taskRecommendation, { taskDueAt: "2026-04-12T20:00:00.000Z" })],
+    [followupRecommendation.recommendation_id, buildWorkflowRecommendationDetail(followupRecommendation)],
+  ]);
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "ready", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: earlyWorkdayNow,
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { status?: string; include_resolved?: boolean }) =>
+      options?.include_resolved ? [taskRecommendation, followupRecommendation, ...recommendationHistory] : [taskRecommendation, followupRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: earlyWorkdayNow, readiness: "ready", summary: "No inbox autopilot groups are active.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: earlyWorkdayNow, readiness: "ready", summary: "Planning autopilot unavailable.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: earlyWorkdayNow, readiness: "ready", summary: "Outbound autopilot unavailable.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: (left: PlanningRecommendation, right: PlanningRecommendation) => right.rank_score - left.rank_score,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const nowNext = await withMockedNow(earlyWorkdayNow, () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+  const prepDay = await withMockedNow(earlyWorkdayNow, () => buildPrepDayWorkflowReport(fakeService, { httpReachable: true }));
+
+  assert.equal(nowNext.actions[0]?.target_id, "followup-pending");
+  assert.equal(nowNext.actions[0]?.workflow_personalization?.fit, "favored");
+  assert.equal(prepDay.actions[0]?.target_id, "followup-pending");
+  assert.equal(
+    prepDay.sections.some((section) => section.items.some((item) => item.workflow_personalization?.fit === "defer" || item.workflow_personalization?.fit === "favored")),
+    true,
+  );
+});
+
+test("phase 27 suppresses workflow personalization when the current time is outside the configured workday", async () => {
+  const taskRecommendation = buildWorkflowRecommendation("task-pending", {
+    kind: "schedule_task_block",
+    reason_summary: "Protect time for the current task block.",
+    rank_score: 560,
+    source_task_id: "task-1",
+    trigger_signals: ["task_due_today"],
+  });
+  const detailById = new Map([
+    [taskRecommendation.recommendation_id, buildWorkflowRecommendationDetail(taskRecommendation, { taskDueAt: "2026-04-12T20:00:00.000Z" })],
+  ]);
+  const history = [
+    buildWorkflowRecommendation("task-history-1", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-10T16:30:00.000Z",
+      source_task_id: "task-history-1",
+    }),
+    buildWorkflowRecommendation("task-history-2", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-09T16:45:00.000Z",
+      source_task_id: "task-history-2",
+    }),
+    buildWorkflowRecommendation("task-history-3", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-08T17:10:00.000Z",
+      source_task_id: "task-history-3",
+    }),
+  ];
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "ready", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-04-12T05:00:00.000Z",
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { status?: string; include_resolved?: boolean }) =>
+      options?.include_resolved ? [taskRecommendation, ...history] : [taskRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: "2026-04-12T05:00:00.000Z", readiness: "ready", summary: "No inbox autopilot groups are active.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: "2026-04-12T05:00:00.000Z", readiness: "ready", summary: "Planning autopilot unavailable.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: "2026-04-12T05:00:00.000Z", readiness: "ready", summary: "Outbound autopilot unavailable.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const nowNext = await withMockedNow("2026-04-12T05:00:00.000Z", () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+
+  assert.equal(nowNext.actions[0]?.workflow_personalization?.eligible ?? false, false);
+  assert.equal(nowNext.workflow_personalization?.eligible ?? false, false);
+});
+
+test("phase 27 suppresses workflow personalization when workflow readiness is not ready", async () => {
+  const taskRecommendation = buildWorkflowRecommendation("task-pending", {
+    kind: "schedule_task_block",
+    reason_summary: "Protect time for the current task block.",
+    rank_score: 560,
+    source_task_id: "task-1",
+    trigger_signals: ["task_due_today"],
+  });
+  const detailById = new Map([
+    [taskRecommendation.recommendation_id, buildWorkflowRecommendationDetail(taskRecommendation, { taskDueAt: "2026-04-12T20:00:00.000Z" })],
+  ]);
+  const history = [
+    buildWorkflowRecommendation("task-history-1", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-10T16:30:00.000Z",
+      source_task_id: "task-history-1",
+    }),
+    buildWorkflowRecommendation("task-history-2", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-09T16:45:00.000Z",
+      source_task_id: "task-history-2",
+    }),
+    buildWorkflowRecommendation("task-history-3", {
+      kind: "schedule_task_block",
+      reason_summary: "Historical task block.",
+      status: "applied",
+      first_action_at: "2026-04-08T17:10:00.000Z",
+      source_task_id: "task-history-3",
+    }),
+  ];
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "degraded", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-04-12T16:00:00.000Z",
+      state: "degraded",
+      counts_by_severity: { critical: 1, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { status?: string; include_resolved?: boolean }) =>
+      options?.include_resolved ? [taskRecommendation, ...history] : [taskRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "degraded", summary: "Inbox autopilot unavailable.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "degraded", summary: "Planning autopilot unavailable.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: "2026-04-12T16:00:00.000Z", readiness: "degraded", summary: "Outbound autopilot unavailable.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: () => 0,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const nowNext = await withMockedNow("2026-04-12T16:00:00.000Z", () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+
+  assert.equal(nowNext.actions[0]?.workflow_personalization?.eligible ?? false, false);
+  assert.equal(nowNext.workflow_personalization?.eligible ?? false, false);
+});
+
+test("phase 29 workspace home gives repair absolute precedence over assistant, workflow, and maintenance", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const summary = buildWorkspaceHomeSummary({
+    status: {
+      ...baseStatus,
+      state: "ready",
+      first_repair_step: "personal-ops repair plan",
+      maintenance_repair_convergence: {
+        ...emptyMaintenanceRepairConvergence(),
+        eligible: true,
+        step_id: "install_wrappers",
+        state: "repair_owned",
+        driver: "active_repair",
+        summary:
+          "This recurring family is now active repair and should be treated through the repair plan, not as a parallel maintenance item.",
+        why: "The same family is already in repair, so maintenance should stay referential.",
+        primary_command: "personal-ops repair plan",
+        active_repair_step_id: "install_wrappers",
+      },
+    },
+    assistantQueue: {
+      generated_at: "2026-04-13T10:00:00.000Z",
+      readiness: "ready",
+      summary: "Assistant queue is ready.",
+      counts_by_state: { proposed: 1, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 },
+      top_item_summary: "Assistant action summary",
+      actions: [
+        {
+          action_id: "assistant.review-top-attention",
+          title: "Review top attention",
+          summary: "Assistant action summary",
+          state: "proposed",
+          section: "overview",
+          batch: false,
+          one_click: false,
+          review_required: true,
+          why_now: "Assistant action why now.",
+          command: "personal-ops assistant queue",
+          signals: ["assistant"],
+        },
+      ],
+    },
+    nowNextWorkflow: {
+      workflow: "now-next",
+      generated_at: "2026-04-13T10:00:00.000Z",
+      readiness: "ready",
+      summary: "Workflow summary",
+      sections: [],
+      actions: [
+        {
+          label: "Top workflow action",
+          summary: "Workflow action summary",
+          command: "personal-ops workflow now-next",
+          why_now: "Workflow why now.",
+        },
+      ],
+      first_repair_step: null,
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+    },
+  });
+
+  assert.equal(summary.state, "repair");
+  assert.equal(summary.title, "Repair comes first");
+  assert.equal(summary.primary_command, "personal-ops repair plan");
+  assert.match(summary.summary ?? "", /active repair/i);
+});
+
+test("phase 29 workspace home falls through assistant, workflow, maintenance, then caught up", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const maintenanceStatus = {
+    ...baseStatus,
+    state: "ready" as const,
+    first_repair_step: null,
+    maintenance_repair_convergence: {
+      ...emptyMaintenanceRepairConvergence(),
+      eligible: true,
+      step_id: "install_wrappers" as const,
+      state: "maintenance_owned" as const,
+      driver: "active_commitment" as const,
+      summary: "This recurring family is still maintenance-owned and should be handled through the maintenance session.",
+      why: "It belongs in the maintenance session but is not active repair.",
+      primary_command: "personal-ops maintenance session",
+    },
+  };
+  const assistantQueue = {
+    generated_at: "2026-04-13T10:00:00.000Z",
+    readiness: "ready" as const,
+    summary: "Assistant queue is ready.",
+    counts_by_state: { proposed: 1, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 },
+    top_item_summary: "Assistant action summary",
+    actions: [
+      {
+        action_id: "assistant.review-top-attention",
+        title: "Review top attention",
+        summary: "Assistant action summary",
+        state: "proposed" as const,
+        section: "overview" as const,
+        batch: false,
+        one_click: false,
+        review_required: true,
+        why_now: "Assistant action why now.",
+        command: "personal-ops assistant queue",
+        signals: ["assistant"],
+      },
+    ],
+  };
+  const workflow = {
+    workflow: "now-next" as const,
+    generated_at: "2026-04-13T10:00:00.000Z",
+    readiness: "ready" as const,
+    summary: "Workflow summary",
+    sections: [],
+    actions: [
+      {
+        label: "Top workflow action",
+        summary: "Workflow action summary",
+        command: "personal-ops workflow now-next",
+        why_now: "Workflow why now.",
+      },
+    ],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
+  };
+
+  const assistantSummary = buildWorkspaceHomeSummary({
+    status: maintenanceStatus,
+    assistantQueue,
+    nowNextWorkflow: workflow,
+  });
+  assert.equal(assistantSummary.state, "assistant");
+  assert.equal(assistantSummary.assistant_action_id, "assistant.review-top-attention");
+
+  const workflowSummary = buildWorkspaceHomeSummary({
+    status: maintenanceStatus,
+    assistantQueue: { ...assistantQueue, counts_by_state: { proposed: 0, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 }, top_item_summary: null, actions: [] },
+    nowNextWorkflow: workflow,
+  });
+  assert.equal(workflowSummary.state, "workflow");
+  assert.equal(workflowSummary.workflow, "now-next");
+
+  const maintenanceSummary = buildWorkspaceHomeSummary({
+    status: maintenanceStatus,
+    assistantQueue: { ...assistantQueue, counts_by_state: { proposed: 0, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 }, top_item_summary: null, actions: [] },
+    nowNextWorkflow: { ...workflow, actions: [] },
+  });
+  assert.equal(maintenanceSummary.state, "maintenance");
+  assert.equal(maintenanceSummary.primary_command, "personal-ops maintenance session");
+
+  const caughtUpSummary = buildWorkspaceHomeSummary({
+    status: {
+      ...maintenanceStatus,
+      maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+      maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+    },
+    assistantQueue: { ...assistantQueue, counts_by_state: { proposed: 0, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 }, top_item_summary: null, actions: [] },
+    nowNextWorkflow: { ...workflow, actions: [] },
+  });
+  assert.equal(caughtUpSummary.state, "caught_up");
+  assert.match(caughtUpSummary.title ?? "", /caught up/i);
+  assert.match(caughtUpSummary.summary ?? "", /no urgent repair/i);
+});
+
 test("assistant-led phase 5 drive sync feeds docs, sheets, and read-only routes", async () => {
   const syncedAt = "2026-03-29T14:00:00.000Z";
   const { service, config, policy } = createFixture({
@@ -8400,7 +9015,7 @@ test("assistant-led phase 6 workflows prefer prepared planning bundles when the 
   await service.preparePlanningAutopilotBundle(cliIdentity, taskBundle!.bundle_id);
 
   const nowNext = await service.getNowNextWorkflowReport({ httpReachable: true });
-  const firstConcreteAction = nowNext.actions.find((action) => action.target_type !== "system");
+  const firstConcreteAction = nowNext.actions.find((action: any) => action.target_type !== "system");
 
   assert.equal(firstConcreteAction?.target_type, "planning_autopilot_bundle");
 });

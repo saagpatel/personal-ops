@@ -241,8 +241,8 @@ function chunkThreads(items: InboxThreadSummary[]): InboxThreadSummary[][] {
 }
 
 export async function buildInboxAutopilotReport(service: any, options: BuildOptions): Promise<InboxAutopilotReport> {
-  const [status, needsReply, followups] = await Promise.all([
-    service.getStatusReport(options),
+  const [worklist, needsReply, followups] = await Promise.all([
+    service.getWorklistReport(options),
     Promise.resolve(service.listNeedsReplyThreads(6)),
     Promise.resolve(service.listFollowupThreads(6)),
   ]);
@@ -254,7 +254,7 @@ export async function buildInboxAutopilotReport(service: any, options: BuildOpti
   const preparedDraftCount = new Set(groups.flatMap((group) => group.draft_artifact_ids)).size;
   return {
     generated_at: new Date().toISOString(),
-    readiness: status.state,
+    readiness: worklist.state,
     summary:
       groups.length === 0
         ? "No reply or follow-up groups need assistant prep right now."
