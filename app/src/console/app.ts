@@ -464,6 +464,9 @@ function emptyWorkflowReport(
     maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
     maintenance_commitment: emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
   };
 }
 
@@ -497,6 +500,7 @@ function emptyMaintenanceFollowThroughSummary(generatedAt: string): ServiceStatu
     summary: null,
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
+    confidence: emptyMaintenanceConfidenceSummary(),
   };
 }
 
@@ -524,6 +528,50 @@ function emptyMaintenanceDeferMemorySummary(): ServiceStatusReport["maintenance_
   };
 }
 
+function emptyMaintenanceConfidenceSummary(): ServiceStatusReport["maintenance_confidence"] {
+  return {
+    eligible: false,
+    step_id: null,
+    level: null,
+    trend: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    handoff_count_30d: 0,
+    cooldown_active: false,
+  };
+}
+
+function emptyMaintenanceOperatingBlockSummary(): ServiceStatusReport["maintenance_operating_block"] {
+  return {
+    eligible: false,
+    block: "suppressed",
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    confidence_level: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceDecisionExplanationSummary(): ServiceStatusReport["maintenance_decision_explanation"] {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "suppressed",
+    driver: null,
+    summary: null,
+    why_now: null,
+    why_not_higher: null,
+    suggested_command: null,
+    confidence_level: null,
+    operating_block: null,
+    reasons: [],
+    bundle_step_ids: [],
+  };
+}
+
 function emptyMaintenanceEscalationSummary(): ServiceStatusReport["maintenance_escalation"] {
   return {
     eligible: false,
@@ -547,6 +595,9 @@ function emptyMaintenanceSchedulingSummary(): ServiceStatusReport["maintenance_s
     bundle_step_ids: [],
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
+    confidence: emptyMaintenanceConfidenceSummary(),
+    operating_block: emptyMaintenanceOperatingBlockSummary(),
+    decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
   };
 }
 
@@ -570,6 +621,9 @@ function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"
     maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
     maintenance_commitment: emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
     last_repair: null,
     recurring_issue: null,
     steps: [],
@@ -635,6 +689,8 @@ function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
       maintenance_window: maintenanceWindow,
       maintenance_commitment: emptyMaintenanceCommitmentSummary(),
       maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+      maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+      maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
       last_repair: null,
       recurring_issue: null,
     },
@@ -657,6 +713,8 @@ function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
     maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
     maintenance_commitment: emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
     daemon_reachable: true,
     send_enabled: false,
     send_policy: {
@@ -889,6 +947,10 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       maintenance_scheduling: status.maintenance_scheduling,
       maintenance_commitment: status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
       maintenance_defer_memory: status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      maintenance_confidence: status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+      maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
+      maintenance_decision_explanation:
+        status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
       items: [],
     },
     nowNextWorkflow: {
@@ -915,6 +977,10 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       maintenance_scheduling: status.maintenance_scheduling,
       maintenance_commitment: status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
       maintenance_defer_memory: status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      maintenance_confidence: status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+      maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
+      maintenance_decision_explanation:
+        status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
     },
     prepDayWorkflow: emptyWorkflowReport(
       generatedAt,
@@ -1183,6 +1249,12 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       maintenance_follow_through: statusResponse.status.maintenance_follow_through,
       maintenance_escalation: statusResponse.status.maintenance_escalation,
       maintenance_scheduling: statusResponse.status.maintenance_scheduling,
+      maintenance_commitment: statusResponse.status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
+      maintenance_defer_memory: statusResponse.status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      maintenance_confidence: statusResponse.status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+      maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
+      maintenance_decision_explanation:
+        statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
       items: [],
     },
     nowNextWorkflow: {
@@ -1207,6 +1279,12 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       maintenance_follow_through: statusResponse.status.maintenance_follow_through,
       maintenance_escalation: statusResponse.status.maintenance_escalation,
       maintenance_scheduling: statusResponse.status.maintenance_scheduling,
+      maintenance_commitment: statusResponse.status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
+      maintenance_defer_memory: statusResponse.status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      maintenance_confidence: statusResponse.status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+      maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
+      maintenance_decision_explanation:
+        statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
     },
     prepDayWorkflow: emptyWorkflowReport(
       statusResponse.status.generated_at,
@@ -2698,6 +2776,9 @@ function renderOverview(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Maintenance escalation</dt><dd>${escapeHtml(repairPlan.maintenance_escalation?.summary ?? "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance commitment</dt><dd>${escapeHtml(repairPlan.maintenance_commitment?.summary ?? "none")}</dd></div>
           <div class="detail-row"><dt>Defer memory</dt><dd>${escapeHtml(repairPlan.maintenance_defer_memory?.summary ?? "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance confidence</dt><dd>${escapeHtml(repairPlan.maintenance_confidence?.summary ?? "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance operating block</dt><dd>${escapeHtml(repairPlan.maintenance_operating_block?.eligible ? `${repairPlan.maintenance_operating_block.step_id ?? "none"} (${repairPlan.maintenance_operating_block.block.replaceAll("_", " ")})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance decision</dt><dd>${escapeHtml(repairPlan.maintenance_decision_explanation?.eligible ? `${repairPlan.maintenance_decision_explanation.step_id ?? "none"} (${repairPlan.maintenance_decision_explanation.state.replaceAll("_", " ")} / ${repairPlan.maintenance_decision_explanation.driver?.replaceAll("_", " ") ?? "none"})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance scheduling</dt><dd>${escapeHtml(repairPlan.maintenance_scheduling?.eligible ? `${repairPlan.maintenance_scheduling.step_id ?? "none"} (${repairPlan.maintenance_scheduling.placement.replaceAll("_", " ")})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
           ${
@@ -2723,6 +2804,21 @@ function renderOverview(payload: ConsolePayload): string {
           ${
             repairPlan.maintenance_defer_memory?.summary
               ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_defer_memory.summary)}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_confidence?.eligible && repairPlan.maintenance_confidence.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_confidence.summary)}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_operating_block?.eligible && repairPlan.maintenance_operating_block.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_operating_block.summary)}${repairPlan.maintenance_operating_block.reason ? ` ${escapeHtml(repairPlan.maintenance_operating_block.reason)}` : ""}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_decision_explanation?.eligible && repairPlan.maintenance_decision_explanation.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_decision_explanation.summary)}${repairPlan.maintenance_decision_explanation.why_now ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_now)}` : ""}${repairPlan.maintenance_decision_explanation.why_not_higher ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_not_higher)}` : ""}</p>`
               : ""
           }
           ${

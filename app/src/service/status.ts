@@ -11,10 +11,13 @@ import { getKeychainSecret } from "../keychain.js";
 import { getLaunchAgentLabel } from "../launchagent.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "../machine.js";
 import {
+  buildMaintenanceConfidenceSummary,
+  buildMaintenanceDecisionExplanationSummary,
   buildMaintenanceEscalationSummary,
   emptyMaintenanceCommitmentSummary,
   emptyMaintenanceDeferMemorySummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceOperatingBlockSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -217,24 +220,74 @@ export async function buildStatusReport(
     maintenanceFollowThrough.defer_memory ??
     maintenanceScheduling.defer_memory ??
     emptyMaintenanceDeferMemorySummary();
+  const maintenanceConfidence =
+    worklist.maintenance_confidence ??
+    maintenanceFollowThrough.confidence ??
+    maintenanceScheduling.confidence ??
+    buildMaintenanceConfidenceSummary({
+      generated_at: new Date().toISOString(),
+      state: classifiedState,
+      repair_plan: repairPlan,
+      maintenance_follow_through: maintenanceFollowThrough,
+      maintenance_escalation: maintenanceEscalation,
+      maintenance_scheduling: maintenanceScheduling,
+      maintenance_commitment: maintenanceCommitment,
+      maintenance_defer_memory: maintenanceDeferMemory,
+      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+    });
   const maintenanceFollowThroughWithCommitment = {
     ...maintenanceFollowThrough,
     commitment: maintenanceCommitment,
     defer_memory: maintenanceDeferMemory,
+    confidence: maintenanceConfidence,
   };
   const maintenanceSchedulingWithCommitment = {
     ...maintenanceScheduling,
     commitment: maintenanceCommitment,
     defer_memory: maintenanceDeferMemory,
+    confidence: maintenanceConfidence,
+  };
+  const maintenanceOperatingBlock =
+    worklist.maintenance_operating_block ??
+    maintenanceScheduling.operating_block ??
+    buildMaintenanceOperatingBlockSummary({
+      state: classifiedState,
+      repair_plan: repairPlan,
+      maintenance_scheduling: maintenanceSchedulingWithCommitment,
+      maintenance_confidence: maintenanceConfidence,
+    });
+  const maintenanceSchedulingWithBlock = {
+    ...maintenanceSchedulingWithCommitment,
+    operating_block: maintenanceOperatingBlock,
+  };
+  const maintenanceDecisionExplanation =
+    worklist.maintenance_decision_explanation ??
+    maintenanceScheduling.decision_explanation ??
+    buildMaintenanceDecisionExplanationSummary({
+      state: classifiedState,
+      repair_plan: repairPlan,
+      maintenance_commitment: maintenanceCommitment,
+      maintenance_defer_memory: maintenanceDeferMemory,
+      maintenance_escalation: maintenanceEscalation,
+      maintenance_confidence: maintenanceConfidence,
+      maintenance_operating_block: maintenanceOperatingBlock,
+      maintenance_scheduling: maintenanceSchedulingWithBlock,
+    });
+  const maintenanceSchedulingWithExplanation = {
+    ...maintenanceSchedulingWithBlock,
+    decision_explanation: maintenanceDecisionExplanation,
   };
   const repairPlanWithMaintenance = {
     ...repairPlan,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThroughWithCommitment,
     maintenance_escalation: maintenanceEscalation,
-    maintenance_scheduling: maintenanceSchedulingWithCommitment,
+    maintenance_scheduling: maintenanceSchedulingWithExplanation,
     maintenance_commitment: maintenanceCommitment,
     maintenance_defer_memory: maintenanceDeferMemory,
+    maintenance_confidence: maintenanceConfidence,
+    maintenance_operating_block: maintenanceOperatingBlock,
+    maintenance_decision_explanation: maintenanceDecisionExplanation,
   };
   const desktopStatus = {
     ...rawDesktopStatus,
@@ -249,9 +302,12 @@ export async function buildStatusReport(
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThroughWithCommitment,
     maintenance_escalation: maintenanceEscalation,
-    maintenance_scheduling: maintenanceSchedulingWithCommitment,
+    maintenance_scheduling: maintenanceSchedulingWithExplanation,
     maintenance_commitment: maintenanceCommitment,
     maintenance_defer_memory: maintenanceDeferMemory,
+    maintenance_confidence: maintenanceConfidence,
+    maintenance_operating_block: maintenanceOperatingBlock,
+    maintenance_decision_explanation: maintenanceDecisionExplanation,
     daemon_reachable: options.httpReachable,
     send_enabled: effectiveSendEnabled,
     send_policy: {

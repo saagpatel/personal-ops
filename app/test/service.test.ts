@@ -112,6 +112,7 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
       cue: null,
     },
     summary: null,
+    confidence: emptyMaintenanceConfidence(),
   };
 }
 
@@ -123,6 +124,53 @@ function emptyMaintenanceScheduling() {
     summary: null,
     suggested_command: null,
     reason: null,
+    bundle_step_ids: [],
+    confidence: emptyMaintenanceConfidence(),
+    operating_block: emptyMaintenanceOperatingBlock(),
+    decision_explanation: emptyMaintenanceDecisionExplanation(),
+  };
+}
+
+function emptyMaintenanceConfidence() {
+  return {
+    eligible: false,
+    step_id: null,
+    level: null,
+    trend: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    handoff_count_30d: 0,
+    cooldown_active: false,
+  };
+}
+
+function emptyMaintenanceOperatingBlock() {
+  return {
+    eligible: false,
+    block: "suppressed" as const,
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    confidence_level: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceDecisionExplanation() {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "suppressed" as const,
+    driver: null,
+    summary: null,
+    why_now: null,
+    why_not_higher: null,
+    suggested_command: null,
+    confidence_level: null,
+    operating_block: null,
+    reasons: [],
     bundle_step_ids: [],
   };
 }
@@ -6472,6 +6520,16 @@ test("phase 18 worklist and prep-day surface a maintenance window only during ca
       summary: "Refresh wrappers before the next drift is a good calm-window maintenance task right now.",
       suggested_command: "personal-ops maintenance session",
       reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_operating_block: {
+      eligible: true,
+      block: "calm_window",
+      step_id: "install_wrappers",
+      summary: "Keep this maintenance for a calm window; do not displace active operator work.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      confidence_level: null,
       bundle_step_ids: ["install_wrappers"],
     },
     items: [],

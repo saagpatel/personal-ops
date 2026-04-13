@@ -61,8 +61,11 @@ import { Logger } from "./logger.js";
 import { describeStateOrigin, readMachineIdentity, readRestoreProvenance } from "./machine.js";
 import { sendMacNotification } from "./notifications.js";
 import {
+  buildMaintenanceConfidenceSummary,
+  buildMaintenanceDecisionExplanationSummary,
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceOperatingBlockSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -3603,15 +3606,52 @@ export class PersonalOpsService {
     for (const record of maintenanceCommitmentState.records) {
       this.db.upsertMaintenanceCommitment(record);
     }
+    const maintenanceConfidence = buildMaintenanceConfidenceSummary({
+      generated_at: new Date().toISOString(),
+      state,
+      repair_plan: repairPlan,
+      maintenance_follow_through: maintenanceFollowThrough,
+      maintenance_escalation: maintenanceEscalation,
+      maintenance_scheduling: maintenanceScheduling,
+      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+      recent_repair_executions: recentRepairExecutions,
+    });
     const maintenanceFollowThroughWithCommitment = {
       ...maintenanceFollowThrough,
       commitment: maintenanceCommitmentState.maintenance_commitment,
       defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+      confidence: maintenanceConfidence,
     };
     const maintenanceSchedulingWithCommitment = {
       ...maintenanceScheduling,
       commitment: maintenanceCommitmentState.maintenance_commitment,
       defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+      confidence: maintenanceConfidence,
+    };
+    const maintenanceOperatingBlock = buildMaintenanceOperatingBlockSummary({
+      state,
+      repair_plan: repairPlan,
+      maintenance_scheduling: maintenanceSchedulingWithCommitment,
+      maintenance_confidence: maintenanceConfidence,
+    });
+    const maintenanceSchedulingWithBlock = {
+      ...maintenanceSchedulingWithCommitment,
+      operating_block: maintenanceOperatingBlock,
+    };
+    const maintenanceDecisionExplanation = buildMaintenanceDecisionExplanationSummary({
+      state,
+      repair_plan: repairPlan,
+      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+      maintenance_escalation: maintenanceEscalation,
+      maintenance_confidence: maintenanceConfidence,
+      maintenance_operating_block: maintenanceOperatingBlock,
+      maintenance_scheduling: maintenanceSchedulingWithBlock,
+    });
+    const maintenanceSchedulingWithExplanation = {
+      ...maintenanceSchedulingWithBlock,
+      decision_explanation: maintenanceDecisionExplanation,
     };
     const finalItems = maintenanceEscalation.cue
       ? [...items, {
@@ -3620,8 +3660,10 @@ export class PersonalOpsService {
           severity: maintenanceEscalation.cue.severity,
           title: maintenanceEscalation.cue.title,
           summary:
-            maintenanceCommitmentState.maintenance_commitment.active && maintenanceCommitmentState.maintenance_commitment.summary
-              ? `${maintenanceCommitmentState.maintenance_commitment.summary} ${maintenanceEscalation.cue.summary}`
+            maintenanceConfidence.eligible && maintenanceConfidence.level === "high" && maintenanceConfidence.summary
+              ? `${maintenanceConfidence.summary} ${maintenanceEscalation.cue.summary}`
+              : maintenanceCommitmentState.maintenance_commitment.active && maintenanceCommitmentState.maintenance_commitment.summary
+                ? `${maintenanceCommitmentState.maintenance_commitment.summary} ${maintenanceEscalation.cue.summary}`
               : maintenanceEscalation.cue.summary,
           target_type: maintenanceEscalation.cue.target_type,
           target_id: maintenanceEscalation.cue.target_id,
@@ -3633,6 +3675,9 @@ export class PersonalOpsService {
             handoff_count_30d: maintenanceEscalation.handoff_count_30d,
             maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
             maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+            maintenance_confidence: maintenanceConfidence,
+            maintenance_operating_block: maintenanceOperatingBlock,
+            maintenance_decision_explanation: maintenanceDecisionExplanation,
             signals: maintenanceEscalation.cue.signals,
           }),
         }].sort((left, right) => this.compareAttentionItems(left, right))
@@ -3656,9 +3701,12 @@ export class PersonalOpsService {
       maintenance_window: maintenanceWindow,
       maintenance_follow_through: maintenanceFollowThroughWithCommitment,
       maintenance_escalation: maintenanceEscalation,
-      maintenance_scheduling: maintenanceSchedulingWithCommitment,
+      maintenance_scheduling: maintenanceSchedulingWithExplanation,
       maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
       maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+      maintenance_confidence: maintenanceConfidence,
+      maintenance_operating_block: maintenanceOperatingBlock,
+      maintenance_decision_explanation: maintenanceDecisionExplanation,
       items: finalItems,
     };
   }
