@@ -849,3 +849,41 @@ test("database migrates schema-v25 installs to schema v26 and stores maintenance
   assert.equal(db.listMaintenanceCommitments({ state: "active" })[0]?.commitment_id, commitment.commitment_id);
   assert.equal(db.listMaintenanceCommitments({ step_id: "install_wrappers", limit: 1 })[0]?.state, "active");
 });
+
+test("phase 30 database initializes surfaced work outcome memory schema", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-db-"));
+  const dbPath = path.join(dir, "personal-ops.db");
+  const db = new PersonalOpsDb(dbPath);
+  assert.equal(db.getSchemaVersion(), CURRENT_SCHEMA_VERSION);
+
+  const raw = new DatabaseSync(dbPath);
+  const table = raw
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'surfaced_work_outcomes'`)
+    .get() as { name?: string } | undefined;
+  const columns = raw.prepare(`PRAGMA table_info(surfaced_work_outcomes)`).all() as Array<{ name: string }>;
+  raw.close();
+
+  assert.equal(table?.name, "surfaced_work_outcomes");
+  assert.deepEqual(
+    columns.map((column) => column.name),
+    [
+      "outcome_id",
+      "surface",
+      "surfaced_state",
+      "target_type",
+      "target_id",
+      "assistant_action_id",
+      "planning_recommendation_id",
+      "repair_step_id",
+      "maintenance_step_id",
+      "summary_snapshot",
+      "command_snapshot",
+      "surfaced_at",
+      "last_seen_at",
+      "state",
+      "evidence_kind",
+      "acted_at",
+      "closed_at",
+    ],
+  );
+});

@@ -90,6 +90,10 @@ import {
   ReviewTuningProposal,
   ReviewTuningProposalKind,
   ReviewTuningProposalStatus,
+  SurfacedWorkEvidenceKind,
+  SurfacedWorkOutcomeRecord,
+  SurfacedWorkOutcomeState,
+  SurfacedWorkSurface,
   SendWindow,
   SendWindowState,
   TaskItem,
@@ -101,7 +105,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 26;
+export const CURRENT_SCHEMA_VERSION = 27;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -405,6 +409,46 @@ export class PersonalOpsDb {
         expected_version: SCHEMA_VERSION,
         compatible: false,
         message: "Schema is missing review_feedback_events.package_cycle_id.",
+      };
+    }
+    if (!this.tableExists("surfaced_work_outcomes")) {
+      return {
+        current_version: current,
+        expected_version: SCHEMA_VERSION,
+        compatible: false,
+        message: "Schema is missing surfaced_work_outcomes.",
+      };
+    }
+    const missingSurfacedOutcomeColumns: string[] = [];
+    for (const column of [
+      "outcome_id",
+      "surface",
+      "surfaced_state",
+      "target_type",
+      "target_id",
+      "assistant_action_id",
+      "planning_recommendation_id",
+      "repair_step_id",
+      "maintenance_step_id",
+      "summary_snapshot",
+      "command_snapshot",
+      "surfaced_at",
+      "last_seen_at",
+      "state",
+      "evidence_kind",
+      "acted_at",
+      "closed_at",
+    ]) {
+      if (!this.columnExists("surfaced_work_outcomes", column)) {
+        missingSurfacedOutcomeColumns.push(column);
+      }
+    }
+    if (missingSurfacedOutcomeColumns.length > 0) {
+      return {
+        current_version: current,
+        expected_version: SCHEMA_VERSION,
+        compatible: false,
+        message: `Schema ${current} is missing surfaced outcome columns: ${missingSurfacedOutcomeColumns.join(", ")}.`,
       };
     }
     return {
@@ -4168,6 +4212,151 @@ export class PersonalOpsDb {
     return rows.map((row) => this.mapMaintenanceCommitment(row));
   }
 
+  upsertSurfacedWorkOutcome(input: SurfacedWorkOutcomeRecord): SurfacedWorkOutcomeRecord {
+    const stored: SurfacedWorkOutcomeRecord = { ...input };
+    this.db
+      .prepare(
+        `INSERT INTO surfaced_work_outcomes (
+          outcome_id, surface, surfaced_state, target_type, target_id, assistant_action_id,
+          planning_recommendation_id, repair_step_id, maintenance_step_id, summary_snapshot,
+          command_snapshot, surfaced_at, last_seen_at, state, evidence_kind, acted_at, closed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(outcome_id) DO UPDATE SET
+          surface = excluded.surface,
+          surfaced_state = excluded.surfaced_state,
+          target_type = excluded.target_type,
+          target_id = excluded.target_id,
+          assistant_action_id = excluded.assistant_action_id,
+          planning_recommendation_id = excluded.planning_recommendation_id,
+          repair_step_id = excluded.repair_step_id,
+          maintenance_step_id = excluded.maintenance_step_id,
+          summary_snapshot = excluded.summary_snapshot,
+          command_snapshot = excluded.command_snapshot,
+          surfaced_at = excluded.surfaced_at,
+          last_seen_at = excluded.last_seen_at,
+          state = excluded.state,
+          evidence_kind = excluded.evidence_kind,
+          acted_at = excluded.acted_at,
+          closed_at = excluded.closed_at`,
+      )
+      .run(
+        stored.outcome_id,
+        stored.surface,
+        stored.surfaced_state,
+        stored.target_type,
+        stored.target_id,
+        stored.assistant_action_id ?? null,
+        stored.planning_recommendation_id ?? null,
+        stored.repair_step_id ?? null,
+        stored.maintenance_step_id ?? null,
+        stored.summary_snapshot,
+        stored.command_snapshot ?? null,
+        stored.surfaced_at,
+        stored.last_seen_at,
+        stored.state,
+        stored.evidence_kind ?? null,
+        stored.acted_at ?? null,
+        stored.closed_at ?? null,
+      );
+    return stored;
+  }
+
+  listSurfacedWorkOutcomes(options: {
+    surface?: SurfacedWorkSurface;
+    state?: SurfacedWorkOutcomeState;
+    states?: SurfacedWorkOutcomeState[];
+    target_type?: string;
+    target_id?: string;
+    assistant_action_id?: string;
+    planning_recommendation_id?: string;
+    repair_step_id?: RepairStepId;
+    maintenance_step_id?: RepairStepId;
+    since?: string;
+    limit?: number;
+  } = {}): SurfacedWorkOutcomeRecord[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.surface) {
+      clauses.push(`surface = ?`);
+      params.push(options.surface);
+    }
+    if (options.state) {
+      clauses.push(`state = ?`);
+      params.push(options.state);
+    } else if (options.states && options.states.length > 0) {
+      clauses.push(`state IN (${options.states.map(() => `?`).join(", ")})`);
+      params.push(...options.states);
+    }
+    if (options.target_type) {
+      clauses.push(`target_type = ?`);
+      params.push(options.target_type);
+    }
+    if (options.target_id) {
+      clauses.push(`target_id = ?`);
+      params.push(options.target_id);
+    }
+    if (options.assistant_action_id) {
+      clauses.push(`assistant_action_id = ?`);
+      params.push(options.assistant_action_id);
+    }
+    if (options.planning_recommendation_id) {
+      clauses.push(`planning_recommendation_id = ?`);
+      params.push(options.planning_recommendation_id);
+    }
+    if (options.repair_step_id) {
+      clauses.push(`repair_step_id = ?`);
+      params.push(options.repair_step_id);
+    }
+    if (options.maintenance_step_id) {
+      clauses.push(`maintenance_step_id = ?`);
+      params.push(options.maintenance_step_id);
+    }
+    if (options.since) {
+      clauses.push(`COALESCE(closed_at, surfaced_at) >= ?`);
+      params.push(options.since);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = options.limit ? ` LIMIT ${Math.max(1, options.limit)}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM surfaced_work_outcomes ${whereClause} ORDER BY surfaced_at DESC${limitClause}`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapSurfacedWorkOutcome(row));
+  }
+
+  getOpenSurfacedWorkOutcome(surface: SurfacedWorkSurface, target_type: string, target_id: string): SurfacedWorkOutcomeRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM surfaced_work_outcomes
+         WHERE surface = ? AND target_type = ? AND target_id = ? AND state = 'open'
+         ORDER BY surfaced_at DESC
+         LIMIT 1`,
+      )
+      .get(surface, target_type, target_id) as Record<string, unknown> | undefined;
+    return row ? this.mapSurfacedWorkOutcome(row) : null;
+  }
+
+  closeSurfacedWorkOutcome(
+    outcomeId: string,
+    input: {
+      state: Exclude<SurfacedWorkOutcomeState, "open">;
+      evidence_kind: SurfacedWorkEvidenceKind;
+      acted_at?: string | null;
+      closed_at: string;
+    },
+  ): SurfacedWorkOutcomeRecord | null {
+    this.db
+      .prepare(
+        `UPDATE surfaced_work_outcomes
+         SET state = ?, evidence_kind = ?, acted_at = COALESCE(acted_at, ?), closed_at = ?
+         WHERE outcome_id = ? AND state = 'open'`,
+      )
+      .run(input.state, input.evidence_kind, input.acted_at ?? null, input.closed_at, outcomeId);
+    const row = this.db
+      .prepare(`SELECT * FROM surfaced_work_outcomes WHERE outcome_id = ?`)
+      .get(outcomeId) as Record<string, unknown> | undefined;
+    return row ? this.mapSurfacedWorkOutcome(row) : null;
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -4984,6 +5173,36 @@ export class PersonalOpsDb {
         ON maintenance_commitments(step_id)
         WHERE state = 'active';
 
+      CREATE TABLE IF NOT EXISTS surfaced_work_outcomes (
+        outcome_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        surfaced_state TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        assistant_action_id TEXT,
+        planning_recommendation_id TEXT,
+        repair_step_id TEXT,
+        maintenance_step_id TEXT,
+        summary_snapshot TEXT NOT NULL,
+        command_snapshot TEXT,
+        surfaced_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        evidence_kind TEXT,
+        acted_at TEXT,
+        closed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_surface_state_seen
+        ON surfaced_work_outcomes(surface, state, last_seen_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_target
+        ON surfaced_work_outcomes(target_type, target_id, surfaced_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_open_surface_target
+        ON surfaced_work_outcomes(surface, target_type, target_id)
+        WHERE state = 'open';
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -5264,6 +5483,10 @@ export class PersonalOpsDb {
       } else if (version === 25) {
         this.migrateToV26();
         version = 26;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 26) {
+        this.migrateToV27();
+        version = 27;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -6293,6 +6516,40 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV27() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS surfaced_work_outcomes (
+        outcome_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        surfaced_state TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        assistant_action_id TEXT,
+        planning_recommendation_id TEXT,
+        repair_step_id TEXT,
+        maintenance_step_id TEXT,
+        summary_snapshot TEXT NOT NULL,
+        command_snapshot TEXT,
+        surfaced_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        evidence_kind TEXT,
+        acted_at TEXT,
+        closed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_surface_state_seen
+        ON surfaced_work_outcomes(surface, state, last_seen_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_target
+        ON surfaced_work_outcomes(target_type, target_id, surfaced_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_surfaced_work_outcomes_open_surface_target
+        ON surfaced_work_outcomes(surface, target_type, target_id)
+        WHERE state = 'open';
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6711,6 +6968,28 @@ export class PersonalOpsDb {
       last_deferred_at: row.last_deferred_at ? String(row.last_deferred_at) : undefined,
       fulfilled_at: row.fulfilled_at ? String(row.fulfilled_at) : undefined,
       fulfilled_by_execution_id: row.fulfilled_by_execution_id ? String(row.fulfilled_by_execution_id) : undefined,
+    };
+  }
+
+  private mapSurfacedWorkOutcome(row: Record<string, unknown>): SurfacedWorkOutcomeRecord {
+    return {
+      outcome_id: String(row.outcome_id),
+      surface: String(row.surface) as SurfacedWorkSurface,
+      surfaced_state: String(row.surfaced_state),
+      target_type: String(row.target_type),
+      target_id: String(row.target_id),
+      assistant_action_id: row.assistant_action_id ? String(row.assistant_action_id) : undefined,
+      planning_recommendation_id: row.planning_recommendation_id ? String(row.planning_recommendation_id) : undefined,
+      repair_step_id: row.repair_step_id ? (String(row.repair_step_id) as RepairStepId) : undefined,
+      maintenance_step_id: row.maintenance_step_id ? (String(row.maintenance_step_id) as RepairStepId) : undefined,
+      summary_snapshot: String(row.summary_snapshot),
+      command_snapshot: row.command_snapshot ? String(row.command_snapshot) : undefined,
+      surfaced_at: String(row.surfaced_at),
+      last_seen_at: String(row.last_seen_at),
+      state: String(row.state) as SurfacedWorkOutcomeState,
+      evidence_kind: row.evidence_kind ? (String(row.evidence_kind) as SurfacedWorkEvidenceKind) : undefined,
+      acted_at: row.acted_at ? String(row.acted_at) : undefined,
+      closed_at: row.closed_at ? String(row.closed_at) : undefined,
     };
   }
 

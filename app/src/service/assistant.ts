@@ -11,6 +11,7 @@ import type {
   PlanningAutopilotBundle,
   WorkflowBundleAction,
 } from "../types.js";
+import { trackAssistantTopActionOutcome } from "../surfaced-work.js";
 import { listMeetingPrepCandidates, prepareMeetingPacketActionId } from "./meeting-prep.js";
 
 const ACTION_SYNC_WORKSPACE = "assistant.sync-workspace";
@@ -559,7 +560,7 @@ export async function buildAssistantActionQueueReport(
     counts_by_state[action.state] += 1;
   }
   const top = actions.find((action) => action.state !== "completed") ?? actions[0] ?? null;
-  return {
+  const report: AssistantActionQueueReport = {
     generated_at: new Date().toISOString(),
     readiness: actions.find((action) => action.action_id === ACTION_REVIEW_TOP_ATTENTION)?.state === "awaiting_review"
       ? options.httpReachable
@@ -571,6 +572,7 @@ export async function buildAssistantActionQueueReport(
     top_item_summary: top?.summary ?? null,
     actions,
   };
+  return trackAssistantTopActionOutcome(service, report).queue;
 }
 
 async function runWorkspaceSync(service: any, identity: any): Promise<{ summary: string; details: string[]; success: boolean }> {
