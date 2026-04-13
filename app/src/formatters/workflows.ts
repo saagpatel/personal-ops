@@ -23,6 +23,12 @@ function shouldRenderWorkflowPersonalization(
   return false;
 }
 
+function shouldRenderSurfacedWorkHelpfulness(
+  item: WorkflowBundleReport["sections"][number]["items"][number],
+): boolean {
+  return Boolean(item.surfaced_work_helpfulness?.eligible && item.surfaced_work_helpfulness.summary);
+}
+
 export function formatWorkflowBundleReport(report: WorkflowBundleReport): string {
   const lines: string[] = [];
   lines.push(`Personal Ops Workflow: ${formatStateLabel(report.workflow)}`);
@@ -136,6 +142,9 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
         const rendered = [`- ${item.label}: ${item.summary}`];
         if (item.why_now) {
           rendered.push(`  why now: ${item.why_now}`);
+        }
+        if (shouldRenderSurfacedWorkHelpfulness(item)) {
+          rendered.push(`  Surface proof: ${item.surfaced_work_helpfulness!.summary}`);
         }
         if (shouldRenderWorkflowPersonalization(report, item)) {
           rendered.push(`  workflow fit: ${item.workflow_personalization!.summary}`);

@@ -1279,6 +1279,7 @@ export interface AssistantActionItem {
   target_id?: string | undefined;
   signals: string[];
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   blocking_reason?: string | undefined;
   latest_run?: AssistantActionRunReport | undefined;
 }
@@ -1290,6 +1291,7 @@ export interface AssistantActionQueueReport {
   counts_by_state: Record<AssistantActionState, number>;
   top_item_summary: string | null;
   actions: AssistantActionItem[];
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
 }
 
 export interface AssistantActionRunResult {
@@ -2066,16 +2068,70 @@ export interface WorkflowPersonalizationSummary {
   sample_count_30d: number;
 }
 
+export type SurfacedWorkSurface = "workspace_home" | "assistant_top_action" | "workflow_now_next";
+
+export type SurfacedWorkOutcomeState = "open" | "helpful" | "attempted_failed" | "superseded" | "expired";
+
+export type SurfacedWorkEvidenceKind =
+  | "repair_progressed"
+  | "repair_failed"
+  | "assistant_progressed"
+  | "assistant_failed"
+  | "planning_progressed"
+  | "maintenance_completed"
+  | "maintenance_handed_off"
+  | "superseded"
+  | "timed_out";
+
+export interface SurfacedWorkOutcomeRecord {
+  outcome_id: string;
+  surface: SurfacedWorkSurface;
+  surfaced_state: string;
+  target_type: string;
+  target_id: string;
+  assistant_action_id?: string | undefined;
+  planning_recommendation_id?: string | undefined;
+  repair_step_id?: RepairStepId | undefined;
+  maintenance_step_id?: RepairStepId | undefined;
+  summary_snapshot: string;
+  command_snapshot?: string | undefined;
+  surfaced_at: string;
+  last_seen_at: string;
+  state: SurfacedWorkOutcomeState;
+  evidence_kind?: SurfacedWorkEvidenceKind | undefined;
+  acted_at?: string | undefined;
+  closed_at?: string | undefined;
+}
+
+export type SurfacedWorkHelpfulnessLevel = "unproven" | "helpful" | "mixed" | "weak";
+
+export interface SurfacedWorkHelpfulnessSummary {
+  eligible: boolean;
+  surface: SurfacedWorkSurface;
+  target_type: string | null;
+  target_id: string | null;
+  level: SurfacedWorkHelpfulnessLevel | null;
+  summary: string | null;
+  sample_count_30d: number;
+  helpful_count_30d: number;
+  attempted_failed_count_30d: number;
+  superseded_count_30d: number;
+  expired_count_30d: number;
+  helpful_rate_30d: number;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;
   command?: string | undefined;
   target_type?: string | undefined;
   target_id?: string | undefined;
+  planning_recommendation_id?: string | undefined;
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2093,10 +2149,12 @@ export interface WorkflowBundleAction {
   command: string;
   target_type?: string | undefined;
   target_id?: string | undefined;
+  planning_recommendation_id?: string | undefined;
   why_now?: string | undefined;
   score_band?: WorkflowScoreBand | undefined;
   signals?: string[] | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2119,6 +2177,7 @@ export interface WorkflowBundleReport {
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
   maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
 }
 
 export interface MailSyncState {
@@ -2535,6 +2594,7 @@ export interface WorkspaceHomeSummary {
   assistant_action_id: string | null;
   workflow: WorkflowBundleReport["workflow"] | null;
   maintenance_state: MaintenanceRepairConvergenceState | MaintenanceDecisionState | null;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
 }
 
 export interface MaintenanceDeferMemorySummary {
@@ -2854,6 +2914,7 @@ export interface ServiceStatusReport {
   state: ServiceState;
   first_repair_step: string | null;
   workspace_home: WorkspaceHomeSummary;
+  surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;

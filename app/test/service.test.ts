@@ -20,6 +20,11 @@ import {
 } from "../src/service/workflows.js";
 import { buildWorkspaceHomeSummary, PersonalOpsService } from "../src/service.js";
 import {
+  trackAssistantTopActionOutcome,
+  trackWorkflowNowNextOutcome,
+  trackWorkspaceHomeOutcome,
+} from "../src/surfaced-work.js";
+import {
   GoogleCalendarEventsPage,
   GoogleCalendarListPage,
   GoogleCalendarEventMetadata,
@@ -192,6 +197,119 @@ function emptyMaintenanceRepairConvergence() {
     active_repair_step_id: null,
     bundle_step_ids: [],
   };
+}
+
+let surfacedOutcomeCounter = 0;
+
+function buildAssistantQueueForSurfaceTest(
+  actions: Array<{
+    action_id: string;
+    summary: string;
+    state: "proposed" | "awaiting_review" | "completed" | "failed" | "blocked" | "running";
+    why_now?: string;
+    command?: string;
+    target_type?: string;
+    target_id?: string;
+  }>,
+  generatedAt = "2026-04-13T16:00:00.000Z",
+) {
+  return {
+    generated_at: generatedAt,
+    readiness: "ready" as const,
+    summary: "Assistant queue test fixture.",
+    counts_by_state: { proposed: 0, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 },
+    top_item_summary: actions[0]?.summary ?? null,
+    actions: actions.map((action) => ({
+      title: action.summary,
+      section: "overview" as const,
+      batch: false,
+      one_click: true,
+      review_required: action.state === "awaiting_review",
+      signals: ["test_signal"],
+      ...action,
+    })),
+  } as any;
+}
+
+function buildNowNextReportForSurfaceTest(
+  actions: Array<{
+    label: string;
+    summary: string;
+    command: string;
+    target_type?: string;
+    target_id?: string;
+    planning_recommendation_id?: string;
+    why_now?: string;
+  }>,
+  generatedAt = "2026-04-13T16:00:00.000Z",
+) {
+  return {
+    workflow: "now-next" as const,
+    generated_at: generatedAt,
+    readiness: "ready" as const,
+    summary: "Workflow test fixture.",
+    sections: [
+      {
+        title: "Best Next Move",
+        items: actions.map((action) => ({ ...action })),
+      },
+    ],
+    actions,
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(generatedAt),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
+  } as any;
+}
+
+function seedClosedSurfacedOutcome(
+  service: PersonalOpsService,
+  input: {
+    surface: "workspace_home" | "assistant_top_action" | "workflow_now_next";
+    surfaced_state: string;
+    target_type: string;
+    target_id: string;
+    state: "helpful" | "attempted_failed" | "superseded" | "expired";
+    evidence_kind:
+      | "repair_progressed"
+      | "repair_failed"
+      | "assistant_progressed"
+      | "assistant_failed"
+      | "planning_progressed"
+      | "maintenance_completed"
+      | "maintenance_handed_off"
+      | "superseded"
+      | "timed_out";
+    surfaced_at?: string;
+    closed_at?: string;
+    assistant_action_id?: string;
+    planning_recommendation_id?: string;
+    repair_step_id?: string;
+    maintenance_step_id?: string;
+  },
+) {
+  surfacedOutcomeCounter += 1;
+  const surfacedAt = input.surfaced_at ?? `2026-04-10T1${surfacedOutcomeCounter % 10}:00:00.000Z`;
+  const closedAt = input.closed_at ?? `2026-04-10T1${surfacedOutcomeCounter % 10}:30:00.000Z`;
+  service.db.upsertSurfacedWorkOutcome({
+    outcome_id: `surfaced-outcome-${surfacedOutcomeCounter}`,
+    surface: input.surface,
+    surfaced_state: input.surfaced_state,
+    target_type: input.target_type,
+    target_id: input.target_id,
+    assistant_action_id: input.assistant_action_id,
+    planning_recommendation_id: input.planning_recommendation_id,
+    repair_step_id: input.repair_step_id as any,
+    maintenance_step_id: input.maintenance_step_id as any,
+    summary_snapshot: `${input.target_type}:${input.target_id}`,
+    command_snapshot: "personal-ops test",
+    surfaced_at: surfacedAt,
+    last_seen_at: surfacedAt,
+    state: input.state,
+    evidence_kind: input.evidence_kind,
+    acted_at: closedAt,
+    closed_at: closedAt,
+  });
 }
 
 function withMockedNow<T>(isoTimestamp: string, run: () => T): T {
@@ -8303,6 +8421,689 @@ test("phase 27 suppresses workflow personalization when the current time is outs
 
   assert.equal(nowNext.actions[0]?.workflow_personalization?.eligible ?? false, false);
   assert.equal(nowNext.workflow_personalization?.eligible ?? false, false);
+});
+
+test("phase 30 now-next exposes stable planning identity and helpfulness for tracked top surfaced work", async () => {
+  const trackedRecommendation = buildWorkflowRecommendation("phase30-followup", {
+    kind: "schedule_thread_followup",
+    reason_summary: "Reply to the open client thread.",
+    rank_score: 580,
+    reason_code: "needs_reply",
+    source_thread_id: "thread-phase30",
+    trigger_signals: ["reply_needed"],
+  });
+  const detailById = new Map([
+    [trackedRecommendation.recommendation_id, buildWorkflowRecommendationDetail(trackedRecommendation)],
+  ]);
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "ready", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-04-13T16:00:00.000Z",
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { include_resolved?: boolean }) =>
+      options?.include_resolved ? [trackedRecommendation] : [trackedRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Inbox autopilot idle.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Planning autopilot idle.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Outbound autopilot idle.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: (left: PlanningRecommendation, right: PlanningRecommendation) => right.rank_score - left.rank_score,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const nowNext = await withMockedNow("2026-04-13T16:00:00.000Z", () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+  const topAction = nowNext.actions[0] as any;
+
+  assert.equal(topAction.target_id, "phase30-followup");
+  assert.equal(topAction.planning_recommendation_id, "phase30-followup");
+  assert.deepEqual(topAction.surfaced_work_helpfulness, {
+    eligible: true,
+    surface: "workflow_now_next",
+    target_type: "planning_recommendation",
+    target_id: "phase30-followup",
+    level: "unproven",
+    summary: "This surfaced work does not have enough recent outcome history yet.",
+    sample_count_30d: 0,
+    helpful_count_30d: 0,
+    attempted_failed_count_30d: 0,
+    superseded_count_30d: 0,
+    expired_count_30d: 0,
+    helpful_rate_30d: 0,
+  });
+});
+
+test("phase 30 now-next skips surfaced-work tracking when the top action lacks stable planning-backed identity", async () => {
+  const untrackedRecommendation = buildWorkflowRecommendation("phase30-untracked", {
+    kind: "schedule_task_block",
+    reason_summary: "Protect time for operator work.",
+    rank_score: 580,
+    trigger_signals: ["task_due_today"],
+  });
+  const detailById = new Map([
+    [untrackedRecommendation.recommendation_id, buildWorkflowRecommendationDetail(untrackedRecommendation)],
+  ]);
+  const fakeService = {
+    config: { workdayStartLocal: "09:00", workdayEndLocal: "18:00" },
+    getStatusReport: async () => ({ state: "ready", mailbox: { connected: "machine@example.com", configured: "machine@example.com" } }),
+    getWorklistReport: async () => ({
+      generated_at: "2026-04-13T16:00:00.000Z",
+      state: "ready",
+      counts_by_severity: { critical: 0, warn: 0, info: 0 },
+      send_window: { active: false },
+      planning_groups: [],
+      maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+      maintenance_follow_through: emptyMaintenanceFollowThrough(),
+      maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+      maintenance_scheduling: emptyMaintenanceScheduling(),
+      items: [],
+    }),
+    listPlanningRecommendations: (options?: { include_resolved?: boolean }) =>
+      options?.include_resolved ? [untrackedRecommendation] : [untrackedRecommendation],
+    getInboxAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Inbox autopilot idle.", top_item_summary: null, prepared_draft_count: 0, groups: [] }),
+    getPlanningAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Planning autopilot idle.", top_item_summary: null, prepared_bundle_count: 0, bundles: [] }),
+    getOutboundAutopilotReport: async () => ({ generated_at: "2026-04-13T16:00:00.000Z", readiness: "ready", summary: "Outbound autopilot idle.", top_item_summary: null, send_window: { active: false, effective_send_enabled: false, permanent_send_enabled: false }, groups: [] }),
+    listNeedsReplyThreads: () => [],
+    listFollowupThreads: () => [],
+    listUpcomingCalendarEvents: () => [],
+    compareNextActionableRecommendations: (left: PlanningRecommendation, right: PlanningRecommendation) => right.rank_score - left.rank_score,
+    getPlanningRecommendationDetail: (id: string) => detailById.get(id),
+    getRelatedDocsForTarget: () => [],
+    getRelatedFilesForTarget: () => [],
+  };
+
+  const nowNext = await withMockedNow("2026-04-13T16:00:00.000Z", () => buildNowNextWorkflowReport(fakeService, { httpReachable: true }));
+  const topAction = nowNext.actions[0] as any;
+
+  assert.equal(topAction.target_id, "phase30-untracked");
+  assert.equal(topAction.planning_recommendation_id, undefined);
+  assert.equal(topAction.surfaced_work_helpfulness, undefined);
+});
+
+test("phase 30 assistant queue surfaces helpfulness for the current top actionable assistant action", async () => {
+  const { service, accountEmail } = createFixture();
+  createDraft(service, accountEmail, {
+    subject: "Assistant queue draft",
+    providerDraftId: "provider-draft-assistant-queue",
+  });
+  service.createTask(cliIdentity, {
+    title: "Assistant queue planning task",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+  service.refreshPlanningRecommendations(cliIdentity);
+
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+  const topAction = queue.actions[0] as any;
+
+  assert.ok(topAction?.action_id);
+  assert.deepEqual(topAction?.surfaced_work_helpfulness, {
+    eligible: true,
+    surface: "assistant_top_action",
+    target_type: "assistant_action",
+    target_id: topAction.action_id,
+    level: "unproven",
+    summary: "This surfaced work does not have enough recent outcome history yet.",
+    sample_count_30d: 0,
+    helpful_count_30d: 0,
+    attempted_failed_count_30d: 0,
+    superseded_count_30d: 0,
+    expired_count_30d: 0,
+    helpful_rate_30d: 0,
+  });
+});
+
+test("phase 30 workspace home repair focus opens tracking and closes helpful on repair progress", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const report = {
+    ...baseStatus,
+    generated_at: "2026-04-13T16:00:00.000Z",
+    state: "ready" as const,
+    first_repair_step: "install_wrappers" as const,
+  };
+  const assistantQueue = buildAssistantQueueForSurfaceTest([], report.generated_at);
+  const nowNext = buildNowNextReportForSurfaceTest([], report.generated_at);
+  const workspaceHome = buildWorkspaceHomeSummary({ status: report, assistantQueue, nowNextWorkflow: nowNext });
+
+  trackWorkspaceHomeOutcome(service, {
+    report,
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+  assert.equal(
+    service.db.listSurfacedWorkOutcomes({ surface: "workspace_home", state: "open", target_type: "repair_step", target_id: "install_wrappers" }).length,
+    1,
+  );
+
+  service.db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-13T16:05:00.000Z",
+    completed_at: "2026-04-13T16:10:00.000Z",
+    requested_by_client: "operator-cli",
+    requested_by_actor: "operator",
+    trigger_source: "repair_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: "install_check",
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Repair progressed.",
+  });
+
+  trackWorkspaceHomeOutcome(service, {
+    report: { ...report, generated_at: "2026-04-13T16:15:00.000Z" },
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  const closed = service.db.listSurfacedWorkOutcomes({
+    surface: "workspace_home",
+    target_type: "repair_step",
+    target_id: "install_wrappers",
+    states: ["helpful"],
+  });
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0]?.evidence_kind, "repair_progressed");
+});
+
+test("phase 30 workspace home repair focus closes attempted_failed on matching failed repair execution", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const report = {
+    ...baseStatus,
+    generated_at: "2026-04-13T16:00:00.000Z",
+    state: "ready" as const,
+    first_repair_step: "install_wrappers" as const,
+  };
+  const assistantQueue = buildAssistantQueueForSurfaceTest([], report.generated_at);
+  const nowNext = buildNowNextReportForSurfaceTest([], report.generated_at);
+  const workspaceHome = buildWorkspaceHomeSummary({ status: report, assistantQueue, nowNextWorkflow: nowNext });
+
+  trackWorkspaceHomeOutcome(service, {
+    report,
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  service.db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-13T16:05:00.000Z",
+    completed_at: "2026-04-13T16:10:00.000Z",
+    requested_by_client: "operator-cli",
+    requested_by_actor: "operator",
+    trigger_source: "repair_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: "install_wrappers",
+    outcome: "failed",
+    resolved_target_step: false,
+    message: "Repair failed.",
+  });
+
+  trackWorkspaceHomeOutcome(service, {
+    report: { ...report, generated_at: "2026-04-13T16:15:00.000Z" },
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  const closed = service.db.listSurfacedWorkOutcomes({
+    surface: "workspace_home",
+    target_type: "repair_step",
+    target_id: "install_wrappers",
+    states: ["attempted_failed"],
+  });
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0]?.evidence_kind, "repair_failed");
+});
+
+test("phase 30 assistant top action closes helpful, failed, superseded, and expired across lifecycle changes", () => {
+  const { service } = createFixture();
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.sync-workspace", summary: "Refresh local context.", state: "proposed", command: "personal-ops assistant run assistant.sync-workspace" }],
+      "2026-04-13T16:00:00.000Z",
+    ),
+  );
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.sync-workspace", summary: "Refresh local context.", state: "completed", command: "personal-ops assistant run assistant.sync-workspace" }],
+      "2026-04-13T16:20:00.000Z",
+    ),
+  );
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.create-snapshot", summary: "Create a snapshot.", state: "proposed", command: "personal-ops assistant run assistant.create-snapshot" }],
+      "2026-04-13T17:00:00.000Z",
+    ),
+  );
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.create-snapshot", summary: "Create a snapshot.", state: "failed", command: "personal-ops assistant run assistant.create-snapshot" }],
+      "2026-04-13T17:20:00.000Z",
+    ),
+  );
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.review-planning", summary: "Review planning.", state: "proposed", command: "personal-ops recommendation list" }],
+      "2026-04-13T18:00:00.000Z",
+    ),
+  );
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.review-approvals", summary: "Review approvals.", state: "proposed", command: "personal-ops approval pending" }],
+      "2026-04-13T18:10:00.000Z",
+    ),
+  );
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.review-drafts", summary: "Review drafts.", state: "proposed", command: "personal-ops mail draft list" }],
+      "2026-04-13T19:00:00.000Z",
+    ),
+  );
+  trackAssistantTopActionOutcome(service, buildAssistantQueueForSurfaceTest([], "2026-04-14T20:30:00.000Z"));
+
+  const allClosed = service.db.listSurfacedWorkOutcomes({ surface: "assistant_top_action", states: ["helpful", "attempted_failed", "superseded", "expired"] });
+  assert.equal(allClosed.find((record) => record.target_id === "assistant.sync-workspace")?.state, "helpful");
+  assert.equal(allClosed.find((record) => record.target_id === "assistant.create-snapshot")?.state, "attempted_failed");
+  assert.equal(allClosed.find((record) => record.target_id === "assistant.review-planning")?.state, "superseded");
+  assert.equal(allClosed.find((record) => record.target_id === "assistant.review-drafts")?.state, "expired");
+});
+
+test("phase 30 assistant top action closes from durable run evidence even when the action disappears", () => {
+  const { service } = createFixture();
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.sync-workspace", summary: "Refresh local context.", state: "proposed", command: "personal-ops assistant run assistant.sync-workspace" }],
+      "2026-04-13T16:00:00.000Z",
+    ),
+  );
+  service.db.recordAuditEvent({
+    client_id: "operator-cli",
+    action: "assistant_action_run",
+    target_type: "assistant_action",
+    target_id: "assistant.sync-workspace",
+    outcome: "success",
+    metadata: {
+      started_at: "2026-04-13T16:05:00.000Z",
+      completed_at: "2026-04-13T16:10:00.000Z",
+      summary: "Workspace refresh completed.",
+    },
+  });
+
+  trackAssistantTopActionOutcome(service, buildAssistantQueueForSurfaceTest([], "2026-04-13T16:15:00.000Z"));
+
+  const closed = service.db.listSurfacedWorkOutcomes({
+    surface: "assistant_top_action",
+    target_type: "assistant_action",
+    target_id: "assistant.sync-workspace",
+    states: ["helpful"],
+  });
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0]?.evidence_kind, "assistant_progressed");
+});
+
+test("phase 30 resurfacing the same top assistant action updates the open record instead of duplicating it", () => {
+  const { service } = createFixture();
+
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.sync-workspace", summary: "Refresh local context.", state: "proposed", command: "personal-ops assistant run assistant.sync-workspace" }],
+      "2026-04-13T16:00:00.000Z",
+    ),
+  );
+  trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [{ action_id: "assistant.sync-workspace", summary: "Refresh local context.", state: "proposed", command: "personal-ops assistant run assistant.sync-workspace" }],
+      "2026-04-13T17:00:00.000Z",
+    ),
+  );
+
+  const open = service.db.listSurfacedWorkOutcomes({
+    surface: "assistant_top_action",
+    target_type: "assistant_action",
+    target_id: "assistant.sync-workspace",
+    state: "open",
+  });
+  assert.equal(open.length, 1);
+  assert.equal(open[0]?.last_seen_at, "2026-04-13T17:00:00.000Z");
+});
+
+test("phase 30 workflow now-next closes helpful when the tracked recommendation gains first action", () => {
+  const { service } = createFixture();
+  const recommendation = service.db.createPlanningRecommendation(cliIdentity, {
+    kind: "schedule_thread_followup",
+    priority: "high",
+    source: "system_generated",
+    reason_summary: "Reply to the open thread.",
+    reason_code: "needs_reply",
+    dedupe_key: "phase30:workflow:tracked",
+    source_fingerprint: "phase30:workflow:tracked",
+    rank_score: 560,
+    ranking_version: "phase30-test",
+    slot_state: "ready",
+    outcome_state: "none",
+    source_thread_id: "thread-phase30-tracked",
+    source_last_seen_at: "2026-04-13T16:00:00.000Z",
+    trigger_signals: ["reply_needed"],
+    suppressed_signals: [],
+  });
+
+  trackWorkflowNowNextOutcome(
+    service,
+    buildNowNextReportForSurfaceTest(
+      [
+        {
+          label: "Reply to the open thread",
+          summary: "Reply to the open thread.",
+          command: "personal-ops workflow now-next",
+          target_type: "planning_recommendation",
+          target_id: recommendation.recommendation_id,
+          planning_recommendation_id: recommendation.recommendation_id,
+        },
+      ],
+      "2026-04-13T16:00:00.000Z",
+    ),
+  );
+
+  service.db.updatePlanningRecommendation(recommendation.recommendation_id, {
+    first_action_at: "2026-04-13T16:25:00.000Z",
+  });
+  trackWorkflowNowNextOutcome(service, buildNowNextReportForSurfaceTest([], "2026-04-13T16:30:00.000Z"));
+
+  const closed = service.db.listSurfacedWorkOutcomes({
+    surface: "workflow_now_next",
+    target_type: "planning_recommendation",
+    target_id: recommendation.recommendation_id,
+    states: ["helpful"],
+  });
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0]?.evidence_kind, "planning_progressed");
+});
+
+test("phase 30 maintenance workspace focus closes helpful on successful completion and attempted_failed on repair handoff", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const maintenanceReport = {
+    ...baseStatus,
+    generated_at: "2026-04-13T16:00:00.000Z",
+    state: "ready" as const,
+    first_repair_step: null,
+    maintenance_repair_convergence: {
+      ...emptyMaintenanceRepairConvergence(),
+      eligible: true,
+      step_id: "install_wrappers" as const,
+      state: "maintenance_owned" as const,
+      driver: "active_commitment" as const,
+      summary: "This recurring family is still maintenance-owned and should be handled through the maintenance session.",
+      why: "It belongs in maintenance.",
+      primary_command: "personal-ops maintenance session",
+    },
+  };
+  const assistantQueue = buildAssistantQueueForSurfaceTest([], maintenanceReport.generated_at);
+  const nowNext = buildNowNextReportForSurfaceTest([], maintenanceReport.generated_at);
+  const maintenanceHome = buildWorkspaceHomeSummary({
+    status: maintenanceReport,
+    assistantQueue,
+    nowNextWorkflow: nowNext,
+  });
+  trackWorkspaceHomeOutcome(service, {
+    report: maintenanceReport,
+    workspace_home: maintenanceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  service.db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-13T16:05:00.000Z",
+    completed_at: "2026-04-13T16:10:00.000Z",
+    requested_by_client: "operator-cli",
+    requested_by_actor: "operator",
+    trigger_source: "maintenance_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: null,
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Maintenance completed.",
+  });
+  trackWorkspaceHomeOutcome(service, {
+    report: { ...baseStatus, generated_at: "2026-04-13T16:15:00.000Z", first_repair_step: null },
+    workspace_home: buildWorkspaceHomeSummary({
+      status: { ...baseStatus, generated_at: "2026-04-13T16:15:00.000Z", first_repair_step: null },
+      assistantQueue,
+      nowNextWorkflow: nowNext,
+    }),
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  const helpful = service.db.listSurfacedWorkOutcomes({
+    surface: "workspace_home",
+    target_type: "maintenance_step",
+    target_id: "install_wrappers",
+    states: ["helpful"],
+  });
+  assert.equal(helpful.length, 1);
+  assert.equal(helpful[0]?.evidence_kind, "maintenance_completed");
+
+  const handoffReport = {
+    ...maintenanceReport,
+    generated_at: "2026-04-13T17:00:00.000Z",
+  };
+  const handoffHome = buildWorkspaceHomeSummary({
+    status: handoffReport,
+    assistantQueue,
+    nowNextWorkflow: nowNext,
+  });
+  trackWorkspaceHomeOutcome(service, {
+    report: handoffReport,
+    workspace_home: handoffHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+  service.db.createRepairExecution({
+    step_id: "install_wrappers",
+    started_at: "2026-04-13T17:05:00.000Z",
+    completed_at: "2026-04-13T17:10:00.000Z",
+    requested_by_client: "operator-cli",
+    requested_by_actor: "operator",
+    trigger_source: "maintenance_run",
+    before_first_step_id: "install_wrappers",
+    after_first_step_id: "install_check",
+    outcome: "resolved",
+    resolved_target_step: true,
+    message: "Maintenance handed off to repair.",
+  });
+  trackWorkspaceHomeOutcome(service, {
+    report: { ...baseStatus, generated_at: "2026-04-13T17:15:00.000Z", first_repair_step: null },
+    workspace_home: buildWorkspaceHomeSummary({
+      status: { ...baseStatus, generated_at: "2026-04-13T17:15:00.000Z", first_repair_step: null },
+      assistantQueue,
+      nowNextWorkflow: nowNext,
+    }),
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  const failed = service.db.listSurfacedWorkOutcomes({
+    surface: "workspace_home",
+    target_type: "maintenance_step",
+    target_id: "install_wrappers",
+    states: ["attempted_failed"],
+  });
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0]?.evidence_kind, "maintenance_handed_off");
+});
+
+test("phase 30 helpfulness levels compute as unproven, helpful, mixed, and weak", () => {
+  const { service } = createFixture();
+
+  seedClosedSurfacedOutcome(service, {
+    surface: "workflow_now_next",
+    surfaced_state: "workflow",
+    target_type: "planning_recommendation",
+    target_id: "rec-unproven",
+    planning_recommendation_id: "rec-unproven",
+    state: "helpful",
+    evidence_kind: "planning_progressed",
+  });
+
+  for (const index of [1, 2, 3]) {
+    seedClosedSurfacedOutcome(service, {
+      surface: "workflow_now_next",
+      surfaced_state: "workflow",
+      target_type: "planning_recommendation",
+      target_id: "rec-helpful",
+      planning_recommendation_id: "rec-helpful",
+      state: index === 3 ? "expired" : "helpful",
+      evidence_kind: index === 3 ? "timed_out" : "planning_progressed",
+    });
+  }
+  for (const state of ["helpful", "attempted_failed", "expired"] as const) {
+    seedClosedSurfacedOutcome(service, {
+      surface: "workflow_now_next",
+      surfaced_state: "workflow",
+      target_type: "planning_recommendation",
+      target_id: "rec-mixed",
+      planning_recommendation_id: "rec-mixed",
+      state,
+      evidence_kind: state === "helpful" ? "planning_progressed" : state === "attempted_failed" ? "assistant_failed" : "timed_out",
+    });
+  }
+  for (const state of ["attempted_failed", "expired", "superseded"] as const) {
+    seedClosedSurfacedOutcome(service, {
+      surface: "workflow_now_next",
+      surfaced_state: "workflow",
+      target_type: "planning_recommendation",
+      target_id: "rec-weak",
+      planning_recommendation_id: "rec-weak",
+      state,
+      evidence_kind:
+        state === "attempted_failed" ? "assistant_failed" : state === "expired" ? "timed_out" : "superseded",
+    });
+  }
+
+  const makeSummary = (recommendationId: string) =>
+    trackWorkflowNowNextOutcome(
+      service,
+      buildNowNextReportForSurfaceTest(
+        [
+          {
+            label: "Top action",
+            summary: "Top action summary.",
+            command: "personal-ops workflow now-next",
+            target_type: "planning_recommendation",
+            target_id: recommendationId,
+            planning_recommendation_id: recommendationId,
+          },
+        ],
+        "2026-04-13T18:00:00.000Z",
+      ),
+    ).helpfulness;
+
+  assert.equal(makeSummary("rec-unproven")?.level, "unproven");
+  assert.equal(makeSummary("rec-helpful")?.level, "helpful");
+  assert.equal(makeSummary("rec-mixed")?.level, "mixed");
+  assert.equal(makeSummary("rec-weak")?.level, "weak");
+});
+
+test("phase 30 workspace-home and assistant queue summaries agree on helpfulness for the same surfaced assistant action", async () => {
+  const { service, accountEmail } = createFixture();
+  createDraft(service, accountEmail, {
+    subject: "Assistant queue proof",
+    providerDraftId: "provider-draft-assistant-proof",
+  });
+  service.createTask(cliIdentity, {
+    title: "Assistant queue helpfulness task",
+    kind: "human_reminder",
+    priority: "high",
+    owner: "operator",
+    due_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
+  service.refreshPlanningRecommendations(cliIdentity);
+
+  const initialQueue = await service.getAssistantActionQueueReport({ httpReachable: true });
+  const actionId = initialQueue.actions[0]!.action_id;
+  seedClosedSurfacedOutcome(service, {
+    surface: "assistant_top_action",
+    surfaced_state: "proposed",
+    target_type: "assistant_action",
+    target_id: actionId,
+    assistant_action_id: actionId,
+    state: "helpful",
+    evidence_kind: "assistant_progressed",
+  });
+  seedClosedSurfacedOutcome(service, {
+    surface: "workspace_home",
+    surfaced_state: "assistant",
+    target_type: "assistant_action",
+    target_id: actionId,
+    assistant_action_id: actionId,
+    state: "helpful",
+    evidence_kind: "assistant_progressed",
+  });
+  seedClosedSurfacedOutcome(service, {
+    surface: "assistant_top_action",
+    surfaced_state: "proposed",
+    target_type: "assistant_action",
+    target_id: actionId,
+    assistant_action_id: actionId,
+    state: "expired",
+    evidence_kind: "timed_out",
+  });
+
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const statusLike = {
+    ...baseStatus,
+    first_repair_step: null,
+  };
+  const workspaceTracked = trackWorkspaceHomeOutcome(service, {
+    report: statusLike,
+    workspace_home: buildWorkspaceHomeSummary({
+      status: statusLike,
+      assistantQueue: queue,
+      nowNextWorkflow: buildNowNextReportForSurfaceTest([], statusLike.generated_at),
+    }),
+    assistant_queue: queue,
+    now_next_workflow: buildNowNextReportForSurfaceTest([], statusLike.generated_at),
+  }).report;
+
+  assert.equal(queue.actions[0]?.surfaced_work_helpfulness?.level, "helpful");
+  assert.equal(workspaceTracked.workspace_home?.surfaced_work_helpfulness?.level, "helpful");
+  assert.equal(queue.actions[0]?.surfaced_work_helpfulness?.summary, workspaceTracked.workspace_home?.surfaced_work_helpfulness?.summary);
 });
 
 test("phase 27 suppresses workflow personalization when workflow readiness is not ready", async () => {

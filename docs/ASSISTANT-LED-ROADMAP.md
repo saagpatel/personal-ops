@@ -25,6 +25,28 @@ This document is the durable source of truth for the next initiative.
 
 The next roadmap should deepen the assistant behavior on top of that baseline instead of rebuilding it.
 
+## Current Shipped Baseline
+
+The currently shipped assistant-led baseline is:
+
+- Phases 1 through 29 complete
+- Cluster A complete:
+  - Phases 24, 25, and 26 shipped together as the maintenance-maturity cluster
+- Cluster B complete:
+  - Phases 27, 28, and 29 shipped together as the workspace-intelligence-and-maturity cluster
+- the post-Cluster-B stabilization pass is merged
+- this assistant-led roadmap remains separate from the older legacy `PHASE-*` governance track
+
+The next assistant-led target is:
+
+- Phase 30: Surfaced Work Outcome Memory and Helpfulness Proof
+- status: In Progress
+- focus:
+  - refresh and preserve the roadmap first
+  - add surfaced-work outcome memory for top surfaced work only
+  - prove whether surfaced workspace, assistant, and `now-next` work is actually being acted on
+  - keep ranking, precedence, and trust boundaries unchanged in this first usefulness-proof slice
+
 ## Phase Ledger
 
 | Phase | Title | Goal | Status |
@@ -640,14 +662,72 @@ Delivered shape:
   - no browser execution path
   - no new persistence layer
   - no new commands
-  - no new queue kinds
+- no new queue kinds
+- no change to repair-first or urgent-work-first precedence
+- no change to the macOS-only desktop support contract
+
+## Current Baseline
+
+The current shipped assistant-led baseline is:
+
+- Phases 1 through 29 complete
+- Cluster A complete
+- Cluster B complete
+- the post-Cluster-B stabilization pass is merged
+
+## Phase 30
+
+Phase 30 is now complete.
+
+Delivered shape:
+
+- a small `surfaced_work_outcomes` SQLite memory layer that records whether top surfaced work was actually acted on
+- scope limited to top surfaced work only:
+  - `workspace_home`
+  - the top assistant action
+  - the top `now-next` workflow action
+- descriptive helpfulness summaries only:
+  - `unproven`
+  - `helpful`
+  - `mixed`
+  - `weak`
+- additive surfaced-work proof across:
+  - `status`
+  - the console workspace focus card
+  - the console-backed desktop shell
+  - the top assistant action
+  - `workflow now-next`
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new user-facing commands
+  - no ranking or precedence changes
   - no change to repair-first or urgent-work-first precedence
-  - no change to the macOS-only desktop support contract
+
+## Phase 31
+
+Phase 31 is the next target.
+
+Planned shape:
+
+- use surfaced-work outcome memory from Phase 30 to reduce repeated low-value cues across the assistant-led surfaces
+- keep the phase read-model-first and bounded:
+  - no new authority
+  - no queue ownership changes
+  - no worklist ordering changes
+- likely focus:
+  - cross-surface duplicate prompt reduction
+  - quieter low-value surfaced work when recent follow-through is weak
+  - preserving repair-first and urgent-work-first precedence while making the workspace calmer
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, and 29 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, and 30 are complete
+- Cluster A is complete
+- Cluster B is complete
+- the post-Cluster-B stabilization pass is merged
+- Assistant-Led Phase 31 is the next target
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

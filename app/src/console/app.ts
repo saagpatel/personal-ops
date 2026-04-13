@@ -2058,6 +2058,7 @@ function workflowActionButton(
             ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
             : ""
         }
+        ${renderSurfacedWorkHelpfulness(action)}
       </div>
       <div class="list-item__actions">
         <button class="button" data-workflow="${escapeHtml(workflow)}" data-workflow-action="${escapeHtml(String(index))}" type="button">Open related detail</button>
@@ -2087,6 +2088,19 @@ function renderWorkflowPersonalization(
   return `<p class="subtle subtle--body">${escapeHtml(item.workflow_personalization.summary)}</p>`;
 }
 
+function renderSurfacedWorkHelpfulness(
+  item:
+    | WorkflowBundleReport["sections"][number]["items"][number]
+    | WorkflowBundleReport["actions"][number]
+    | ServiceStatusReport["workspace_home"]
+    | AssistantActionQueueReport["actions"][number],
+): string {
+  if (!item.surfaced_work_helpfulness?.eligible || !item.surfaced_work_helpfulness.summary) {
+    return "";
+  }
+  return `<p class="subtle subtle--body">${escapeHtml(item.surfaced_work_helpfulness.summary)}</p>`;
+}
+
 function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]): string {
   const stateLabel = summary.state.replaceAll("_", " ");
   return `
@@ -2102,6 +2116,7 @@ function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]
           ? `<p class="subtle subtle--body">${escapeHtml(summary.why_now)}</p>`
           : ""
       }
+      ${renderSurfacedWorkHelpfulness(summary)}
       ${
         summary.secondary_summary
           ? `<p class="subtle subtle--body">${escapeHtml(`Next up: ${summary.secondary_summary}`)}</p>`
@@ -2395,6 +2410,7 @@ function renderWorkflowSections(
                             ? ""
                             : renderWorkflowPersonalization(item)
                         }
+                        ${renderSurfacedWorkHelpfulness(item)}
                         ${renderWorkflowItemMeta(item)}
                         ${renderRelatedFiles(item.related_files ?? item.related_docs)}
                         ${
@@ -2483,6 +2499,7 @@ function renderAssistantActionCard(
           ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
           : ""
       }
+      ${renderSurfacedWorkHelpfulness(action)}
       ${options.referential ? `<p class="subtle subtle--body">Repair owns the workspace right now, so this stays as next-up context.</p>` : ""}
       ${
         action.signals.length > 0

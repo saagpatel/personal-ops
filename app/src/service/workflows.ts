@@ -23,6 +23,7 @@ import type {
   WorklistReport,
 } from "../types.js";
 import { MAINTENANCE_SESSION_COMMAND } from "../repair-plan.js";
+import { trackWorkflowNowNextOutcome } from "../surfaced-work.js";
 import { listMeetingPrepCandidates, type MeetingPrepCandidate } from "./meeting-prep.js";
 
 const MAX_SECTION_ITEMS = 3;
@@ -421,10 +422,12 @@ function toBundleAction(
     command: candidate.command,
     target_type: candidate.target_type,
     target_id: candidate.target_id,
+    planning_recommendation_id: candidate.planning_recommendation_id,
     why_now: candidate.why_now,
     score_band: scoreBandFor(candidate.score, topScore),
     signals: candidate.signals,
     workflow_personalization: options.includePersonalization ? candidate.workflow_personalization : undefined,
+    surfaced_work_helpfulness: candidate.surfaced_work_helpfulness,
     related_docs: candidate.related_docs,
     related_files: candidate.related_files,
   };
@@ -442,10 +445,12 @@ function toBundleItem(
     command: action.command,
     target_type: action.target_type,
     target_id: action.target_id,
+    planning_recommendation_id: action.planning_recommendation_id,
     why_now: action.why_now,
     score_band: action.score_band,
     signals: action.signals,
     workflow_personalization: action.workflow_personalization,
+    surfaced_work_helpfulness: action.surfaced_work_helpfulness,
     related_docs: action.related_docs,
     related_files: action.related_files,
   };
@@ -523,10 +528,12 @@ function buildWorkflowReport(input: {
             command: action.command,
             target_type: action.target_type,
             target_id: action.target_id,
+            planning_recommendation_id: action.planning_recommendation_id,
             why_now: action.why_now,
             score_band: action.score_band,
             signals: action.signals,
             workflow_personalization: action.workflow_personalization,
+            surfaced_work_helpfulness: action.surfaced_work_helpfulness,
             related_docs: action.related_docs,
             related_files: action.related_files,
           })),
@@ -552,6 +559,7 @@ function buildWorkflowReport(input: {
     maintenance_decision_explanation: input.worklist.maintenance_decision_explanation,
     maintenance_repair_convergence: input.worklist.maintenance_repair_convergence,
     workflow_personalization: input.workflowPersonalization,
+    surfaced_work_helpfulness: undefined,
   };
 }
 
@@ -771,6 +779,10 @@ function recommendationCandidate(detail: PlanningRecommendationDetail): Workflow
     command: commandForRecommendation(recommendation.recommendation_id),
     target_type: "planning_recommendation",
     target_id: recommendation.recommendation_id,
+    planning_recommendation_id:
+      recommendation.source_task_id || recommendation.source_thread_id || recommendation.source_calendar_event_id
+        ? recommendation.recommendation_id
+        : undefined,
     why_now: whyNow,
     signals,
     score,
@@ -1385,7 +1397,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
         },
       ];
 
-  return buildWorkflowReport({
+  const report = buildWorkflowReport({
     workflow: "now-next",
     readiness: context.status.state,
     summary: primary ? `${primary.label}: ${primary.summary}` : "No strong next move is standing out right now.",
@@ -1419,6 +1431,7 @@ export async function buildNowNextWorkflowReport(service: any, options: { httpRe
     actions: primary ? [primary, ...alternatives] : [],
     workflowPersonalization: primary?.workflow_personalization?.eligible ? primary.workflow_personalization : undefined,
   });
+  return trackWorkflowNowNextOutcome(service, report).report;
 }
 
 export async function buildPrepDayWorkflowReport(service: any, options: { httpReachable: boolean }): Promise<WorkflowBundleReport> {

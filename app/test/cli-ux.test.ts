@@ -1323,6 +1323,106 @@ test("phase 27 workflow formatter renders personalization guidance only when the
   assert.doesNotMatch(formatted, /There is no strong timing pattern for this kind of work yet\./i);
 });
 
+test("phase 30 workflow formatter renders surfaced-work helpfulness for the tracked top now-next action only", () => {
+  const nowNext = {
+    workflow: "now-next" as const,
+    generated_at: "2026-04-13T16:00:00.000Z",
+    readiness: "ready" as const,
+    summary: "Reply to the active client thread.",
+    sections: [
+      {
+        title: "Best Next Move",
+        items: [
+          {
+            label: "Reply to active client",
+            summary: "Reply to the active client thread.",
+            command: "personal-ops recommendation show followup-1",
+            why_now: "A live conversation still needs your reply.",
+            score_band: "highest" as const,
+            target_type: "planning_recommendation" as const,
+            target_id: "followup-1",
+            planning_recommendation_id: "followup-1",
+            signals: ["reply_needed"],
+            surfaced_work_helpfulness: {
+              eligible: true,
+              surface: "workflow_now_next" as const,
+              target_type: "planning_recommendation" as const,
+              target_id: "followup-1",
+              level: "helpful" as const,
+              summary: "Recent outcomes suggest this surfaced work is usually acted on.",
+              sample_count_30d: 5,
+              helpful_count_30d: 4,
+              attempted_failed_count_30d: 0,
+              superseded_count_30d: 1,
+              expired_count_30d: 0,
+              helpful_rate_30d: 0.8,
+            },
+          },
+        ],
+      },
+      {
+        title: "Alternatives",
+        items: [
+          {
+            label: "Prep later meeting",
+            summary: "Prep the later meeting.",
+            command: "personal-ops recommendation show meeting-1",
+            why_now: "The meeting is later today.",
+            score_band: "high" as const,
+            target_type: "planning_recommendation" as const,
+            target_id: "meeting-1",
+            planning_recommendation_id: "meeting-1",
+            signals: ["meeting_today"],
+          },
+        ],
+      },
+    ],
+    actions: [
+      {
+        label: "Reply to active client",
+        summary: "Reply to the active client thread.",
+        command: "personal-ops recommendation show followup-1",
+        why_now: "A live conversation still needs your reply.",
+        score_band: "highest" as const,
+        target_type: "planning_recommendation" as const,
+        target_id: "followup-1",
+        planning_recommendation_id: "followup-1",
+        signals: ["reply_needed"],
+        surfaced_work_helpfulness: {
+          eligible: true,
+          surface: "workflow_now_next" as const,
+          target_type: "planning_recommendation" as const,
+          target_id: "followup-1",
+          level: "helpful" as const,
+          summary: "Recent outcomes suggest this surfaced work is usually acted on.",
+          sample_count_30d: 5,
+          helpful_count_30d: 4,
+          attempted_failed_count_30d: 0,
+          superseded_count_30d: 1,
+          expired_count_30d: 0,
+          helpful_rate_30d: 0.8,
+        },
+      },
+    ],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlock(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+    maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+    workflow_personalization: undefined,
+  };
+
+  const formatted = formatWorkflowBundleReport(nowNext as any);
+
+  assert.match(formatted, /Surface proof: Recent outcomes suggest this surfaced work is usually acted on\./i);
+  assert.equal((formatted.match(/Surface proof:/gi) ?? []).length, 1);
+});
+
 test("Phase 4 version command reports the current release identity and upgrade path", () => {
   const { env, paths } = createTempEnv("version");
   writeFixtureFiles(paths, 46211);
@@ -1982,4 +2082,40 @@ test("phase 29 status formatter carries one compact workspace focus summary", as
 
   const formatted = formatStatusReport(status);
   assert.match(formatted, /Workspace focus: This is the best next move: Reply to the active client thread before the queue widens\./i);
+});
+
+test("phase 30 status formatter carries surfaced-work helpfulness for the current workspace focus", async () => {
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    workspace_home: {
+      ...emptyWorkspaceHome(),
+      ready: true,
+      state: "assistant" as const,
+      title: "Assistant-prepared work is ready",
+      summary: "Review the prepared assistant action.",
+      why_now: "This is the highest-value prepared work right now.",
+      primary_command: "personal-ops assistant queue",
+      assistant_action_id: "assistant.review-top-attention",
+      surfaced_work_helpfulness: {
+        eligible: true,
+        surface: "workspace_home" as const,
+        target_type: "assistant_action" as const,
+        target_id: "assistant.review-top-attention",
+        level: "mixed" as const,
+        summary: "Recent outcomes are mixed; this surfaced work is sometimes acted on and sometimes passed over.",
+        sample_count_30d: 4,
+        helpful_count_30d: 2,
+        attempted_failed_count_30d: 1,
+        superseded_count_30d: 1,
+        expired_count_30d: 0,
+        helpful_rate_30d: 0.5,
+      },
+    },
+  };
+
+  const formatted = formatStatusReport(status as any);
+  assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
+  assert.match(formatted, /Surface proof: Recent outcomes are mixed; this surfaced work is sometimes acted on and sometimes passed over\./i);
 });

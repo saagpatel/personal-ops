@@ -32,6 +32,14 @@ function workspaceHomeSummary(report: ServiceStatusReport): string {
   return `${home.title}: ${home.summary}`;
 }
 
+function workspaceHomeSurfaceProof(report: ServiceStatusReport): string | null {
+  const helpfulness = report.workspace_home?.surfaced_work_helpfulness;
+  if (!helpfulness?.eligible || !helpfulness.summary) {
+    return null;
+  }
+  return helpfulness.summary;
+}
+
 function maintenanceSignalLabel(value: string | null | undefined): string {
   return value ? value.replaceAll("_", " ") : "none";
 }
@@ -466,6 +474,10 @@ export function formatStatusReport(report: ServiceStatusReport): string {
   lines.push(line("Version", report.service_version));
   lines.push(line("Generated", report.generated_at));
   lines.push(line("Workspace focus", workspaceHomeSummary(report)));
+  const workspaceSurfaceProof = workspaceHomeSurfaceProof(report);
+  if (workspaceSurfaceProof) {
+    lines.push(line("Surface proof", workspaceSurfaceProof));
+  }
   lines.push(line("Next attention", topSummary(report.worklist_summary.top_item_summary, "nothing urgent right now")));
   lines.push(line("First repair step", report.first_repair_step ?? "none"));
   lines.push(line("Send enabled", yesNo(report.send_policy.effective_enabled)));

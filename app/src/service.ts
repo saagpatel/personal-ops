@@ -135,6 +135,7 @@ import {
   buildPrepDayWorkflowReport,
   buildPrepMeetingsWorkflowReport,
 } from "./service/workflows.js";
+import { trackWorkspaceHomeOutcome } from "./surfaced-work.js";
 import { readServiceVersion } from "./version.js";
 import {
   AttentionItem,
@@ -902,17 +903,23 @@ export class PersonalOpsService {
         return report;
       }
       const [assistantQueue, nowNextWorkflow] = await Promise.all([
-        buildAssistantActionQueueReport(this, { httpReachable: options.httpReachable }),
-        buildNowNextWorkflowReport(this, { httpReachable: options.httpReachable }),
+        this.getAssistantActionQueueReport({ httpReachable: options.httpReachable }),
+        this.getNowNextWorkflowReport({ httpReachable: options.httpReachable }),
       ]);
-      return {
-        ...report,
-        workspace_home: buildWorkspaceHomeSummary({
-          status: report,
-          assistantQueue,
-          nowNextWorkflow,
-        }),
-      };
+      const workspaceHome = buildWorkspaceHomeSummary({
+        status: report,
+        assistantQueue,
+        nowNextWorkflow,
+      });
+      return trackWorkspaceHomeOutcome(this, {
+        report: {
+          ...report,
+          workspace_home: workspaceHome,
+        },
+        workspace_home: workspaceHome,
+        assistant_queue: assistantQueue,
+        now_next_workflow: nowNextWorkflow,
+      }).report;
     } finally {
       this.statusWorkspaceHomeDepth = Math.max(0, this.statusWorkspaceHomeDepth - 1);
     }
