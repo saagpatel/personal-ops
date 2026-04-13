@@ -62,6 +62,7 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
     commitment: emptyMaintenanceCommitment(),
     defer_memory: emptyMaintenanceDeferMemory(),
     confidence: emptyMaintenanceConfidence(),
+    convergence: emptyMaintenanceRepairConvergence(),
   };
 }
 
@@ -147,6 +148,38 @@ function emptyMaintenanceDecisionExplanation() {
     operating_block: null,
     reasons: [],
     bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceRepairConvergence() {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "none" as const,
+    driver: null,
+    summary: null,
+    why: null,
+    primary_command: null,
+    repair_command: "personal-ops repair plan",
+    maintenance_command: "personal-ops maintenance session",
+    handoff_count_30d: 0,
+    active_repair_step_id: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyWorkspaceHome() {
+  return {
+    ready: false,
+    state: "caught_up" as const,
+    title: "The workspace is caught up",
+    summary: "No urgent repair, assistant-prepared, workflow, or maintenance focus is currently leading.",
+    why_now: null,
+    primary_command: null,
+    secondary_summary: null,
+    assistant_action_id: null,
+    workflow: null,
+    maintenance_state: null,
   };
 }
 
@@ -1205,6 +1238,91 @@ test("Phase 6 workflow formatter renders now-next guidance with why-now detail",
   assert.match(formatted, /score band:/);
 });
 
+test("phase 27 workflow formatter renders personalization guidance only when the fit materially changes timing", async () => {
+  const favored = {
+    eligible: true,
+    category: "followup" as const,
+    preferred_window: "early_day" as const,
+    current_window: "early_day" as const,
+    fit: "favored" as const,
+    reason: "aligned_with_habit" as const,
+    summary: "This is a good fit for how you usually handle this kind of work.",
+    sample_count_30d: 4,
+  };
+  const neutral = {
+    eligible: true,
+    category: "meeting" as const,
+    preferred_window: "anytime" as const,
+    current_window: "mid_day" as const,
+    fit: "neutral" as const,
+    reason: "no_strong_pattern" as const,
+    summary: "There is no strong timing pattern for this kind of work yet.",
+    sample_count_30d: 4,
+  };
+  const nowNext = {
+    workflow: "now-next" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Reply to the open client thread.",
+    sections: [
+      {
+        title: "Best Next Move",
+        items: [
+          {
+            label: "Reply to client",
+            summary: "Reply to the open client thread.",
+            command: "personal-ops recommendation show followup-1",
+            why_now: "A live conversation still needs your reply.",
+            score_band: "highest" as const,
+            signals: ["reply_needed"],
+            workflow_personalization: favored,
+          },
+        ],
+      },
+      {
+        title: "Alternatives",
+        items: [
+          {
+            label: "Prep meeting",
+            summary: "Prep the later meeting.",
+            command: "personal-ops recommendation show meeting-1",
+            why_now: "The meeting is later today.",
+            score_band: "high" as const,
+            signals: ["meeting_today"],
+            workflow_personalization: neutral,
+          },
+        ],
+      },
+    ],
+    actions: [
+      {
+        label: "Reply to client",
+        summary: "Reply to the open client thread.",
+        command: "personal-ops recommendation show followup-1",
+        why_now: "A live conversation still needs your reply.",
+        score_band: "highest" as const,
+        signals: ["reply_needed"],
+        workflow_personalization: favored,
+      },
+    ],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlock(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+    workflow_personalization: favored,
+  };
+
+  const formatted = formatWorkflowBundleReport(nowNext);
+
+  assert.match(formatted, /workflow fit: This is a good fit for how you usually handle this kind of work\./i);
+  assert.doesNotMatch(formatted, /There is no strong timing pattern for this kind of work yet\./i);
+});
+
 test("Phase 4 version command reports the current release identity and upgrade path", () => {
   const { env, paths } = createTempEnv("version");
   writeFixtureFiles(paths, 46211);
@@ -1688,4 +1806,180 @@ test("phase 26 formatter surfaces agree on maintenance decision explanation word
   assert.match(formatWorklistReport(worklist), /Maintenance decision/i);
   assert.match(formatWorkflowBundleReport(nowNext), /Maintenance decision \(do now\)/i);
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance decision \(budget today\)/i);
+});
+
+test("phase 28 convergence renders one owner across repair, worklist, maintenance session, and workflows", () => {
+  const convergence = {
+    ...emptyMaintenanceRepairConvergence(),
+    eligible: true,
+    step_id: "install_wrappers" as const,
+    state: "repair_owned" as const,
+    driver: "active_repair" as const,
+    summary: "This recurring family is now active repair and should be treated through the repair plan, not as a parallel maintenance item.",
+    why: "Active repair already owns this recurring family.",
+    primary_command: "personal-ops repair plan",
+    active_repair_step_id: "install_wrappers" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const operatingBlock = {
+    ...emptyMaintenanceOperatingBlock(),
+    eligible: true,
+    block: "current_block" as const,
+    step_id: "install_wrappers" as const,
+    summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "Current block reason.",
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const decision = {
+    ...emptyMaintenanceDecisionExplanation(),
+    eligible: true,
+    step_id: "install_wrappers" as const,
+    state: "do_now" as const,
+    driver: "operating_block" as const,
+    summary: "This maintenance work belongs in the current operating block.",
+    why_now: "The system is ready, this family is surfaced for the current block, and there is no higher-priority urgent work ahead of it.",
+    why_not_higher: "It still stays below active repair and truly urgent operator work.",
+    suggested_command: "personal-ops maintenance session",
+    operating_block: "current_block" as const,
+    reasons: ["scheduled_for_current_block"],
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const scheduling = {
+    ...emptyMaintenanceScheduling(),
+    eligible: true,
+    placement: "now" as const,
+    step_id: "install_wrappers" as const,
+    summary: "Maintenance is visible now.",
+    suggested_command: "personal-ops maintenance session",
+    bundle_step_ids: ["install_wrappers" as const],
+    operating_block: operatingBlock,
+    decision_explanation: decision,
+  };
+  const repairPlan = {
+    generated_at: "2026-04-12T12:00:00.000Z",
+    first_step_id: "install_wrappers" as const,
+    first_repair_step: "personal-ops repair plan",
+    last_execution: null,
+    top_recurring_issue: null,
+    preventive_maintenance: { recommendations: [], count: 0, top_step_id: null },
+    maintenance_window: { eligible_now: true, deferred_reason: null, count: 1, top_step_id: "install_wrappers" as const, bundle: null },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: operatingBlock,
+    maintenance_decision_explanation: decision,
+    maintenance_repair_convergence: convergence,
+    last_repair: null,
+    recurring_issue: null,
+    steps: [
+      {
+        id: "install_wrappers" as const,
+        title: "Repair wrappers",
+        reason: "Repair is pending.",
+        suggested_command: "personal-ops repair plan",
+        executable: false,
+        status: "pending" as const,
+        scope: "install" as const,
+        blocking: true,
+      },
+    ],
+  };
+  const worklist = {
+    generated_at: "2026-04-12T12:00:00.000Z",
+    state: "ready" as const,
+    counts_by_severity: { critical: 0, warn: 1, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    maintenance_window: {
+      eligible_now: true,
+      deferred_reason: null,
+      count: 1,
+      top_step_id: "install_wrappers" as const,
+      bundle: {
+        bundle_id: "bundle-1",
+        title: "Preventive maintenance window",
+        summary: "Preventive maintenance window",
+        recommended_commands: [],
+        recommendations: [],
+      },
+    },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: operatingBlock,
+    maintenance_decision_explanation: decision,
+    maintenance_repair_convergence: convergence,
+    items: [],
+  };
+  const session = {
+    generated_at: "2026-04-12T12:00:00.000Z",
+    eligible_now: true,
+    deferred_reason: null,
+    bundle_id: "bundle-1",
+    title: "Preventive maintenance window",
+    summary: "Preventive maintenance window",
+    start_command: "personal-ops maintenance session",
+    steps: [],
+    first_step_id: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: operatingBlock,
+    maintenance_decision_explanation: decision,
+    maintenance_repair_convergence: convergence,
+  };
+  const nowNext = {
+    workflow: "now-next" as const,
+    generated_at: "2026-04-12T12:00:00.000Z",
+    readiness: "ready" as const,
+    summary: "Repair-owned recurring family.",
+    sections: [],
+    actions: [],
+    first_repair_step: "personal-ops repair plan",
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: operatingBlock,
+    maintenance_decision_explanation: decision,
+    maintenance_repair_convergence: convergence,
+  };
+
+  assert.match(formatRepairPlanReport(repairPlan as any), /Maintenance\/repair convergence/i);
+  assert.match(formatWorklistReport(worklist as any), /personal-ops repair plan/i);
+  assert.doesNotMatch(formatWorklistReport(worklist as any), /Start with `personal-ops maintenance session`/i);
+  assert.match(formatMaintenanceSessionPlan(session as any), /Start command: personal-ops repair plan/i);
+  assert.match(formatWorkflowBundleReport(nowNext as any), /Maintenance convergence \(repair owned\)/i);
+});
+
+test("phase 29 status formatter carries one compact workspace focus summary", async () => {
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    workspace_home: {
+      ...emptyWorkspaceHome(),
+      ready: true,
+      state: "workflow" as const,
+      title: "This is the best next move",
+      summary: "Reply to the active client thread before the queue widens.",
+      why_now: "This is currently the highest-value bounded move.",
+      primary_command: "personal-ops workflow now-next",
+      workflow: "now-next" as const,
+    },
+  };
+
+  const formatted = formatStatusReport(status);
+  assert.match(formatted, /Workspace focus: This is the best next move: Reply to the active client thread before the queue widens\./i);
 });

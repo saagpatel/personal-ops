@@ -66,6 +66,7 @@ import {
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
   buildMaintenanceOperatingBlockSummary,
+  buildMaintenanceRepairConvergenceSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceWindowSummary,
   buildRepairPlan,
@@ -268,7 +269,9 @@ import {
   TaskItem,
   TaskSuggestion,
   TaskSuggestionDetail,
+  WorkflowBundleReport,
   WorklistReport,
+  WorkspaceHomeSummary,
 } from "./types.js";
 
 interface DoctorOptions {
@@ -280,6 +283,138 @@ interface StoredGmailAuth {
   email: string;
   clientConfig: GmailClientConfig;
   tokensJson: string;
+}
+
+function actionableAssistantAction(queue: AssistantActionQueueReport): AssistantActionQueueReport["actions"][number] | null {
+  return queue.actions.find((action) => action.state === "proposed" || action.state === "awaiting_review") ?? null;
+}
+
+function maintenanceHomeSummary(
+  report: ServiceStatusReport,
+): Pick<WorkspaceHomeSummary, "summary" | "why_now" | "maintenance_state" | "primary_command"> | null {
+  const convergence = report.maintenance_repair_convergence;
+  if (convergence?.eligible && convergence.state !== "repair_owned" && convergence.state !== "none" && convergence.summary) {
+    return {
+      summary: convergence.summary,
+      why_now: convergence.why,
+      maintenance_state: convergence.state,
+      primary_command: convergence.primary_command ?? "personal-ops maintenance session",
+    };
+  }
+  const decision = report.maintenance_decision_explanation;
+  if (decision?.eligible && decision.summary) {
+    return {
+      summary: decision.summary,
+      why_now: decision.why_now ?? decision.why_not_higher,
+      maintenance_state: decision.state,
+      primary_command: decision.suggested_command ?? "personal-ops maintenance session",
+    };
+  }
+  return null;
+}
+
+function appendSecondaryHint(hints: string[], value: string | null | undefined): void {
+  if (!value || !value.trim()) {
+    return;
+  }
+  if (hints.includes(value.trim())) {
+    return;
+  }
+  hints.push(value.trim());
+}
+
+export function buildWorkspaceHomeSummary(input: {
+  status: ServiceStatusReport;
+  assistantQueue: AssistantActionQueueReport;
+  nowNextWorkflow: WorkflowBundleReport;
+}): WorkspaceHomeSummary {
+  const { status, assistantQueue, nowNextWorkflow } = input;
+  const repairOwned = status.maintenance_repair_convergence?.eligible && status.maintenance_repair_convergence.state === "repair_owned";
+  const topAssistantAction = actionableAssistantAction(assistantQueue);
+  const topWorkflowAction = nowNextWorkflow.actions[0] ?? null;
+  const maintenance = maintenanceHomeSummary(status);
+  const secondaryHints: string[] = [];
+
+  if (status.first_repair_step || repairOwned) {
+    appendSecondaryHint(secondaryHints, topAssistantAction?.summary);
+    appendSecondaryHint(secondaryHints, topWorkflowAction?.summary);
+    appendSecondaryHint(secondaryHints, maintenance?.summary);
+    return {
+      ready: status.state === "ready",
+      state: "repair",
+      title: "Repair comes first",
+      summary:
+        status.maintenance_repair_convergence?.summary ??
+        (status.first_repair_step ? `Follow ${status.first_repair_step} before trusting the rest of the workspace.` : "Active repair owns the workspace right now."),
+      why_now: "Active repair outranks assistant-prepared work, workflow guidance, and preventive maintenance until the local control plane is stable again.",
+      primary_command: "personal-ops repair plan",
+      secondary_summary: secondaryHints[0] ?? null,
+      assistant_action_id: null,
+      workflow: null,
+      maintenance_state: status.maintenance_repair_convergence?.state ?? null,
+    };
+  }
+
+  if (topAssistantAction) {
+    appendSecondaryHint(secondaryHints, topWorkflowAction?.summary);
+    appendSecondaryHint(secondaryHints, maintenance?.summary);
+    return {
+      ready: status.state === "ready",
+      state: "assistant",
+      title: "Assistant-prepared work is ready",
+      summary: topAssistantAction.summary,
+      why_now: topAssistantAction.why_now,
+      primary_command: topAssistantAction.command ?? null,
+      secondary_summary: secondaryHints[0] ?? null,
+      assistant_action_id: topAssistantAction.action_id,
+      workflow: null,
+      maintenance_state: null,
+    };
+  }
+
+  if (topWorkflowAction) {
+    appendSecondaryHint(secondaryHints, maintenance?.summary);
+    return {
+      ready: status.state === "ready",
+      state: "workflow",
+      title: "This is the best next move",
+      summary: topWorkflowAction.summary,
+      why_now: topWorkflowAction.why_now ?? nowNextWorkflow.summary,
+      primary_command: topWorkflowAction.command,
+      secondary_summary: secondaryHints[0] ?? null,
+      assistant_action_id: null,
+      workflow: nowNextWorkflow.workflow,
+      maintenance_state: null,
+    };
+  }
+
+  if (maintenance) {
+    return {
+      ready: status.state === "ready",
+      state: "maintenance",
+      title: "Upkeep is the main focus right now",
+      summary: maintenance.summary,
+      why_now: maintenance.why_now,
+      primary_command: maintenance.primary_command,
+      secondary_summary: null,
+      assistant_action_id: null,
+      workflow: null,
+      maintenance_state: maintenance.maintenance_state,
+    };
+  }
+
+  return {
+    ready: status.state === "ready",
+    state: "caught_up",
+    title: "The workspace is caught up",
+    summary: "No urgent repair, assistant-prepared, workflow, or maintenance focus is currently leading.",
+    why_now: null,
+    primary_command: null,
+    secondary_summary: null,
+    assistant_action_id: null,
+    workflow: null,
+    maintenance_state: null,
+  };
 }
 
 interface ApprovalContext {
@@ -656,9 +791,17 @@ export class PersonalOpsService {
   private calendarSyncInFlight: Promise<CalendarStatusReport> | null = null;
   private githubSyncInFlight: Promise<GithubStatusReport> | null = null;
   private driveSyncInFlight: Promise<DriveStatusReport> | null = null;
+  private readonly worklistReportInFlight = new Map<string, Promise<WorklistReport>>();
+  private readonly nowNextWorkflowInFlight = new Map<string, Promise<any>>();
+  private readonly prepDayWorkflowInFlight = new Map<string, Promise<any>>();
+  private readonly inboxAutopilotInFlight = new Map<string, Promise<InboxAutopilotReport>>();
+  private readonly outboundAutopilotInFlight = new Map<string, Promise<OutboundAutopilotReport>>();
+  private readonly planningAutopilotInFlight = new Map<string, Promise<PlanningAutopilotReport>>();
+  private readonly assistantQueueInFlight = new Map<string, Promise<AssistantActionQueueReport>>();
   private readonly assistantActionStartedAt = new Map<string, string>();
   private autopilotRunInFlight: Promise<AutopilotStatusReport> | null = null;
   private queuedAutopilotRequest: AutopilotRunRequest | null = null;
+  private statusWorkspaceHomeDepth = 0;
   private reviewReadModelRefreshInFlight: Promise<void> | null = null;
   private reviewReadModelRefreshDepth = 0;
 
@@ -682,6 +825,20 @@ export class PersonalOpsService {
     if (!compatibility.compatible) {
       throw new Error(`Startup preflight failed: ${compatibility.message}`);
     }
+  }
+
+  private dedupeInFlight<T>(cache: Map<string, Promise<T>>, key: string, build: () => Promise<T>): Promise<T> {
+    const existing = cache.get(key);
+    if (existing) {
+      return existing;
+    }
+    const promise = build().finally(() => {
+      if (cache.get(key) === promise) {
+        cache.delete(key);
+      }
+    });
+    cache.set(key, promise);
+    return promise;
   }
 
   health() {
@@ -734,10 +891,31 @@ export class PersonalOpsService {
   }
 
   async getStatusReport(options: { httpReachable: boolean; skipDerived?: boolean }): Promise<ServiceStatusReport> {
-    return buildStatusReport(this, {
-      ...options,
-      skipDerived: Boolean(options.skipDerived) || this.reviewReadModelRefreshDepth > 0,
-    });
+    const nestedWorkspaceHomeRead = this.statusWorkspaceHomeDepth > 0;
+    this.statusWorkspaceHomeDepth += 1;
+    try {
+      const report = await buildStatusReport(this, {
+        ...options,
+        skipDerived: Boolean(options.skipDerived) || this.reviewReadModelRefreshDepth > 0,
+      });
+      if (nestedWorkspaceHomeRead) {
+        return report;
+      }
+      const [assistantQueue, nowNextWorkflow] = await Promise.all([
+        buildAssistantActionQueueReport(this, { httpReachable: options.httpReachable }),
+        buildNowNextWorkflowReport(this, { httpReachable: options.httpReachable }),
+      ]);
+      return {
+        ...report,
+        workspace_home: buildWorkspaceHomeSummary({
+          status: report,
+          assistantQueue,
+          nowNextWorkflow,
+        }),
+      };
+    } finally {
+      this.statusWorkspaceHomeDepth = Math.max(0, this.statusWorkspaceHomeDepth - 1);
+    }
   }
 
   async getAutopilotStatusReport(
@@ -947,11 +1125,15 @@ export class PersonalOpsService {
   }
 
   async getNowNextWorkflowReport(options: { httpReachable: boolean }) {
-    return buildNowNextWorkflowReport(this, options);
+    return this.dedupeInFlight(this.nowNextWorkflowInFlight, String(options.httpReachable), () =>
+      buildNowNextWorkflowReport(this, options),
+    );
   }
 
   async getPrepDayWorkflowReport(options: { httpReachable: boolean }) {
-    return buildPrepDayWorkflowReport(this, options);
+    return this.dedupeInFlight(this.prepDayWorkflowInFlight, String(options.httpReachable), () =>
+      buildPrepDayWorkflowReport(this, options),
+    );
   }
 
   async getFollowUpBlockWorkflowReport(options: { httpReachable: boolean }) {
@@ -959,11 +1141,15 @@ export class PersonalOpsService {
   }
 
   async getInboxAutopilotReport(options: { httpReachable: boolean }): Promise<InboxAutopilotReport> {
-    return buildInboxAutopilotReport(this, options);
+    return this.dedupeInFlight(this.inboxAutopilotInFlight, String(options.httpReachable), () =>
+      buildInboxAutopilotReport(this, options),
+    );
   }
 
   async getOutboundAutopilotReport(options: { httpReachable: boolean }): Promise<OutboundAutopilotReport> {
-    return buildOutboundAutopilotReport(this, options);
+    return this.dedupeInFlight(this.outboundAutopilotInFlight, String(options.httpReachable), () =>
+      buildOutboundAutopilotReport(this, options),
+    );
   }
 
   async getOutboundAutopilotGroup(groupId: string): Promise<OutboundAutopilotGroup> {
@@ -971,7 +1157,9 @@ export class PersonalOpsService {
   }
 
   async getPlanningAutopilotReport(options: { httpReachable: boolean }): Promise<PlanningAutopilotReport> {
-    return buildPlanningAutopilotReport(this, options);
+    return this.dedupeInFlight(this.planningAutopilotInFlight, String(options.httpReachable), () =>
+      buildPlanningAutopilotReport(this, options),
+    );
   }
 
   async getPlanningAutopilotBundle(bundleId: string): Promise<PlanningAutopilotBundle> {
@@ -1043,7 +1231,9 @@ export class PersonalOpsService {
   }
 
   async getAssistantActionQueueReport(options: { httpReachable: boolean }): Promise<AssistantActionQueueReport> {
-    return buildAssistantActionQueueReport(this, options);
+    return this.dedupeInFlight(this.assistantQueueInFlight, String(options.httpReachable), () =>
+      buildAssistantActionQueueReport(this, options),
+    );
   }
 
   getAssistantActionStartedAt(actionId: string): string | null {
@@ -3537,124 +3727,139 @@ export class PersonalOpsService {
   }
 
   async getWorklistReport(options: { httpReachable: boolean }): Promise<WorklistReport> {
-    const activeSendWindow = this.db.getActiveSendWindow();
-    const checks = await this.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
-    const state = this.classifyState(checks);
-    const items = this.buildAttentionItems(state, activeSendWindow);
-    const planningGroups = this.groupPlanningRecommendations(
-      this.db.listPlanningRecommendations({ include_resolved: false }).filter((item) => item.status === "pending"),
-    );
-    const latestSnapshot = this.getLatestSnapshotSummary();
-    const installCheck = buildInstallCheckReport(this.paths);
-    const desktopStatus = await getDesktopStatusReport(this.paths);
-    const recoveryRehearsal = readRecoveryRehearsalStamp(this.paths);
-    const prune = pruneSnapshots(this.paths, { dryRun: true });
-    const provenance = readRestoreProvenance(this.paths);
-    const recentRepairExecutions = this.db.listRepairExecutions({ days: 30, limit: 100 });
-    const repairPlan = buildRepairPlan({
-      generated_at: new Date().toISOString(),
-      install_check: installCheck,
-      doctor: {
-        checks,
+    return this.dedupeInFlight(this.worklistReportInFlight, String(options.httpReachable), async () => {
+      const activeSendWindow = this.db.getActiveSendWindow();
+      const checks = await this.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
+      const state = this.classifyState(checks);
+      const items = this.buildAttentionItems(state, activeSendWindow);
+      const planningGroups = this.groupPlanningRecommendations(
+        this.db.listPlanningRecommendations({ include_resolved: false }).filter((item) => item.status === "pending"),
+      );
+      const latestSnapshot = this.getLatestSnapshotSummary();
+      const installCheck = buildInstallCheckReport(this.paths);
+      const desktopStatus = await getDesktopStatusReport(this.paths);
+      const recoveryRehearsal = readRecoveryRehearsalStamp(this.paths);
+      const prune = pruneSnapshots(this.paths, { dryRun: true });
+      const provenance = readRestoreProvenance(this.paths);
+      const recentRepairExecutions = this.db.listRepairExecutions({ days: 30, limit: 100 });
+      const repairPlan = buildRepairPlan({
+        generated_at: new Date().toISOString(),
+        install_check: installCheck,
+        doctor: {
+          checks,
+          state,
+          deep: false,
+        },
+        desktop: desktopStatus,
+        latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
+        latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot ?? null),
+        snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
+        prune_candidate_count: prune.prune_candidates,
+        recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
+        machine_state_origin: describeStateOrigin(provenance.status === "configured" ? provenance.provenance : null),
+        recent_repair_executions: recentRepairExecutions,
+      });
+      const maintenanceWindow = buildMaintenanceWindowSummary({
+        generated_at: new Date().toISOString(),
         state,
-        deep: false,
-      },
-      desktop: desktopStatus,
-      latest_snapshot_id: latestSnapshot?.snapshot_id ?? null,
-      latest_snapshot_age_hours: snapshotAgeHours(latestSnapshot ?? null),
-      snapshot_age_limit_hours: SNAPSHOT_WARN_HOURS,
-      prune_candidate_count: prune.prune_candidates,
-      recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
-      machine_state_origin: describeStateOrigin(provenance.status === "configured" ? provenance.provenance : null),
-      recent_repair_executions: recentRepairExecutions,
-    });
-    const maintenanceWindow = buildMaintenanceWindowSummary({
-      generated_at: new Date().toISOString(),
-      state,
-      worklist_items: items,
-      repair_plan: repairPlan,
-      recent_repair_executions: recentRepairExecutions,
-    });
-    const maintenanceFollowThrough = buildMaintenanceFollowThroughSummary({
-      generated_at: new Date().toISOString(),
-      maintenance_window: maintenanceWindow,
-      repair_plan: repairPlan,
-      recent_repair_executions: recentRepairExecutions,
-    });
-    const maintenanceEscalation = buildMaintenanceEscalationSummary({
-      generated_at: new Date().toISOString(),
-      state,
-      maintenance_window: maintenanceWindow,
-      maintenance_follow_through: maintenanceFollowThrough,
-      repair_plan: repairPlan,
-      recent_repair_executions: recentRepairExecutions,
-    });
-    const maintenanceScheduling = buildMaintenanceSchedulingSummary({
-      state,
-      worklist_items: items,
-      repair_plan: repairPlan,
-      maintenance_window: maintenanceWindow,
-      maintenance_escalation: maintenanceEscalation,
-    });
-    const maintenanceCommitmentState = deriveMaintenanceCommitmentState({
-      generated_at: new Date().toISOString(),
-      maintenance_scheduling: maintenanceScheduling,
-      repair_plan: repairPlan,
-      recent_repair_executions: recentRepairExecutions,
-      existing_commitments: this.db.listMaintenanceCommitments({ limit: 100 }),
-    });
-    for (const record of maintenanceCommitmentState.records) {
-      this.db.upsertMaintenanceCommitment(record);
-    }
-    const maintenanceConfidence = buildMaintenanceConfidenceSummary({
-      generated_at: new Date().toISOString(),
-      state,
-      repair_plan: repairPlan,
-      maintenance_follow_through: maintenanceFollowThrough,
-      maintenance_escalation: maintenanceEscalation,
-      maintenance_scheduling: maintenanceScheduling,
-      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
-      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
-      recent_repair_executions: recentRepairExecutions,
-    });
-    const maintenanceFollowThroughWithCommitment = {
-      ...maintenanceFollowThrough,
-      commitment: maintenanceCommitmentState.maintenance_commitment,
-      defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
-      confidence: maintenanceConfidence,
-    };
-    const maintenanceSchedulingWithCommitment = {
-      ...maintenanceScheduling,
-      commitment: maintenanceCommitmentState.maintenance_commitment,
-      defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
-      confidence: maintenanceConfidence,
-    };
-    const maintenanceOperatingBlock = buildMaintenanceOperatingBlockSummary({
-      state,
-      repair_plan: repairPlan,
-      maintenance_scheduling: maintenanceSchedulingWithCommitment,
-      maintenance_confidence: maintenanceConfidence,
-    });
-    const maintenanceSchedulingWithBlock = {
-      ...maintenanceSchedulingWithCommitment,
-      operating_block: maintenanceOperatingBlock,
-    };
-    const maintenanceDecisionExplanation = buildMaintenanceDecisionExplanationSummary({
-      state,
-      repair_plan: repairPlan,
-      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
-      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
-      maintenance_escalation: maintenanceEscalation,
-      maintenance_confidence: maintenanceConfidence,
-      maintenance_operating_block: maintenanceOperatingBlock,
-      maintenance_scheduling: maintenanceSchedulingWithBlock,
-    });
-    const maintenanceSchedulingWithExplanation = {
-      ...maintenanceSchedulingWithBlock,
-      decision_explanation: maintenanceDecisionExplanation,
-    };
-    const finalItems = maintenanceEscalation.cue
-      ? [...items, {
+        worklist_items: items,
+        repair_plan: repairPlan,
+        recent_repair_executions: recentRepairExecutions,
+      });
+      const maintenanceFollowThrough = buildMaintenanceFollowThroughSummary({
+        generated_at: new Date().toISOString(),
+        maintenance_window: maintenanceWindow,
+        repair_plan: repairPlan,
+        recent_repair_executions: recentRepairExecutions,
+      });
+      const maintenanceEscalation = buildMaintenanceEscalationSummary({
+        generated_at: new Date().toISOString(),
+        state,
+        maintenance_window: maintenanceWindow,
+        maintenance_follow_through: maintenanceFollowThrough,
+        repair_plan: repairPlan,
+        recent_repair_executions: recentRepairExecutions,
+      });
+      const maintenanceScheduling = buildMaintenanceSchedulingSummary({
+        state,
+        worklist_items: items,
+        repair_plan: repairPlan,
+        maintenance_window: maintenanceWindow,
+        maintenance_escalation: maintenanceEscalation,
+      });
+      const maintenanceCommitmentState = deriveMaintenanceCommitmentState({
+        generated_at: new Date().toISOString(),
+        maintenance_scheduling: maintenanceScheduling,
+        repair_plan: repairPlan,
+        recent_repair_executions: recentRepairExecutions,
+        existing_commitments: this.db.listMaintenanceCommitments({ limit: 100 }),
+      });
+      for (const record of maintenanceCommitmentState.records) {
+        this.db.upsertMaintenanceCommitment(record);
+      }
+      const maintenanceConfidence = buildMaintenanceConfidenceSummary({
+        generated_at: new Date().toISOString(),
+        state,
+        repair_plan: repairPlan,
+        maintenance_follow_through: maintenanceFollowThrough,
+        maintenance_escalation: maintenanceEscalation,
+        maintenance_scheduling: maintenanceScheduling,
+        maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+        maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        recent_repair_executions: recentRepairExecutions,
+      });
+      const maintenanceFollowThroughWithCommitment = {
+        ...maintenanceFollowThrough,
+        commitment: maintenanceCommitmentState.maintenance_commitment,
+        defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        confidence: maintenanceConfidence,
+      };
+      const maintenanceSchedulingWithCommitment = {
+        ...maintenanceScheduling,
+        commitment: maintenanceCommitmentState.maintenance_commitment,
+        defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        confidence: maintenanceConfidence,
+      };
+      const maintenanceOperatingBlock = buildMaintenanceOperatingBlockSummary({
+        state,
+        repair_plan: repairPlan,
+        maintenance_scheduling: maintenanceSchedulingWithCommitment,
+        maintenance_confidence: maintenanceConfidence,
+      });
+      const maintenanceSchedulingWithBlock = {
+        ...maintenanceSchedulingWithCommitment,
+        operating_block: maintenanceOperatingBlock,
+      };
+      const maintenanceDecisionExplanation = buildMaintenanceDecisionExplanationSummary({
+        state,
+        repair_plan: repairPlan,
+        maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+        maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        maintenance_escalation: maintenanceEscalation,
+        maintenance_confidence: maintenanceConfidence,
+        maintenance_operating_block: maintenanceOperatingBlock,
+        maintenance_scheduling: maintenanceSchedulingWithBlock,
+      });
+      const maintenanceSchedulingWithExplanation = {
+        ...maintenanceSchedulingWithBlock,
+        decision_explanation: maintenanceDecisionExplanation,
+      };
+      const maintenanceRepairConvergence = buildMaintenanceRepairConvergenceSummary({
+        repair_plan: repairPlan,
+        maintenance_follow_through: maintenanceFollowThroughWithCommitment,
+        maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+        maintenance_escalation: maintenanceEscalation,
+        maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        maintenance_confidence: maintenanceConfidence,
+        maintenance_scheduling: maintenanceSchedulingWithExplanation,
+        maintenance_decision_explanation: maintenanceDecisionExplanation,
+      });
+      const maintenanceFollowThroughWithConvergence = {
+        ...maintenanceFollowThroughWithCommitment,
+        convergence: maintenanceRepairConvergence,
+      };
+      const finalItems = maintenanceEscalation.cue
+        ? [...items, {
           item_id: maintenanceEscalation.cue.item_id,
           kind: maintenanceEscalation.cue.kind,
           severity: maintenanceEscalation.cue.severity,
@@ -3678,37 +3883,40 @@ export class PersonalOpsService {
             maintenance_confidence: maintenanceConfidence,
             maintenance_operating_block: maintenanceOperatingBlock,
             maintenance_decision_explanation: maintenanceDecisionExplanation,
+            maintenance_repair_convergence: maintenanceRepairConvergence,
             signals: maintenanceEscalation.cue.signals,
           }),
         }].sort((left, right) => this.compareAttentionItems(left, right))
-      : items;
-    const countsBySeverity = finalItems.reduce<Record<AttentionSeverity, number>>(
-      (accumulator, item) => {
-        accumulator[item.severity] += 1;
-        return accumulator;
-      },
-      { info: 0, warn: 0, critical: 0 },
-    );
-    return {
-      generated_at: new Date().toISOString(),
-      state,
-      counts_by_severity: countsBySeverity,
-      send_window: {
-        active: Boolean(activeSendWindow),
-        window: activeSendWindow ?? undefined,
-      },
-      planning_groups: planningGroups,
-      maintenance_window: maintenanceWindow,
-      maintenance_follow_through: maintenanceFollowThroughWithCommitment,
-      maintenance_escalation: maintenanceEscalation,
-      maintenance_scheduling: maintenanceSchedulingWithExplanation,
-      maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
-      maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
-      maintenance_confidence: maintenanceConfidence,
-      maintenance_operating_block: maintenanceOperatingBlock,
-      maintenance_decision_explanation: maintenanceDecisionExplanation,
-      items: finalItems,
-    };
+        : items;
+      const countsBySeverity = finalItems.reduce<Record<AttentionSeverity, number>>(
+        (accumulator, item) => {
+          accumulator[item.severity] += 1;
+          return accumulator;
+        },
+        { info: 0, warn: 0, critical: 0 },
+      );
+      return {
+        generated_at: new Date().toISOString(),
+        state,
+        counts_by_severity: countsBySeverity,
+        send_window: {
+          active: Boolean(activeSendWindow),
+          window: activeSendWindow ?? undefined,
+        },
+        planning_groups: planningGroups,
+        maintenance_window: maintenanceWindow,
+        maintenance_follow_through: maintenanceFollowThroughWithConvergence,
+        maintenance_escalation: maintenanceEscalation,
+        maintenance_scheduling: maintenanceSchedulingWithExplanation,
+        maintenance_commitment: maintenanceCommitmentState.maintenance_commitment,
+        maintenance_defer_memory: maintenanceCommitmentState.maintenance_defer_memory,
+        maintenance_confidence: maintenanceConfidence,
+        maintenance_operating_block: maintenanceOperatingBlock,
+        maintenance_decision_explanation: maintenanceDecisionExplanation,
+        maintenance_repair_convergence: maintenanceRepairConvergence,
+        items: finalItems,
+      };
+    });
   }
 
   async runAttentionSweep(options: { httpReachable: boolean }) {

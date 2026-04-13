@@ -142,6 +142,7 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
       maintenance_confidence: status.maintenance_confidence ?? null,
       maintenance_operating_block: status.maintenance_operating_block ?? null,
       maintenance_decision_explanation: status.maintenance_decision_explanation ?? null,
+      maintenance_repair_convergence: status.maintenance_repair_convergence ?? null,
       recent_repair_executions: listRecentRepairExecutions(paths),
     });
   } catch {
@@ -203,6 +204,20 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
         confidence_level: null,
         operating_block: null,
         reasons: [],
+        bundle_step_ids: [],
+      },
+      maintenance_repair_convergence: {
+        eligible: false,
+        step_id: null,
+        state: "none",
+        driver: null,
+        summary: null,
+        why: null,
+        primary_command: null,
+        repair_command: "personal-ops repair plan",
+        maintenance_command: MAINTENANCE_SESSION_COMMAND,
+        handoff_count_30d: 0,
+        active_repair_step_id: null,
         bundle_step_ids: [],
       },
       recent_repair_executions: recentExecutions,
@@ -486,6 +501,7 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             maintenance_confidence: afterStatus.maintenance_confidence ?? null,
             maintenance_operating_block: afterStatus.maintenance_operating_block ?? null,
             maintenance_decision_explanation: afterStatus.maintenance_decision_explanation ?? null,
+            maintenance_repair_convergence: afterStatus.maintenance_repair_convergence ?? null,
             recent_repair_executions: currentRecentExecutions,
           });
           const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;

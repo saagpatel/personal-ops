@@ -271,8 +271,8 @@ async function buildComputations(service: any, options: BuildOptions): Promise<{
   sendWindow: OutboundAutopilotReport["send_window"];
   computations: GroupComputation[];
 }> {
-  const [status] = await Promise.all([
-    service.getStatusReport(options),
+  const [worklist] = await Promise.all([
+    service.getWorklistReport(options),
   ]);
   const sendStatus = service.getSendWindowStatus();
   const sendWindow = {
@@ -356,7 +356,7 @@ async function buildComputations(service: any, options: BuildOptions): Promise<{
 
   computations.sort(compareGroups);
   return {
-    readiness: status.state,
+    readiness: worklist.state,
     sendWindow,
     computations,
   };

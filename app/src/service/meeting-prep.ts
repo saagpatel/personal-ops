@@ -650,8 +650,8 @@ export async function maybeAutoPrepareMeetingPackets(
     };
   },
 ): Promise<void> {
-  const status = await service.getStatusReport(options);
-  if (status.state !== "ready") {
+  const worklist = await service.getWorklistReport(options);
+  if (worklist.state !== "ready") {
     return;
   }
   const identity = {

@@ -467,6 +467,7 @@ function emptyWorkflowReport(
     maintenance_confidence: emptyMaintenanceConfidenceSummary(),
     maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
     maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
   };
 }
 
@@ -501,6 +502,7 @@ function emptyMaintenanceFollowThroughSummary(generatedAt: string): ServiceStatu
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
     confidence: emptyMaintenanceConfidenceSummary(),
+    convergence: emptyMaintenanceRepairConvergenceSummary(),
   };
 }
 
@@ -572,6 +574,38 @@ function emptyMaintenanceDecisionExplanationSummary(): ServiceStatusReport["main
   };
 }
 
+function emptyMaintenanceRepairConvergenceSummary(): ServiceStatusReport["maintenance_repair_convergence"] {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "none",
+    driver: null,
+    summary: null,
+    why: null,
+    primary_command: null,
+    repair_command: "personal-ops repair plan",
+    maintenance_command: "personal-ops maintenance session",
+    handoff_count_30d: 0,
+    active_repair_step_id: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
+  return {
+    ready: false,
+    state: "caught_up",
+    title: "The workspace is loading",
+    summary: "The shared workspace focus is loading local operator state.",
+    why_now: null,
+    primary_command: null,
+    secondary_summary: null,
+    assistant_action_id: null,
+    workflow: null,
+    maintenance_state: null,
+  };
+}
+
 function emptyMaintenanceEscalationSummary(): ServiceStatusReport["maintenance_escalation"] {
   return {
     eligible: false,
@@ -624,6 +658,7 @@ function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"
     maintenance_confidence: emptyMaintenanceConfidenceSummary(),
     maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
     maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
     last_repair: null,
     recurring_issue: null,
     steps: [],
@@ -691,6 +726,8 @@ function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
       maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
       maintenance_confidence: emptyMaintenanceConfidenceSummary(),
       maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+      maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+      maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
       last_repair: null,
       recurring_issue: null,
     },
@@ -706,6 +743,7 @@ function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
     service_version: "Loading…",
     state: "degraded",
     first_repair_step: null,
+    workspace_home: emptyWorkspaceHomeSummary(),
     repair_plan: repairPlan,
     maintenance_window: maintenanceWindow,
     maintenance_follow_through: maintenanceFollowThrough,
@@ -715,6 +753,8 @@ function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
     maintenance_confidence: emptyMaintenanceConfidenceSummary(),
     maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
     daemon_reachable: true,
     send_enabled: false,
     send_policy: {
@@ -951,6 +991,8 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
       maintenance_decision_explanation:
         status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
+      maintenance_repair_convergence:
+        status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
       items: [],
     },
     nowNextWorkflow: {
@@ -981,6 +1023,8 @@ function buildBootstrapConsolePayload(): ConsolePayload {
       maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
       maintenance_decision_explanation:
         status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
+      maintenance_repair_convergence:
+        status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
     },
     prepDayWorkflow: emptyWorkflowReport(
       generatedAt,
@@ -1255,6 +1299,8 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
       maintenance_decision_explanation:
         statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
+      maintenance_repair_convergence:
+        statusResponse.status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
       items: [],
     },
     nowNextWorkflow: {
@@ -1285,6 +1331,8 @@ async function loadCorePayload(): Promise<ConsolePayload> {
       maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
       maintenance_decision_explanation:
         statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
+      maintenance_repair_convergence:
+        statusResponse.status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
     },
     prepDayWorkflow: emptyWorkflowReport(
       statusResponse.status.generated_at,
@@ -2003,6 +2051,13 @@ function workflowActionButton(
             ? `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
             : ""
         }
+        ${
+          action.workflow_personalization?.eligible &&
+          action.workflow_personalization.summary &&
+          action.workflow_personalization.fit !== "neutral"
+            ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
+            : ""
+        }
       </div>
       <div class="list-item__actions">
         <button class="button" data-workflow="${escapeHtml(workflow)}" data-workflow-action="${escapeHtml(String(index))}" type="button">Open related detail</button>
@@ -2021,6 +2076,44 @@ function renderWorkflowItemMeta(item: WorkflowBundleReport["sections"][number]["
     parts.push(`Signals: ${item.signals.join(", ")}`);
   }
   return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" · "))}</p>` : "";
+}
+
+function renderWorkflowPersonalization(
+  item: WorkflowBundleReport["sections"][number]["items"][number],
+): string {
+  if (!item.workflow_personalization?.eligible || !item.workflow_personalization.summary || item.workflow_personalization.fit === "neutral") {
+    return "";
+  }
+  return `<p class="subtle subtle--body">${escapeHtml(item.workflow_personalization.summary)}</p>`;
+}
+
+function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]): string {
+  const stateLabel = summary.state.replaceAll("_", " ");
+  return `
+    <section class="detail-card">
+      <p class="eyebrow">Workspace focus</p>
+      <div class="list-item__top">
+        <h3>${escapeHtml(summary.title)}</h3>
+        <span class="${summary.ready ? "pill pill--good" : "pill pill--warn"}">${escapeHtml(stateLabel)}</span>
+      </div>
+      <p>${escapeHtml(summary.summary ?? "The workspace focus is still loading.")}</p>
+      ${
+        summary.why_now
+          ? `<p class="subtle subtle--body">${escapeHtml(summary.why_now)}</p>`
+          : ""
+      }
+      ${
+        summary.secondary_summary
+          ? `<p class="subtle subtle--body">${escapeHtml(`Next up: ${summary.secondary_summary}`)}</p>`
+          : ""
+      }
+      ${
+        summary.primary_command
+          ? `<div class="list-item__actions list-item__actions--stack">${commandAction(summary.primary_command)}</div>`
+          : ""
+      }
+    </section>
+  `;
 }
 
 function renderRelatedFiles(
@@ -2263,24 +2356,45 @@ function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopil
   `;
 }
 
-function renderWorkflowSections(report: WorkflowBundleReport): string {
+function renderWorkflowSections(
+  report: WorkflowBundleReport,
+  options: {
+    suppressPrimaryWhyNow?: boolean;
+    suppressPrimaryPersonalization?: boolean;
+    referential?: boolean;
+  } = {},
+): string {
   return report.sections
     .map(
-      (section) => `
+      (section, sectionIndex) => `
         <section class="panel">
           <h3>${escapeHtml(section.title)}</h3>
+          ${
+            options.referential && sectionIndex === 0
+              ? `<p class="subtle subtle--body">Repair owns the workspace right now, so treat this as the next-up move once repair is clear.</p>`
+              : ""
+          }
           ${
             section.items.length === 0
               ? `<div class="empty">Nothing notable right now.</div>`
               : section.items
                   .map(
-                    (item) => `
+                    (item, itemIndex) => `
                       <article class="list-item">
                         <div class="list-item__top">
                           <h4>${escapeHtml(item.label)}</h4>
                         </div>
                         <p>${escapeHtml(item.summary)}</p>
-                        ${item.why_now ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>` : ""}
+                        ${
+                          item.why_now && !(options.suppressPrimaryWhyNow && sectionIndex === 0 && itemIndex === 0)
+                            ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>`
+                            : ""
+                        }
+                        ${
+                          options.suppressPrimaryPersonalization && sectionIndex === 0 && itemIndex === 0
+                            ? ""
+                            : renderWorkflowPersonalization(item)
+                        }
                         ${renderWorkflowItemMeta(item)}
                         ${renderRelatedFiles(item.related_files ?? item.related_docs)}
                         ${
@@ -2345,7 +2459,10 @@ function assistantActionsForSection(payload: ConsolePayload, section: AssistantA
   return payload.assistantQueue.actions.filter((action) => action.section === section);
 }
 
-function renderAssistantActionCard(action: AssistantActionItem, options: { compact?: boolean } = {}): string {
+function renderAssistantActionCard(
+  action: AssistantActionItem,
+  options: { compact?: boolean; suppressWhyNow?: boolean; suppressPersonalization?: boolean; referential?: boolean } = {},
+): string {
   const primaryAction =
     action.one_click && action.state !== "blocked" && action.state !== "completed" && action.state !== "running"
       ? `<button class="button button--primary" data-assistant-run="${escapeHtml(action.action_id)}" type="button">Run safe action</button>`
@@ -2357,7 +2474,16 @@ function renderAssistantActionCard(action: AssistantActionItem, options: { compa
         <span class="${assistantStateClass(action)}">${escapeHtml(action.state)}</span>
       </div>
       <p>${escapeHtml(action.summary)}</p>
-      <p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>
+      ${options.suppressWhyNow ? "" : `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`}
+      ${
+        action.workflow_personalization?.eligible &&
+        action.workflow_personalization.summary &&
+        action.workflow_personalization.fit !== "neutral" &&
+        !options.suppressPersonalization
+          ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
+          : ""
+      }
+      ${options.referential ? `<p class="subtle subtle--body">Repair owns the workspace right now, so this stays as next-up context.</p>` : ""}
       ${
         action.signals.length > 0
           ? `<p class="subtle subtle--body">${escapeHtml(`Signals: ${action.signals.join(", ")}`)}</p>`
@@ -2694,6 +2820,7 @@ async function loadSelectedDetails(): Promise<void> {
 
 function renderOverview(payload: ConsolePayload): string {
   const status = payload.status;
+  const workspaceHome = status.workspace_home;
   const repairPlan = status.repair_plan;
   const machine = status.machine;
   const latestSnapshot = status.snapshot_latest;
@@ -2709,14 +2836,19 @@ function renderOverview(payload: ConsolePayload): string {
   const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
   const topMeetingPrep = prepMeetings.actions[0] ?? null;
   const topReviewTuning = payload.reviewTuning.proposals.find((proposal) => proposal.status === "proposed") ?? null;
+  const focusIsAssistant = workspaceHome.state === "assistant" && topAssistantAction?.action_id === workspaceHome.assistant_action_id;
+  const focusIsWorkflow = workspaceHome.state === "workflow";
+  const focusIsRepair = workspaceHome.state === "repair";
+  const focusIsMaintenance = workspaceHome.state === "maintenance";
   return `
+    ${renderWorkspaceFocusCard(workspaceHome)}
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
       <div class="list-item__top">
         <h3>${escapeHtml(status.state === "ready" ? "Local control plane looks healthy." : "Local control plane needs attention.")}</h3>
         <span class="${status.state === "ready" ? "pill pill--good" : "pill pill--warn"}">${escapeHtml(status.state)}</span>
       </div>
-      <p>${escapeHtml(nowNext.summary)}</p>
+      <p>${escapeHtml(workspaceHome.summary ?? nowNext.summary)}</p>
       <div class="hero__meta">
         <div>
           <p class="eyebrow">Machine</p>
@@ -2753,10 +2885,20 @@ function renderOverview(payload: ConsolePayload): string {
       <div class="detail-stack">
         <section class="detail-card">
           <h3>What the assistant is doing now</h3>
-          <p class="subtle subtle--body">${escapeHtml(assistantQueue.summary)}</p>
+          <p class="subtle subtle--body">${escapeHtml(
+            focusIsRepair
+              ? "Repair is the active owner right now, so assistant-prepared work stays visible here as next-up context."
+              : focusIsAssistant
+                ? "This is the leading prepared action in the workspace right now."
+                : assistantQueue.summary,
+          )}</p>
           ${
             topAssistantAction
-              ? renderAssistantActionCard(topAssistantAction)
+              ? renderAssistantActionCard(topAssistantAction, {
+                  suppressWhyNow: focusIsAssistant,
+                  suppressPersonalization: focusIsAssistant,
+                  referential: focusIsRepair,
+                })
               : `<div class="empty">The assistant queue is currently caught up.</div>`
           }
         </section>
@@ -2767,7 +2909,11 @@ function renderOverview(payload: ConsolePayload): string {
         </section>
         <section class="detail-card">
           <h3>Repair plan</h3>
-          <p class="subtle subtle--body">This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.</p>
+          <p class="subtle subtle--body">${escapeHtml(
+            focusIsMaintenance
+              ? "Maintenance and repair ownership are already converged here so the same family does not compete with itself."
+              : "This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.",
+          )}</p>
           <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(repairPlan.last_repair ? `${repairPlan.last_repair.step_id} (${repairPlan.last_repair.outcome})` : "none")}</dd></div>
           <div class="detail-row"><dt>Last maintenance</dt><dd>${escapeHtml(repairPlan.maintenance_follow_through?.current_bundle_outcome ? `${repairPlan.maintenance_follow_through.current_bundle_outcome.signal}${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id ? ` (${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id})` : ""}` : "none")}</dd></div>
           <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(repairPlan.recurring_issue ? `${repairPlan.recurring_issue.step_id}: ${repairPlan.recurring_issue.prevention_hint}` : "none")}</dd></div>
@@ -2779,6 +2925,7 @@ function renderOverview(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Maintenance confidence</dt><dd>${escapeHtml(repairPlan.maintenance_confidence?.summary ?? "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance operating block</dt><dd>${escapeHtml(repairPlan.maintenance_operating_block?.eligible ? `${repairPlan.maintenance_operating_block.step_id ?? "none"} (${repairPlan.maintenance_operating_block.block.replaceAll("_", " ")})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance decision</dt><dd>${escapeHtml(repairPlan.maintenance_decision_explanation?.eligible ? `${repairPlan.maintenance_decision_explanation.step_id ?? "none"} (${repairPlan.maintenance_decision_explanation.state.replaceAll("_", " ")} / ${repairPlan.maintenance_decision_explanation.driver?.replaceAll("_", " ") ?? "none"})` : "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance convergence</dt><dd>${escapeHtml(repairPlan.maintenance_repair_convergence?.eligible ? `${repairPlan.maintenance_repair_convergence.step_id ?? "none"} (${repairPlan.maintenance_repair_convergence.state.replaceAll("_", " ")} / ${repairPlan.maintenance_repair_convergence.driver?.replaceAll("_", " ") ?? "none"})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance scheduling</dt><dd>${escapeHtml(repairPlan.maintenance_scheduling?.eligible ? `${repairPlan.maintenance_scheduling.step_id ?? "none"} (${repairPlan.maintenance_scheduling.placement.replaceAll("_", " ")})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
           ${
@@ -2819,6 +2966,11 @@ function renderOverview(payload: ConsolePayload): string {
           ${
             repairPlan.maintenance_decision_explanation?.eligible && repairPlan.maintenance_decision_explanation.summary
               ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_decision_explanation.summary)}${repairPlan.maintenance_decision_explanation.why_now ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_now)}` : ""}${repairPlan.maintenance_decision_explanation.why_not_higher ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_not_higher)}` : ""}</p>`
+              : ""
+          }
+          ${
+            repairPlan.maintenance_repair_convergence?.eligible && repairPlan.maintenance_repair_convergence.summary
+              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_repair_convergence.summary)}${repairPlan.maintenance_repair_convergence.why ? ` ${escapeHtml(repairPlan.maintenance_repair_convergence.why)}` : ""}${repairPlan.maintenance_repair_convergence.primary_command ? ` Next: ${escapeHtml(repairPlan.maintenance_repair_convergence.primary_command)}` : ""}</p>`
               : ""
           }
           ${
@@ -2960,13 +3112,23 @@ function renderOverview(payload: ConsolePayload): string {
         </section>
         <section class="detail-card">
           <h3>What to do right now</h3>
-          <p class="subtle subtle--body">Use this focused bundle when you want one strongest next move plus a short backup path.</p>
-          ${renderWorkflowSections(nowNext)}
+          <p class="subtle subtle--body">${escapeHtml(
+            focusIsRepair
+              ? "Repair owns the workspace right now, so this bundle is the next-up path once repair is clear."
+              : focusIsWorkflow
+                ? "This bundle currently owns the workspace focus and gives you one strongest next move plus a short backup path."
+                : "Use this focused bundle when you want one strongest next move plus a short backup path.",
+          )}</p>
+          ${renderWorkflowSections(nowNext, {
+            suppressPrimaryWhyNow: focusIsWorkflow,
+            suppressPrimaryPersonalization: focusIsWorkflow,
+            referential: focusIsRepair,
+          })}
         </section>
         <section class="detail-card">
           <h3>Day-start workflow</h3>
           <p class="subtle subtle--body">Use this bundle when you want the shortest useful operator plan for right now.</p>
-          ${renderWorkflowSections(workflow)}
+          ${renderWorkflowSections(workflow, { referential: focusIsRepair })}
         </section>
       </div>
       <div class="detail-stack">
@@ -2998,7 +3160,13 @@ function renderOverview(payload: ConsolePayload): string {
               <div class="detail-list detail-list--spaced">
                 <div class="detail-row"><dt>Command</dt><dd>${escapeHtml(primaryNowNext.command)}</dd></div>
                 <div class="detail-row"><dt>Score band</dt><dd>${escapeHtml(primaryNowNext.score_band ?? "medium")}</dd></div>
-                <div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(primaryNowNext.why_now ?? "This is the strongest current next move.")}</dd></div>
+                <div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
+                  focusIsWorkflow
+                    ? workspaceHome.why_now ?? "This already owns the workspace focus."
+                    : focusIsRepair
+                      ? "Repair still comes first, so this is the next-up move after repair."
+                      : primaryNowNext.why_now ?? "This is the strongest current next move.",
+                )}</dd></div>
               </div>
               <div class="list-item__actions">
                 <button class="button button--primary" data-workflow="${escapeHtml(nowNext.workflow)}" data-workflow-action="0" type="button">Open related detail</button>

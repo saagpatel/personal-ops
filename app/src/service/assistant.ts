@@ -38,6 +38,7 @@ interface ActionCandidate {
   target_type: string | undefined;
   target_id: string | undefined;
   signals: string[];
+  workflow_personalization?: AssistantActionItem["workflow_personalization"];
   blocking_reason?: string;
   satisfied: boolean;
   priority: number;
@@ -157,7 +158,7 @@ function completionWindowSatisfied(latestRun: AssistantActionRunReport | undefin
 
 function topAction(
   workflowAction: WorkflowBundleAction | undefined,
-): Pick<ActionCandidate, "summary" | "why_now" | "command" | "target_type" | "target_id" | "signals"> {
+): Pick<ActionCandidate, "summary" | "why_now" | "command" | "target_type" | "target_id" | "signals" | "workflow_personalization"> {
   if (!workflowAction) {
     return {
       summary: "Open the current queue and review the top item.",
@@ -166,6 +167,7 @@ function topAction(
       target_type: "worklist",
       target_id: "top",
       signals: ["operator_review"],
+      workflow_personalization: undefined,
     };
   }
   return {
@@ -175,6 +177,7 @@ function topAction(
     target_type: workflowAction.target_type,
     target_id: workflowAction.target_id,
     signals: workflowAction.signals ?? [],
+    workflow_personalization: workflowAction.workflow_personalization,
   };
 }
 
@@ -304,6 +307,7 @@ async function buildCandidates(
       target_type: primary.target_type,
       target_id: primary.target_id,
       signals: primary.signals,
+      workflow_personalization: primary.workflow_personalization,
       satisfied: false,
       priority: 0,
     },
@@ -523,6 +527,7 @@ async function buildCandidates(
         target_type: candidate.target_type,
         target_id: candidate.target_id,
         signals: candidate.signals,
+        workflow_personalization: candidate.workflow_personalization,
         blocking_reason: candidate.blocking_reason,
         latest_run: latestRun,
         priority: candidate.priority,

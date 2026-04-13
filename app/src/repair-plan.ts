@@ -18,6 +18,7 @@ import type {
   MaintenanceOperatingBlockSummary,
   MaintenanceOutcomeSignal,
   MaintenancePressureSummary,
+  MaintenanceRepairConvergenceSummary,
   MaintenanceSchedulingSummary,
   MaintenanceSessionPlan,
   MaintenanceSessionStep,
@@ -374,6 +375,23 @@ export function emptyMaintenanceDecisionExplanationSummary(): MaintenanceDecisio
   };
 }
 
+export function emptyMaintenanceRepairConvergenceSummary(): MaintenanceRepairConvergenceSummary {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "none",
+    driver: null,
+    summary: null,
+    why: null,
+    primary_command: null,
+    repair_command: null,
+    maintenance_command: null,
+    handoff_count_30d: 0,
+    active_repair_step_id: null,
+    bundle_step_ids: [],
+  };
+}
+
 export function emptyMaintenanceFollowThroughSummary(generatedAt: string): MaintenanceFollowThroughSummary {
   return {
     generated_at: generatedAt,
@@ -389,6 +407,7 @@ export function emptyMaintenanceFollowThroughSummary(generatedAt: string): Maint
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
     confidence: emptyMaintenanceConfidenceSummary(),
+    convergence: emptyMaintenanceRepairConvergenceSummary(),
   };
 }
 
@@ -1211,6 +1230,153 @@ export function buildMaintenanceDecisionExplanationSummary(input: {
   };
 }
 
+function recurringMaintenanceRepairStepIds(steps: Pick<RepairPlan, "steps">["steps"]): RepairStepId[] {
+  return steps
+    .map((step) => step.id)
+    .filter((stepId): stepId is RepairStepId => RECURRING_PRIORITY.includes(stepId));
+}
+
+function maintenanceRepairConvergenceSummaryFor(
+  state: MaintenanceRepairConvergenceSummary["state"],
+): Pick<MaintenanceRepairConvergenceSummary, "summary" | "why"> {
+  if (state === "repair_owned") {
+    return {
+      summary:
+        "This recurring family is now active repair and should be treated through the repair plan, not as a parallel maintenance item.",
+      why: "Active repair already owns this family, so maintenance guidance should point back to the repair plan instead of competing with it.",
+    };
+  }
+  if (state === "repair_priority_upkeep") {
+    return {
+      summary:
+        "This recurring family behaves like early repair and should be treated as repair-priority upkeep when surfaced.",
+      why: "Recent maintenance history shows this family keeps resurfacing like repair, so the product should describe it more like early repair than quiet upkeep.",
+    };
+  }
+  if (state === "maintenance_owned") {
+    return {
+      summary: "This recurring family is still maintenance-owned and should be handled through the maintenance session.",
+      why: "This family is still scheduled and committed as maintenance work, so the maintenance session remains the correct source of truth.",
+    };
+  }
+  return {
+    summary: "This recurring family remains preventive upkeep and should stay quiet until a better window appears.",
+    why: "Recent behavior supports keeping this family as quiet preventive maintenance instead of escalating it into stronger repair language.",
+  };
+}
+
+export function buildMaintenanceRepairConvergenceSummary(input: {
+  repair_plan: Pick<RepairPlan, "steps">;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment: MaintenanceCommitmentSummary;
+  maintenance_defer_memory: MaintenanceDeferMemorySummary;
+  maintenance_confidence?: MaintenanceConfidenceSummary | null;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | null;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | null;
+}): MaintenanceRepairConvergenceSummary {
+  const summary = emptyMaintenanceRepairConvergenceSummary();
+  const activeRepairStepIds = recurringMaintenanceRepairStepIds(input.repair_plan.steps);
+  const maintenanceContextStepIds = [
+    input.maintenance_commitment.step_id,
+    input.maintenance_defer_memory.step_id,
+    input.maintenance_escalation.step_id,
+    input.maintenance_confidence?.step_id ?? null,
+    input.maintenance_operating_block?.step_id ?? null,
+    input.maintenance_decision_explanation?.step_id ?? null,
+  ].filter((stepId): stepId is RepairStepId => Boolean(stepId));
+  const candidateStepId =
+    activeRepairStepIds.find((stepId) => maintenanceContextStepIds.includes(stepId)) ??
+    (input.maintenance_commitment.active ? input.maintenance_commitment.step_id : null) ??
+    input.maintenance_escalation.step_id ??
+    input.maintenance_decision_explanation?.step_id ??
+    null;
+  if (!candidateStepId) {
+    return summary;
+  }
+
+  const activeRepairStepId = activeRepairStepIds.includes(candidateStepId) ? candidateStepId : null;
+  const handoffCount30d =
+    input.maintenance_confidence?.eligible && input.maintenance_confidence.step_id === candidateStepId
+      ? input.maintenance_confidence.handoff_count_30d
+      : input.maintenance_escalation.step_id === candidateStepId
+        ? input.maintenance_escalation.handoff_count_30d
+        : 0;
+
+  let state: MaintenanceRepairConvergenceSummary["state"] = "none";
+  if (activeRepairStepId && maintenanceContextStepIds.includes(candidateStepId)) {
+    state = "repair_owned";
+  } else if (
+    (input.maintenance_escalation.eligible && input.maintenance_escalation.step_id === candidateStepId) ||
+    (input.maintenance_confidence?.eligible &&
+      input.maintenance_confidence.step_id === candidateStepId &&
+      input.maintenance_confidence.level === "high" &&
+      input.maintenance_confidence.trend === "rising") ||
+    (input.maintenance_commitment.step_id === candidateStepId && input.maintenance_commitment.state === "handed_off_to_repair")
+  ) {
+    state = "repair_priority_upkeep";
+  } else if (
+    (input.maintenance_scheduling.placement === "calm_window" && input.maintenance_scheduling.step_id === candidateStepId) ||
+    (input.maintenance_confidence?.eligible &&
+      input.maintenance_confidence.step_id === candidateStepId &&
+      input.maintenance_confidence.trend === "cooling")
+  ) {
+    state = "quiet_preventive";
+  } else if (
+    (input.maintenance_commitment.active && input.maintenance_commitment.step_id === candidateStepId) ||
+    (input.maintenance_scheduling.eligible && input.maintenance_scheduling.step_id === candidateStepId)
+  ) {
+    state = "maintenance_owned";
+  }
+
+  if (state === "none") {
+    return summary;
+  }
+
+  const driver: MaintenanceRepairConvergenceSummary["driver"] =
+    state === "repair_owned"
+      ? "active_repair"
+      : state === "quiet_preventive" &&
+          input.maintenance_confidence?.eligible &&
+          input.maintenance_confidence.step_id === candidateStepId &&
+          input.maintenance_confidence.trend === "cooling"
+        ? "cooling_success"
+        : state === "quiet_preventive"
+          ? "preventive_only"
+      : input.maintenance_commitment.step_id === candidateStepId && input.maintenance_commitment.state === "handed_off_to_repair"
+        ? "recent_handoff"
+        : handoffCount30d >= RECURRING_THRESHOLD
+          ? "repeated_handoff"
+          : (input.maintenance_commitment.active && input.maintenance_commitment.step_id === candidateStepId) ||
+              (input.maintenance_scheduling.eligible && input.maintenance_scheduling.step_id === candidateStepId)
+            ? "active_commitment"
+            : "preventive_only";
+  const explanation = maintenanceRepairConvergenceSummaryFor(state);
+  const bundleStepIds =
+    input.maintenance_decision_explanation?.step_id === candidateStepId &&
+    input.maintenance_decision_explanation.bundle_step_ids.length > 0
+      ? [...input.maintenance_decision_explanation.bundle_step_ids]
+      : input.maintenance_scheduling.step_id === candidateStepId && input.maintenance_scheduling.bundle_step_ids.length > 0
+        ? [...input.maintenance_scheduling.bundle_step_ids]
+        : [candidateStepId];
+
+  return {
+    eligible: true,
+    step_id: candidateStepId,
+    state,
+    driver,
+    summary: explanation.summary,
+    why: explanation.why,
+    primary_command: state === "repair_owned" ? "personal-ops repair plan" : MAINTENANCE_SESSION_COMMAND,
+    repair_command: "personal-ops repair plan",
+    maintenance_command: MAINTENANCE_SESSION_COMMAND,
+    handoff_count_30d: handoffCount30d,
+    active_repair_step_id: activeRepairStepId,
+    bundle_step_ids: bundleStepIds,
+  };
+}
+
 function buildMaintenanceDeferMemorySummary(
   record: MaintenanceCommitmentRecord | null,
 ): MaintenanceDeferMemorySummary {
@@ -1474,6 +1640,7 @@ export function buildMaintenanceSessionPlan(input: {
   maintenance_confidence?: MaintenanceConfidenceSummary | null;
   maintenance_operating_block?: MaintenanceOperatingBlockSummary | null;
   maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | null;
+  maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | null;
   recent_repair_executions?: RepairExecutionRecord[];
 }): MaintenanceSessionPlan {
   const generatedAt = input.generated_at ?? new Date().toISOString();
@@ -1503,6 +1670,10 @@ export function buildMaintenanceSessionPlan(input: {
       commitment: input.maintenance_commitment ?? input.maintenance_follow_through?.commitment ?? emptyMaintenanceCommitmentSummary(),
       defer_memory: input.maintenance_defer_memory ?? input.maintenance_follow_through?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
       confidence: input.maintenance_confidence ?? input.maintenance_follow_through?.confidence ?? emptyMaintenanceConfidenceSummary(),
+      convergence:
+        input.maintenance_repair_convergence ??
+        input.maintenance_follow_through?.convergence ??
+        emptyMaintenanceRepairConvergenceSummary(),
     },
     maintenance_scheduling: {
       ...(input.maintenance_scheduling ?? emptyMaintenanceSchedulingSummary()),
@@ -1530,6 +1701,10 @@ export function buildMaintenanceSessionPlan(input: {
       input.maintenance_decision_explanation ??
       input.maintenance_scheduling?.decision_explanation ??
       emptyMaintenanceDecisionExplanationSummary(),
+    maintenance_repair_convergence:
+      input.maintenance_repair_convergence ??
+      input.maintenance_follow_through?.convergence ??
+      emptyMaintenanceRepairConvergenceSummary(),
   };
 }
 
@@ -1556,6 +1731,7 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     maintenance_confidence: plan.maintenance_confidence,
     maintenance_operating_block: plan.maintenance_operating_block,
     maintenance_decision_explanation: plan.maintenance_decision_explanation,
+    maintenance_repair_convergence: plan.maintenance_repair_convergence,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
   };
@@ -1852,6 +2028,22 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     count: preventiveRecommendations.length,
     top_step_id: preventiveRecommendations[0]?.step_id ?? null,
   };
+  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(generatedAt);
+  const maintenanceScheduling = emptyMaintenanceSchedulingSummary();
+  const maintenanceRepairConvergence = buildMaintenanceRepairConvergenceSummary({
+    repair_plan: { steps },
+    maintenance_follow_through: maintenanceFollowThrough,
+    maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+    maintenance_escalation: emptyMaintenanceEscalationSummary(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+    maintenance_scheduling: maintenanceScheduling,
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+  });
+  const maintenanceFollowThroughWithConvergence = {
+    ...maintenanceFollowThrough,
+    convergence: maintenanceRepairConvergence,
+  };
 
   return {
     generated_at: generatedAt,
@@ -1867,14 +2059,15 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
       top_step_id: preventiveMaintenance.top_step_id,
       bundle: null,
     },
-    maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
+    maintenance_follow_through: maintenanceFollowThroughWithConvergence,
     maintenance_escalation: emptyMaintenanceEscalationSummary(),
-    maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+    maintenance_scheduling: maintenanceScheduling,
     maintenance_commitment: emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
     maintenance_confidence: emptyMaintenanceConfidenceSummary(),
     maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
     maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+    maintenance_repair_convergence: maintenanceRepairConvergence,
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,
