@@ -5,6 +5,7 @@ import type {
   RepairExecutionRecord,
   RepairStepId,
   ServiceStatusReport,
+  SurfacedNoiseReductionSummary,
   SurfacedWorkEvidenceKind,
   SurfacedWorkHelpfulnessLevel,
   SurfacedWorkHelpfulnessSummary,
@@ -36,6 +37,15 @@ type OutcomeCloseInput = {
   evidence_kind: SurfacedWorkEvidenceKind;
   acted_at?: string | null;
   closed_at: string;
+};
+
+type StableSurfacedIdentity = {
+  surface: SurfacedWorkSurface;
+  target_type: string | null;
+  target_id: string | null;
+  assistant_action_id?: string | null;
+  planning_recommendation_id?: string | null;
+  helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
 };
 
 type ServiceLike = {
@@ -198,6 +208,176 @@ function buildHelpfulnessSummary(
     superseded_count_30d: supersededCount,
     expired_count_30d: expiredCount,
     helpful_rate_30d: helpfulRate,
+  };
+}
+
+function actionableWorkspaceHome(workspaceHome: WorkspaceHomeSummary): boolean {
+  return workspaceHome.state !== "caught_up" && Boolean(workspaceHome.summary || workspaceHome.primary_command);
+}
+
+function workspaceIdentity(workspaceHome: WorkspaceHomeSummary): StableSurfacedIdentity | null {
+  if (!actionableWorkspaceHome(workspaceHome)) {
+    return null;
+  }
+  return {
+    surface: "workspace_home",
+    target_type: workspaceHome.surfaced_work_helpfulness?.target_type ?? null,
+    target_id: workspaceHome.surfaced_work_helpfulness?.target_id ?? null,
+    assistant_action_id: workspaceHome.assistant_action_id,
+    helpfulness: workspaceHome.surfaced_work_helpfulness,
+  };
+}
+
+function assistantIdentity(
+  action: AssistantActionQueueReport["actions"][number] | null,
+): StableSurfacedIdentity | null {
+  if (!action) {
+    return null;
+  }
+  return {
+    surface: "assistant_top_action",
+    target_type: action.target_type ?? action.surfaced_work_helpfulness?.target_type ?? null,
+    target_id: action.target_id ?? action.surfaced_work_helpfulness?.target_id ?? null,
+    assistant_action_id: action.action_id,
+    helpfulness: action.surfaced_work_helpfulness,
+  };
+}
+
+function workflowIdentity(action: WorkflowBundleAction | null): StableSurfacedIdentity | null {
+  if (!action) {
+    return null;
+  }
+  return {
+    surface: "workflow_now_next",
+    target_type: action.target_type ?? action.surfaced_work_helpfulness?.target_type ?? null,
+    target_id: action.target_id ?? action.surfaced_work_helpfulness?.target_id ?? null,
+    planning_recommendation_id: action.planning_recommendation_id ?? null,
+    helpfulness: action.surfaced_work_helpfulness,
+  };
+}
+
+function sameStableTarget(primary: StableSurfacedIdentity | null, secondary: StableSurfacedIdentity | null): boolean {
+  if (!primary || !secondary) {
+    return false;
+  }
+  if (
+    primary.target_type &&
+    primary.target_id &&
+    secondary.target_type &&
+    secondary.target_id &&
+    primary.target_type === secondary.target_type &&
+    primary.target_id === secondary.target_id
+  ) {
+    return true;
+  }
+  if (primary.assistant_action_id && secondary.assistant_action_id && primary.assistant_action_id === secondary.assistant_action_id) {
+    return true;
+  }
+  if (
+    primary.planning_recommendation_id &&
+    secondary.planning_recommendation_id &&
+    primary.planning_recommendation_id === secondary.planning_recommendation_id
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function emptyNoiseReduction(surface: SurfacedWorkSurface): SurfacedNoiseReductionSummary {
+  return {
+    eligible: false,
+    surface,
+    target_type: null,
+    target_id: null,
+    disposition: "supporting",
+    reason: "no_reduction",
+    summary: null,
+    show_helpfulness: true,
+    show_why_now: true,
+    show_personalization: true,
+  };
+}
+
+function primaryNoiseReduction(workspaceHome: WorkspaceHomeSummary): SurfacedNoiseReductionSummary {
+  const identity = workspaceIdentity(workspaceHome);
+  return {
+    eligible: true,
+    surface: "workspace_home",
+    target_type: identity?.target_type ?? null,
+    target_id: identity?.target_id ?? null,
+    disposition: "primary",
+    reason: "no_reduction",
+    summary: null,
+    show_helpfulness: true,
+    show_why_now: true,
+    show_personalization: false,
+  };
+}
+
+function secondaryNoiseReduction(input: {
+  surface: Exclude<SurfacedWorkSurface, "workspace_home">;
+  primary: StableSurfacedIdentity | null;
+  current: StableSurfacedIdentity | null;
+}): SurfacedNoiseReductionSummary | null {
+  const { surface, primary, current } = input;
+  if (!current) {
+    return null;
+  }
+  const helpfulnessLevel = current.helpfulness?.level ?? null;
+  const hasPrimary = Boolean(primary);
+  if (hasPrimary && sameStableTarget(primary, current)) {
+    return {
+      eligible: true,
+      surface,
+      target_type: current.target_type,
+      target_id: current.target_id,
+      disposition: "suppressed_duplicate",
+      reason: "same_target_primary",
+      summary: "This matches the current workspace focus.",
+      show_helpfulness: false,
+      show_why_now: false,
+      show_personalization: false,
+    };
+  }
+  if (hasPrimary && helpfulnessLevel === "weak") {
+    return {
+      eligible: true,
+      surface,
+      target_type: current.target_type,
+      target_id: current.target_id,
+      disposition: "quieted",
+      reason: "weak_recent_outcomes",
+      summary: "This stays available, but recent follow-through has been weak.",
+      show_helpfulness: false,
+      show_why_now: false,
+      show_personalization: false,
+    };
+  }
+  if (hasPrimary && helpfulnessLevel === "mixed") {
+    return {
+      eligible: true,
+      surface,
+      target_type: current.target_type,
+      target_id: current.target_id,
+      disposition: "quieted",
+      reason: "mixed_recent_outcomes",
+      summary: "This stays available, but recent follow-through has been mixed.",
+      show_helpfulness: false,
+      show_why_now: false,
+      show_personalization: false,
+    };
+  }
+  return {
+    eligible: true,
+    surface,
+    target_type: current.target_type,
+    target_id: current.target_id,
+    disposition: "supporting",
+    reason: hasPrimary ? "primary_focus_clear" : "no_reduction",
+    summary: null,
+    show_helpfulness: true,
+    show_why_now: true,
+    show_personalization: true,
   };
 }
 
@@ -769,5 +949,94 @@ export function trackWorkspaceHomeOutcome(
         surfaced_work_helpfulness: helpfulness,
       },
     },
+  };
+}
+
+export function applySurfacedNoiseReduction(input: {
+  status: ServiceStatusReport;
+  assistant_queue?: AssistantActionQueueReport | null;
+  now_next_workflow?: WorkflowBundleReport | null;
+}): {
+  status: ServiceStatusReport;
+  assistant_queue: AssistantActionQueueReport | null;
+  now_next_workflow: WorkflowBundleReport | null;
+} {
+  const workspaceNoise = actionableWorkspaceHome(input.status.workspace_home)
+    ? primaryNoiseReduction(input.status.workspace_home)
+    : emptyNoiseReduction("workspace_home");
+  const status: ServiceStatusReport = {
+    ...input.status,
+    surfaced_noise_reduction: workspaceNoise,
+    workspace_home: {
+      ...input.status.workspace_home,
+      surfaced_noise_reduction: workspaceNoise,
+    },
+  };
+
+  const primary = actionableWorkspaceHome(status.workspace_home) ? workspaceIdentity(status.workspace_home) : null;
+  const topAssistant = input.assistant_queue ? actionableAssistant(input.assistant_queue) : null;
+  const assistantNoise = secondaryNoiseReduction({
+    surface: "assistant_top_action",
+    primary,
+    current: assistantIdentity(topAssistant),
+  });
+  const assistant_queue = input.assistant_queue
+    ? {
+        ...input.assistant_queue,
+        surfaced_noise_reduction: assistantNoise ?? emptyNoiseReduction("assistant_top_action"),
+        actions: input.assistant_queue.actions.map((action) =>
+          topAssistant && action.action_id === topAssistant.action_id && assistantNoise
+            ? { ...action, surfaced_noise_reduction: assistantNoise }
+            : action,
+        ),
+      }
+    : null;
+
+  const topWorkflow = input.now_next_workflow?.actions[0] ?? null;
+  const workflowNoise = secondaryNoiseReduction({
+    surface: "workflow_now_next",
+    primary,
+    current: workflowIdentity(topWorkflow),
+  });
+  const secondarySummary = status.workspace_home.secondary_summary;
+  const suppressedSecondarySummary =
+    secondarySummary &&
+    ((assistantNoise?.disposition === "suppressed_duplicate" && secondarySummary === topAssistant?.summary) ||
+      (workflowNoise?.disposition === "suppressed_duplicate" && secondarySummary === topWorkflow?.summary) ||
+      secondarySummary === status.workspace_home.summary)
+      ? null
+      : secondarySummary;
+  const now_next_workflow = input.now_next_workflow
+    ? {
+        ...input.now_next_workflow,
+        surfaced_noise_reduction: workflowNoise ?? emptyNoiseReduction("workflow_now_next"),
+        actions: input.now_next_workflow.actions.map((action, index) =>
+          index === 0 && workflowNoise ? { ...action, surfaced_noise_reduction: workflowNoise } : action,
+        ),
+        sections: input.now_next_workflow.sections.map((section) =>
+          section.title === "Why Now" && workflowNoise && !workflowNoise.show_why_now
+            ? { ...section, items: [] }
+            : section.title === "Best Next Move" || section.title === "Why Now" || section.title === "Next Commands"
+            ? {
+                ...section,
+                items: section.items.map((item, index) =>
+                  index === 0 && workflowNoise ? { ...item, surfaced_noise_reduction: workflowNoise } : item,
+                ),
+              }
+            : section,
+        ),
+      }
+    : null;
+
+  return {
+    status: {
+      ...status,
+      workspace_home: {
+        ...status.workspace_home,
+        secondary_summary: suppressedSecondarySummary,
+      },
+    },
+    assistant_queue,
+    now_next_workflow,
   };
 }

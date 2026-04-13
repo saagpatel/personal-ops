@@ -1280,6 +1280,7 @@ export interface AssistantActionItem {
   signals: string[];
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
   blocking_reason?: string | undefined;
   latest_run?: AssistantActionRunReport | undefined;
 }
@@ -1292,6 +1293,7 @@ export interface AssistantActionQueueReport {
   top_item_summary: string | null;
   actions: AssistantActionItem[];
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
 }
 
 export interface AssistantActionRunResult {
@@ -2120,6 +2122,29 @@ export interface SurfacedWorkHelpfulnessSummary {
   helpful_rate_30d: number;
 }
 
+export type SurfacedNoiseDisposition = "primary" | "supporting" | "quieted" | "suppressed_duplicate";
+
+export type SurfacedNoiseReason =
+  | "same_target_primary"
+  | "weak_recent_outcomes"
+  | "mixed_recent_outcomes"
+  | "duplicate_explanation"
+  | "primary_focus_clear"
+  | "no_reduction";
+
+export interface SurfacedNoiseReductionSummary {
+  eligible: boolean;
+  surface: SurfacedWorkSurface;
+  target_type: string | null;
+  target_id: string | null;
+  disposition: SurfacedNoiseDisposition;
+  reason: SurfacedNoiseReason;
+  summary: string | null;
+  show_helpfulness: boolean;
+  show_why_now: boolean;
+  show_personalization: boolean;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;
@@ -2132,6 +2157,7 @@ export interface WorkflowBundleSectionItem {
   signals?: string[] | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2155,6 +2181,7 @@ export interface WorkflowBundleAction {
   signals?: string[] | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
   related_docs?: RelatedDriveDoc[] | undefined;
   related_files?: RelatedDriveFile[] | undefined;
 }
@@ -2178,6 +2205,7 @@ export interface WorkflowBundleReport {
   maintenance_repair_convergence?: MaintenanceRepairConvergenceSummary | undefined;
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
 }
 
 export interface MailSyncState {
@@ -2595,6 +2623,7 @@ export interface WorkspaceHomeSummary {
   workflow: WorkflowBundleReport["workflow"] | null;
   maintenance_state: MaintenanceRepairConvergenceState | MaintenanceDecisionState | null;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
 }
 
 export interface MaintenanceDeferMemorySummary {
@@ -2915,6 +2944,7 @@ export interface ServiceStatusReport {
   first_repair_step: string | null;
   workspace_home: WorkspaceHomeSummary;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
+  surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;

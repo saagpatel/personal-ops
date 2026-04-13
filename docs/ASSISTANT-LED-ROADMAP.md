@@ -706,28 +706,42 @@ Delivered shape:
 
 ## Phase 31
 
-Phase 31 is the next target.
+Phase 31 is now complete.
 
-Planned shape:
+Delivered shape:
 
-- use surfaced-work outcome memory from Phase 30 to reduce repeated low-value cues across the assistant-led surfaces
+- use surfaced-work outcome memory from Phase 30 to reduce repeated low-value cues across the assistant-led top surfaces
 - keep the phase read-model-first and bounded:
   - no new authority
   - no queue ownership changes
   - no worklist ordering changes
-- likely focus:
+- apply a balanced posture:
+  - deduplicate repeated workspace, assistant, and workflow wording when they point at the same work
+  - quiet weak or mixed secondary cues when a clearer primary focus already exists
+  - keep the primary focus fully visible
+- shipped focus:
   - cross-surface duplicate prompt reduction
-  - quieter low-value surfaced work when recent follow-through is weak
+  - quieter low-value surfaced work when recent follow-through is weak or mixed
   - preserving repair-first and urgent-work-first precedence while making the workspace calmer
+
+## Phase 32
+
+Phase 32 is the next target.
+
+Planned direction:
+
+- improve review and approval ergonomics for the work the system already prepares
+- make grouped decisions and approval handoffs clearer, faster, and less repetitive
+- keep authority and trust boundaries explicit while reducing operator friction at decision points
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, and 30 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, and 31 are complete
 - Cluster A is complete
 - Cluster B is complete
 - the post-Cluster-B stabilization pass is merged
-- Assistant-Led Phase 31 is the next target
+- Assistant-Led Phase 32 is the next target
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

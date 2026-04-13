@@ -1,6 +1,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import { PersonalOpsService } from "./service.js";
+import { applySurfacedNoiseReduction } from "./surfaced-work.js";
 import {
   ApprovalAction,
   ApprovalRequestFilter,
@@ -451,8 +452,15 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       }
 
       if (request.method === "GET" && url.pathname === "/v1/assistant/actions") {
+        const [status, assistant_queue] = await Promise.all([
+          service.getStatusReport({ httpReachable: true }),
+          service.getAssistantActionQueueReport({ httpReachable: true }),
+        ]);
         sendJson(response, 200, {
-          assistant_queue: await service.getAssistantActionQueueReport({ httpReachable: true }),
+          assistant_queue: applySurfacedNoiseReduction({
+            status,
+            assistant_queue,
+          }).assistant_queue,
         });
         return;
       }
@@ -478,8 +486,15 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       }
 
       if (request.method === "GET" && url.pathname === "/v1/workflows/now-next") {
+        const [status, workflow] = await Promise.all([
+          service.getStatusReport({ httpReachable: true }),
+          service.getNowNextWorkflowReport({ httpReachable: true }),
+        ]);
         sendJson(response, 200, {
-          workflow: await service.getNowNextWorkflowReport({ httpReachable: true }),
+          workflow: applySurfacedNoiseReduction({
+            status,
+            now_next_workflow: workflow,
+          }).now_next_workflow,
         });
         return;
       }
