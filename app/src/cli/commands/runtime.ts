@@ -139,6 +139,9 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
       maintenance_scheduling: status.maintenance_scheduling,
       maintenance_commitment: status.maintenance_commitment ?? null,
       maintenance_defer_memory: status.maintenance_defer_memory ?? null,
+      maintenance_confidence: status.maintenance_confidence ?? null,
+      maintenance_operating_block: status.maintenance_operating_block ?? null,
+      maintenance_decision_explanation: status.maintenance_decision_explanation ?? null,
       recent_repair_executions: listRecentRepairExecutions(paths),
     });
   } catch {
@@ -177,6 +180,30 @@ async function buildCurrentMaintenanceSession(context: CliContext, paths: Paths)
         defer_count: 0,
         last_deferred_at: null,
         summary: null,
+      },
+      maintenance_operating_block: {
+        eligible: false,
+        block: "suppressed",
+        step_id: null,
+        summary: null,
+        suggested_command: null,
+        reason: null,
+        confidence_level: null,
+        bundle_step_ids: [],
+      },
+      maintenance_decision_explanation: {
+        eligible: false,
+        step_id: null,
+        state: "suppressed",
+        driver: null,
+        summary: null,
+        why_now: null,
+        why_not_higher: null,
+        suggested_command: null,
+        confidence_level: null,
+        operating_block: null,
+        reasons: [],
+        bundle_step_ids: [],
       },
       recent_repair_executions: recentExecutions,
     });
@@ -456,6 +483,9 @@ export function registerRuntimeCommands(program: Command, context: CliContext, l
             maintenance_scheduling: afterStatus.maintenance_scheduling,
             maintenance_commitment: afterStatus.maintenance_commitment ?? null,
             maintenance_defer_memory: afterStatus.maintenance_defer_memory ?? null,
+            maintenance_confidence: afterStatus.maintenance_confidence ?? null,
+            maintenance_operating_block: afterStatus.maintenance_operating_block ?? null,
+            maintenance_decision_explanation: afterStatus.maintenance_decision_explanation ?? null,
             recent_repair_executions: currentRecentExecutions,
           });
           const sessionComplete = resolvedTargetStep && !handedOffToRepair && afterSession.steps.length === 0;

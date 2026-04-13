@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildMaintenanceConfidenceSummary,
+  buildMaintenanceDecisionExplanationSummary,
   buildMaintenanceEscalationSummary,
   buildMaintenanceFollowThroughSummary,
+  buildMaintenanceOperatingBlockSummary,
   buildMaintenanceSchedulingSummary,
   buildMaintenanceSessionPlan,
   buildMaintenanceWindowSummary,
@@ -72,6 +75,49 @@ function maintenanceExecution(
     outcome: "resolved",
     resolved_target_step: true,
     message: "Maintenance step resolved.",
+    ...overrides,
+  };
+}
+
+function emptyMaintenanceFollowThroughForConfidence(
+  generatedAt: string,
+  recentExecutions: RepairExecutionRecord[] = [],
+) {
+  return buildMaintenanceFollowThroughSummary({
+    generated_at: generatedAt,
+    maintenance_window: {
+      eligible_now: false,
+      deferred_reason: "no_preventive_work",
+      count: 0,
+      top_step_id: null,
+      bundle: null,
+    },
+    repair_plan: { steps: [], first_repair_step: null },
+    recent_repair_executions: recentExecutions,
+  });
+}
+
+function emptyMaintenanceSchedulingForConfidence(
+  overrides: Partial<ReturnType<typeof buildMaintenanceSchedulingSummary>> = {},
+) {
+  return {
+    eligible: false,
+    placement: "suppressed" as const,
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: "Maintenance scheduling is suppressed because no active maintenance timing cue is available.",
+    bundle_step_ids: [],
+    operating_block: {
+      eligible: false,
+      block: "suppressed" as const,
+      step_id: null,
+      summary: null,
+      suggested_command: null,
+      reason: null,
+      confidence_level: null,
+      bundle_step_ids: [],
+    },
     ...overrides,
   };
 }
@@ -1173,4 +1219,706 @@ test("phase 23 commitment memory is superseded by active repair and expires afte
 
   assert.equal(superseded.maintenance_commitment.state, "superseded_by_repair");
   assert.equal(expired.maintenance_commitment.state, "expired");
+});
+
+test("phase 24 maintenance confidence tiers active commitments by defer count", () => {
+  const generatedAt = "2026-04-12T20:00:00.000Z";
+  const followThrough = emptyMaintenanceFollowThroughForConfidence(generatedAt);
+  const escalation = {
+    eligible: false,
+    step_id: null,
+    signal: null,
+    summary: null,
+    suggested_command: null,
+    handoff_count_30d: 0,
+    cue: null,
+  };
+
+  const steady = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: followThrough,
+    maintenance_escalation: escalation,
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence(),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers" as const,
+      placement: "prep_day",
+      state: "active",
+      summary: "Committed maintenance block.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 0,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    recent_repair_executions: [],
+  });
+  const rising = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: followThrough,
+    maintenance_escalation: escalation,
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence(),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers" as const,
+      placement: "prep_day" as const,
+      state: "active",
+      summary: "Committed maintenance block.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 2,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers",
+      defer_count: 2,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred twice.",
+    },
+    recent_repair_executions: [],
+  });
+  const high = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: followThrough,
+    maintenance_escalation: escalation,
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence(),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers",
+      placement: "prep_day",
+      state: "active",
+      summary: "Committed maintenance block.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 3,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers",
+      defer_count: 3,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred three times.",
+    },
+    recent_repair_executions: [],
+  });
+
+  assert.equal(steady.level, "medium");
+  assert.equal(steady.trend, "steady");
+  assert.equal(steady.suggested_command, "personal-ops maintenance session");
+  assert.equal(rising.level, "medium");
+  assert.equal(rising.trend, "rising");
+  assert.equal(high.level, "high");
+  assert.equal(high.trend, "rising");
+});
+
+test("phase 24 maintenance confidence uses escalation and defer memory, and cools after recent success", () => {
+  const generatedAt = "2026-04-12T20:00:00.000Z";
+  const recentSuccess = maintenanceExecution(
+    "install_wrappers",
+    "2026-04-10T20:00:00.000Z",
+    "maintenance-success-24",
+  );
+  const followThrough = emptyMaintenanceFollowThroughForConfidence(generatedAt, [recentSuccess]);
+  const cooling = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: followThrough,
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence(),
+    maintenance_commitment: {
+      active: false,
+      step_id: "install_wrappers",
+      placement: "prep_day",
+      state: "completed",
+      summary: "Completed cleanly.",
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: "2026-04-09T20:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    recent_repair_executions: [recentSuccess],
+  });
+  const deferMemory = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence(generatedAt),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Scheduled for later today.",
+      suggested_command: "personal-ops maintenance session",
+    }),
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: "install_wrappers",
+      defer_count: 2,
+      last_deferred_at: "2026-04-11T20:00:00.000Z",
+      summary: "Deferred twice.",
+    },
+    recent_repair_executions: [],
+  });
+  const escalated = buildMaintenanceConfidenceSummary({
+    generated_at: generatedAt,
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence(generatedAt),
+    maintenance_escalation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      signal: "handed_off_to_repair",
+      summary: "Escalated maintenance.",
+      suggested_command: "personal-ops maintenance session",
+      handoff_count_30d: 2,
+      cue: null,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Handle this now.",
+      suggested_command: "personal-ops maintenance session",
+    }),
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: "install_wrappers",
+      defer_count: 1,
+      last_deferred_at: "2026-04-11T20:00:00.000Z",
+      summary: "Deferred once.",
+    },
+    recent_repair_executions: [],
+  });
+
+  assert.equal(cooling.level, "low");
+  assert.equal(cooling.trend, "cooling");
+  assert.equal(cooling.suggested_command, null);
+  assert.equal(deferMemory.level, "medium");
+  assert.equal(deferMemory.trend, "steady");
+  assert.equal(deferMemory.suggested_command, "personal-ops maintenance session");
+  assert.equal(escalated.level, "high");
+  assert.equal(escalated.trend, "rising");
+});
+
+test("phase 24 maintenance confidence suppresses for active repair and non-ready state", () => {
+  const generatedAt = "2026-04-12T20:00:00.000Z";
+  const input: Omit<Parameters<typeof buildMaintenanceConfidenceSummary>[0], "state" | "repair_plan"> = {
+    generated_at: generatedAt,
+    maintenance_follow_through: emptyMaintenanceFollowThroughForConfidence(generatedAt),
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Schedule wrappers later today.",
+      suggested_command: "personal-ops maintenance session",
+    }),
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers",
+      placement: "prep_day",
+      state: "active",
+      summary: "Committed maintenance block.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 1,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers" as const,
+      defer_count: 1,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred once.",
+    },
+    recent_repair_executions: [],
+  };
+
+  const suppressedByRepair = buildMaintenanceConfidenceSummary({
+    ...input,
+    state: "ready",
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Refresh wrappers",
+          reason: "Repair is pending again.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+  });
+  const suppressedByState = buildMaintenanceConfidenceSummary({
+    ...input,
+    state: "degraded",
+    repair_plan: { steps: [] },
+  });
+
+  assert.equal(suppressedByRepair.eligible, false);
+  assert.equal(suppressedByState.eligible, false);
+});
+
+test("phase 25 operating blocks map now and prep_day scheduling into current and later-today guidance", () => {
+  const currentBlock = buildMaintenanceOperatingBlockSummary({
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Escalated upkeep should happen now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "high",
+      trend: "rising",
+      summary: "High confidence upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 3,
+      handoff_count_30d: 2,
+      cooldown_active: false,
+    },
+  });
+  const laterToday = buildMaintenanceOperatingBlockSummary({
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Escalated upkeep should be budgeted for later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "medium",
+      trend: "rising",
+      summary: "Medium confidence upkeep.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 2,
+      handoff_count_30d: 0,
+      cooldown_active: false,
+    },
+  });
+
+  assert.equal(currentBlock.eligible, true);
+  assert.equal(currentBlock.block, "current_block");
+  assert.equal(currentBlock.confidence_level, "high");
+  assert.equal(currentBlock.suggested_command, "personal-ops maintenance session");
+  assert.equal(laterToday.eligible, true);
+  assert.equal(laterToday.block, "later_today");
+  assert.equal(laterToday.confidence_level, "medium");
+});
+
+test("phase 25 operating blocks keep calm-window maintenance quiet and suppress blocked families", () => {
+  const calmWindow = buildMaintenanceOperatingBlockSummary({
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "calm_window",
+      step_id: "install_wrappers",
+      summary: "Calm-window upkeep remains available.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Keep this for a calm window; do not displace active operator work.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "low",
+      trend: "cooling",
+      summary: "Cooling.",
+      suggested_command: null,
+      defer_count: 0,
+      handoff_count_30d: 0,
+      cooldown_active: true,
+    },
+  });
+  const suppressedByRepair = buildMaintenanceOperatingBlockSummary({
+    state: "ready",
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Refresh wrappers",
+          reason: "Repair is pending again.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Escalated upkeep should happen now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_confidence: null,
+  });
+  const suppressedByState = buildMaintenanceOperatingBlockSummary({
+    state: "degraded",
+    repair_plan: { steps: [] },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Escalated upkeep should be budgeted for later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+    maintenance_confidence: null,
+  });
+
+  assert.equal(calmWindow.eligible, true);
+  assert.equal(calmWindow.block, "calm_window");
+  assert.equal(suppressedByRepair.eligible, false);
+  assert.equal(suppressedByRepair.block, "suppressed");
+  assert.equal(suppressedByState.eligible, false);
+  assert.equal(suppressedByState.block, "suppressed");
+});
+
+test("phase 26 maintenance decision explanation follows driver precedence and operating block state", () => {
+  const doNow = buildMaintenanceDecisionExplanationSummary({
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_commitment: {
+      active: true,
+      step_id: "install_wrappers",
+      placement: "prep_day",
+      state: "active",
+      summary: "Committed.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 2,
+      last_presented_at: "2026-04-12T08:00:00.000Z",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers",
+      defer_count: 2,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred twice.",
+    },
+    maintenance_escalation: {
+      eligible: true,
+      step_id: "install_wrappers",
+      signal: "handed_off_to_repair",
+      summary: "Escalated.",
+      suggested_command: "personal-ops maintenance session",
+      handoff_count_30d: 2,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "high",
+      trend: "rising",
+      summary: "High confidence.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 2,
+      handoff_count_30d: 2,
+      cooldown_active: false,
+    },
+    maintenance_operating_block: {
+      eligible: true,
+      block: "current_block",
+      step_id: "install_wrappers",
+      summary: "Current block.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Current block reason.",
+      confidence_level: "high",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "now",
+      step_id: "install_wrappers",
+      summary: "Scheduled now.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Current block reason.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+  });
+
+  const budgetToday = buildMaintenanceDecisionExplanationSummary({
+    state: "ready",
+    repair_plan: { steps: [] },
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: true,
+      step_id: "install_wrappers",
+      defer_count: 1,
+      last_deferred_at: "2026-04-12T08:00:00.000Z",
+      summary: "Deferred once.",
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: {
+      eligible: true,
+      step_id: "install_wrappers",
+      level: "medium",
+      trend: "rising",
+      summary: "Medium confidence.",
+      suggested_command: "personal-ops maintenance session",
+      defer_count: 1,
+      handoff_count_30d: 0,
+      cooldown_active: false,
+    },
+    maintenance_operating_block: {
+      eligible: true,
+      block: "later_today",
+      step_id: "install_wrappers",
+      summary: "Later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Later today reason.",
+      confidence_level: "medium",
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: true,
+      placement: "prep_day",
+      step_id: "install_wrappers",
+      summary: "Scheduled later today.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Later today reason.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+  });
+
+  const suppressedByRepair = buildMaintenanceDecisionExplanationSummary({
+    state: "ready",
+    repair_plan: {
+      steps: [
+        {
+          id: "install_wrappers",
+          title: "Repair wrappers",
+          reason: "Repair is active.",
+          suggested_command: "personal-ops install wrappers",
+          executable: true,
+          status: "pending",
+          scope: "install",
+          blocking: true,
+        },
+      ],
+    },
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: null,
+    maintenance_operating_block: {
+      eligible: false,
+      block: "suppressed",
+      step_id: "install_wrappers",
+      summary: null,
+      suggested_command: null,
+      reason: "Suppressed by repair.",
+      confidence_level: null,
+      bundle_step_ids: ["install_wrappers"],
+    },
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: false,
+      placement: "suppressed",
+      step_id: "install_wrappers",
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because an active repair step is already pending for this family.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+  });
+
+  const suppressedByState = buildMaintenanceDecisionExplanationSummary({
+    state: "degraded",
+    repair_plan: { steps: [] },
+    maintenance_commitment: {
+      active: false,
+      step_id: null,
+      placement: null,
+      state: null,
+      summary: null,
+      suggested_command: null,
+      defer_count: 0,
+      last_presented_at: null,
+      bundle_step_ids: [],
+    },
+    maintenance_defer_memory: {
+      active: false,
+      step_id: null,
+      defer_count: 0,
+      last_deferred_at: null,
+      summary: null,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_confidence: null,
+    maintenance_operating_block: null,
+    maintenance_scheduling: emptyMaintenanceSchedulingForConfidence({
+      eligible: false,
+      placement: "suppressed",
+      step_id: "install_wrappers",
+      summary: null,
+      suggested_command: null,
+      reason: "Maintenance scheduling is suppressed because the system is not fully ready.",
+      bundle_step_ids: ["install_wrappers"],
+    }),
+  });
+
+  assert.equal(doNow.eligible, true);
+  assert.equal(doNow.state, "do_now");
+  assert.equal(doNow.driver, "commitment");
+  assert.equal(doNow.suggested_command, "personal-ops maintenance session");
+  assert.ok(doNow.reasons.includes("commitment_active"));
+  assert.ok(doNow.reasons.includes("scheduled_for_current_block"));
+
+  assert.equal(budgetToday.eligible, true);
+  assert.equal(budgetToday.state, "budget_today");
+  assert.equal(budgetToday.driver, "confidence");
+  assert.ok(budgetToday.reasons.includes("urgent_work_ahead"));
+  assert.equal(budgetToday.suggested_command, "personal-ops maintenance session");
+
+  assert.equal(suppressedByRepair.eligible, true);
+  assert.equal(suppressedByRepair.state, "suppressed");
+  assert.equal(suppressedByRepair.driver, "repair_blocked");
+  assert.equal(suppressedByRepair.suggested_command, null);
+  assert.ok(suppressedByRepair.reasons.includes("active_repair_present"));
+
+  assert.equal(suppressedByState.eligible, true);
+  assert.equal(suppressedByState.state, "suppressed");
+  assert.equal(suppressedByState.driver, "readiness_blocked");
+  assert.ok(suppressedByState.reasons.includes("system_not_ready"));
 });

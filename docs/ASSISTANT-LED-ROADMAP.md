@@ -453,14 +453,107 @@ Delivered shape:
 - unchanged trust boundaries:
   - no new HTTP or MCP APIs
   - no browser execution path
+- no new maintenance commands
+- no planning-recommendation, task, or automation creation path
+- active repair and urgent concrete work still outrank maintenance
+
+## Phase 24
+
+Phase 24 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_confidence` summary layered onto commitment, defer-memory, escalation, scheduling, and repair-execution history
+- descriptive confidence tiers only:
+  - `low`
+  - `medium`
+  - `high`
+- descriptive confidence trends only:
+  - `rising`
+  - `steady`
+  - `cooling`
+- additive confidence visibility across:
+  - `status`
+  - `worklist`
+  - `now`
+  - `prep-day`
+  - `repair plan`
+  - `maintenance session`
+  - the console
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
   - no new maintenance commands
-  - no planning-recommendation, task, or automation creation path
-  - active repair and urgent concrete work still outrank maintenance
+  - no change to repair-first or urgent-work-first precedence
+
+## Phase 25
+
+Phase 25 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_operating_block` summary layered onto the existing maintenance scheduling and confidence model
+- descriptive operating blocks only:
+  - `current_block`
+  - `later_today`
+  - `calm_window`
+  - `suppressed`
+- additive operating-block visibility across:
+  - `status`
+  - `worklist`
+  - `now-next`
+  - `prep-day`
+  - `repair plan`
+  - `maintenance session`
+  - the console
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no saved planning state
+- no new maintenance commands
+- no change to repair-first or urgent-work-first precedence
+
+## Phase 26
+
+Phase 26 is now complete.
+
+Delivered shape:
+
+- a derived `maintenance_decision_explanation` summary layered onto follow-through, commitment, defer-memory, confidence, operating-block, and scheduling state
+- descriptive explanation states only:
+  - `do_now`
+  - `budget_today`
+  - `calm_window`
+  - `suppressed`
+- descriptive explanation drivers only:
+  - `commitment`
+  - `escalation`
+  - `confidence`
+  - `operating_block`
+  - `scheduling`
+  - `repair_blocked`
+  - `readiness_blocked`
+- additive explanation visibility across:
+  - `status`
+  - `worklist`
+  - `now-next`
+  - `prep-day`
+  - `repair plan`
+  - `maintenance session`
+  - the console
+- unchanged trust boundaries:
+  - no new HTTP or MCP APIs
+  - no browser execution path
+  - no new persistence layer
+  - no new maintenance commands
+  - no change to repair-first or urgent-work-first precedence
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, and 23 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, and 26 are complete
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

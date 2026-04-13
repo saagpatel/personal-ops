@@ -25,7 +25,7 @@ import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import { PersonalOpsService } from "../src/service.js";
-import type { ClientIdentity, Config, Paths, Policy } from "../src/types.js";
+import type { ClientIdentity, Config, MaintenanceDecisionReasonCode, Paths, Policy } from "../src/types.js";
 
 const cliIdentity: ClientIdentity = {
   client_id: "operator-cli",
@@ -61,6 +61,7 @@ function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z")
     summary: null,
     commitment: emptyMaintenanceCommitment(),
     defer_memory: emptyMaintenanceDeferMemory(),
+    confidence: emptyMaintenanceConfidence(),
   };
 }
 
@@ -75,6 +76,23 @@ function emptyMaintenanceScheduling() {
     bundle_step_ids: [],
     commitment: emptyMaintenanceCommitment(),
     defer_memory: emptyMaintenanceDeferMemory(),
+    confidence: emptyMaintenanceConfidence(),
+    operating_block: emptyMaintenanceOperatingBlock(),
+    decision_explanation: emptyMaintenanceDecisionExplanation(),
+  };
+}
+
+function emptyMaintenanceConfidence() {
+  return {
+    eligible: false,
+    step_id: null,
+    level: null,
+    trend: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    handoff_count_30d: 0,
+    cooldown_active: false,
   };
 }
 
@@ -99,6 +117,36 @@ function emptyMaintenanceDeferMemory() {
     defer_count: 0,
     last_deferred_at: null,
     summary: null,
+  };
+}
+
+function emptyMaintenanceOperatingBlock() {
+  return {
+    eligible: false,
+    block: "suppressed" as const,
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    confidence_level: null,
+    bundle_step_ids: [],
+  };
+}
+
+function emptyMaintenanceDecisionExplanation() {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "suppressed" as const,
+    driver: null,
+    summary: null,
+    why_now: null,
+    why_not_higher: null,
+    suggested_command: null,
+    confidence_level: null,
+    operating_block: null,
+    reasons: [],
+    bundle_step_ids: [],
   };
 }
 
@@ -742,6 +790,17 @@ test("phase 22 formatter surfaces show maintenance timing only in the intended p
       cue: null,
     },
     maintenance_scheduling: scheduling,
+    maintenance_operating_block: {
+      ...emptyMaintenanceOperatingBlock(),
+      eligible: true,
+      block: "later_today" as const,
+      step_id: "install_wrappers" as const,
+      summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      confidence_level: null,
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     actions: [],
     sections: [
       { title: "Overall State", items: [] },
@@ -756,7 +815,7 @@ test("phase 22 formatter surfaces show maintenance timing only in the intended p
             command: "personal-ops maintenance session",
             why_now: scheduling.reason,
             score_band: "medium" as const,
-            signals: ["maintenance_scheduling_prep_day", "install_wrappers"],
+            signals: ["maintenance_operating_block_later_today", "install_wrappers"],
           },
         ],
       },
@@ -774,6 +833,17 @@ test("phase 22 formatter surfaces show maintenance timing only in the intended p
     first_step_id: null,
     maintenance_follow_through: emptyMaintenanceFollowThrough(),
     maintenance_scheduling: scheduling,
+    maintenance_operating_block: {
+      ...emptyMaintenanceOperatingBlock(),
+      eligible: true,
+      block: "later_today" as const,
+      step_id: "install_wrappers" as const,
+      summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+      suggested_command: "personal-ops maintenance session",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      confidence_level: null,
+      bundle_step_ids: ["install_wrappers" as const],
+    },
     steps: [],
   };
 
@@ -933,6 +1003,159 @@ test("phase 23 formatter surfaces agree on the same maintenance commitment and d
   assert.match(formatWorkflowBundleReport(prepDay), /Maintenance commitment/i);
   assert.match(formatMaintenanceSessionPlan(session), /Deferred 2 times/i);
   assert.match(formatMaintenanceSessionPlan(session), /Defer memory/i);
+});
+
+test("phase 24 formatter surfaces agree on maintenance confidence placement", async () => {
+  const { service } = createServiceFixture();
+  const status = await service.getStatusReport({ httpReachable: true });
+  const confidence = {
+    eligible: true,
+    step_id: "install_wrappers" as const,
+    level: "high" as const,
+    trend: "rising" as const,
+    summary:
+      "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+    suggested_command: "personal-ops maintenance session",
+    defer_count: 3,
+    handoff_count_30d: 2,
+    cooldown_active: false,
+  };
+  const scheduling = {
+    ...emptyMaintenanceScheduling(),
+    eligible: true,
+    placement: "now" as const,
+    step_id: "install_wrappers" as const,
+    summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+    bundle_step_ids: ["install_wrappers" as const],
+    confidence,
+  };
+  const currentBlock = {
+    ...emptyMaintenanceOperatingBlock(),
+    eligible: true,
+    block: "current_block" as const,
+    step_id: "install_wrappers" as const,
+    summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+    confidence_level: "high" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const statusWithConfidence = {
+    ...status,
+    maintenance_confidence: confidence,
+    maintenance_operating_block: currentBlock,
+    maintenance_follow_through: {
+      ...status.maintenance_follow_through,
+      confidence,
+    },
+    maintenance_scheduling: scheduling,
+    repair_plan: {
+      ...status.repair_plan,
+      maintenance_confidence: confidence,
+      maintenance_follow_through: {
+        ...status.repair_plan.maintenance_follow_through,
+        confidence,
+      },
+      maintenance_scheduling: {
+        ...status.repair_plan.maintenance_scheduling,
+        ...scheduling,
+      },
+      maintenance_operating_block: currentBlock,
+    },
+  };
+  const worklist = {
+    ...(await service.getWorklistReport({ httpReachable: true })),
+    maintenance_confidence: confidence,
+    maintenance_operating_block: currentBlock,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      confidence,
+    },
+    maintenance_scheduling: scheduling,
+  };
+  const nowWorkflow = {
+    workflow: "now-next" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Now-next is ready.",
+    first_repair_step: null,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      confidence,
+    },
+    maintenance_escalation: {
+      eligible: false,
+      step_id: null,
+      signal: null,
+      summary: null,
+      suggested_command: null,
+      handoff_count_30d: 0,
+      cue: null,
+    },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: confidence,
+    maintenance_operating_block: currentBlock,
+    actions: [],
+    sections: [],
+  };
+  const prepDayWorkflow = {
+    ...nowWorkflow,
+    workflow: "prep-day" as const,
+    maintenance_operating_block: {
+      ...currentBlock,
+      block: "later_today" as const,
+      summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      confidence_level: "high" as const,
+    },
+    maintenance_scheduling: {
+      ...scheduling,
+      placement: "prep_day" as const,
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+    },
+  };
+  const session = {
+    generated_at: new Date().toISOString(),
+    eligible_now: false,
+    deferred_reason: "concrete_work_present" as const,
+    bundle_id: null,
+    title: null,
+    summary: null,
+    start_command: "personal-ops maintenance session",
+    first_step_id: null,
+    maintenance_follow_through: {
+      ...emptyMaintenanceFollowThrough(),
+      confidence,
+    },
+    maintenance_scheduling: {
+      ...scheduling,
+      placement: "prep_day" as const,
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+    },
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: confidence,
+    maintenance_operating_block: {
+      ...currentBlock,
+      block: "later_today" as const,
+      summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+      confidence_level: "high" as const,
+    },
+    steps: [],
+  };
+
+  assert.match(formatStatusReport(statusWithConfidence), /Maintenance confidence/i);
+  assert.match(formatRepairPlanReport(statusWithConfidence.repair_plan), /Maintenance confidence/i);
+  assert.match(formatWorklistReport(worklist), /Maintenance confidence/i);
+  assert.match(formatNowReport(statusWithConfidence, worklist), /repair-priority upkeep/i);
+  assert.match(formatWorkflowBundleReport(nowWorkflow), /Maintenance confidence/i);
+  assert.match(formatWorkflowBundleReport(prepDayWorkflow), /Maintenance confidence/i);
+  assert.match(formatMaintenanceSessionPlan(session), /Maintenance confidence/i);
 });
 
 test("Phase 5 workflow formatter renders the bounded day-start sections and repair step", async () => {
@@ -1237,4 +1460,232 @@ test("Phase 6 auth login errors point the operator to config and re-auth recover
   assert.match(completeError.message, /auth gmail login/i);
   assert.match(completeError.message, /auth google login/i);
   assert.match(completeError.message, /doctor --deep/i);
+});
+
+test("phase 25 formatter surfaces show maintenance operating blocks only in the intended workflow windows", async () => {
+  const scheduling = {
+    ...emptyMaintenanceScheduling(),
+    eligible: true,
+    placement: "now" as const,
+    step_id: "install_wrappers" as const,
+    summary: "Escalated upkeep should happen now.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const currentBlock = {
+    ...emptyMaintenanceOperatingBlock(),
+    eligible: true,
+    block: "current_block" as const,
+    step_id: "install_wrappers" as const,
+    summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+    confidence_level: "high" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const laterToday = {
+    ...emptyMaintenanceOperatingBlock(),
+    eligible: true,
+    block: "later_today" as const,
+    step_id: "install_wrappers" as const,
+    summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "Plan this into today's maintenance block after time-sensitive work.",
+    confidence_level: "medium" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    maintenance_operating_block: currentBlock,
+    maintenance_scheduling: scheduling,
+    maintenance_confidence: {
+      ...emptyMaintenanceConfidence(),
+      eligible: true,
+      step_id: "install_wrappers" as const,
+      level: "high" as const,
+      trend: "rising" as const,
+      summary: "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+      suggested_command: "personal-ops maintenance session",
+    },
+    repair_plan: {
+      ...baseStatus.repair_plan,
+      maintenance_operating_block: currentBlock,
+      maintenance_scheduling: scheduling,
+      maintenance_confidence: {
+        ...emptyMaintenanceConfidence(),
+        eligible: true,
+        step_id: "install_wrappers" as const,
+        level: "high" as const,
+        trend: "rising" as const,
+        summary: "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+        suggested_command: "personal-ops maintenance session",
+      },
+    },
+  };
+  const worklist = {
+    generated_at: new Date().toISOString(),
+    state: "ready" as const,
+    counts_by_severity: { critical: 0, warn: 0, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_confidence: status.maintenance_confidence,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_operating_block: currentBlock,
+    items: [],
+  };
+  const nowNext = {
+    workflow: "now-next" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Ready now.",
+    sections: [],
+    actions: [],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: status.maintenance_confidence,
+    maintenance_operating_block: currentBlock,
+  };
+  const prepDay = {
+    ...nowNext,
+    workflow: "prep-day" as const,
+    maintenance_operating_block: laterToday,
+    maintenance_scheduling: {
+      ...scheduling,
+      placement: "prep_day" as const,
+      reason: "Plan this into today's maintenance block after time-sensitive work.",
+    },
+  };
+
+  assert.match(formatStatusReport(status), /Maintenance operating block/i);
+  assert.match(formatWorklistReport(worklist), /Maintenance Operating Block/i);
+  assert.match(formatNowReport(status, worklist), /Maintenance Now/);
+  assert.match(formatWorkflowBundleReport(nowNext), /Maintenance operating block \(current block\)/i);
+  assert.match(formatWorkflowBundleReport(prepDay), /Maintenance operating block \(later today\)/i);
+});
+
+test("phase 26 formatter surfaces agree on maintenance decision explanation wording", async () => {
+  const decision = {
+    ...emptyMaintenanceDecisionExplanation(),
+    eligible: true,
+    step_id: "install_wrappers" as const,
+    state: "budget_today" as const,
+    driver: "commitment" as const,
+    summary: "This maintenance work should be budgeted into today's upkeep block.",
+    why_now: "The system is ready and this family should be handled today, but not as the immediate next move.",
+    why_not_higher: "Time-sensitive work still comes first.",
+    suggested_command: "personal-ops maintenance session",
+    confidence_level: "medium" as const,
+    operating_block: "later_today" as const,
+    reasons: ["commitment_active", "scheduled_for_later_today", "urgent_work_ahead"] as MaintenanceDecisionReasonCode[],
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const scheduling = {
+    ...emptyMaintenanceScheduling(),
+    eligible: true,
+    placement: "prep_day" as const,
+    step_id: "install_wrappers" as const,
+    summary: "Escalated upkeep should be budgeted for later today.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "Plan this into today's maintenance block after time-sensitive work.",
+    bundle_step_ids: ["install_wrappers" as const],
+    decision_explanation: decision,
+  };
+  const laterToday = {
+    ...emptyMaintenanceOperatingBlock(),
+    eligible: true,
+    block: "later_today" as const,
+    step_id: "install_wrappers" as const,
+    summary: "Budget this maintenance into today's upkeep block after time-sensitive work.",
+    suggested_command: "personal-ops maintenance session",
+    reason: "Plan this into today's maintenance block after time-sensitive work.",
+    confidence_level: "medium" as const,
+    bundle_step_ids: ["install_wrappers" as const],
+  };
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    maintenance_decision_explanation: decision,
+    maintenance_operating_block: laterToday,
+    maintenance_scheduling: scheduling,
+    repair_plan: {
+      ...baseStatus.repair_plan,
+      maintenance_decision_explanation: decision,
+      maintenance_operating_block: laterToday,
+      maintenance_scheduling: scheduling,
+    },
+  };
+  const worklist = {
+    generated_at: new Date().toISOString(),
+    state: "ready" as const,
+    counts_by_severity: { critical: 0, warn: 0, info: 0 },
+    send_window: { active: false },
+    planning_groups: [],
+    maintenance_window: { eligible_now: false, deferred_reason: "concrete_work_present" as const, count: 0, top_step_id: null, bundle: null },
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: scheduling,
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: laterToday,
+    maintenance_decision_explanation: decision,
+    items: [],
+  };
+  const nowNext = {
+    workflow: "now-next" as const,
+    generated_at: new Date().toISOString(),
+    readiness: "ready" as const,
+    summary: "Ready now.",
+    sections: [],
+    actions: [],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: {
+      ...scheduling,
+      placement: "now" as const,
+    },
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: {
+      ...laterToday,
+      block: "current_block" as const,
+      summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+    },
+    maintenance_decision_explanation: {
+      ...decision,
+      state: "do_now" as const,
+      summary: "This maintenance work belongs in the current operating block.",
+      why_now: "The system is ready, this family is surfaced for the current block, and there is no higher-priority urgent work ahead of it.",
+      why_not_higher: "It still stays below active repair and truly urgent operator work.",
+      operating_block: "current_block" as const,
+    },
+  };
+  const prepDay = {
+    ...nowNext,
+    workflow: "prep-day" as const,
+    maintenance_scheduling: scheduling,
+    maintenance_operating_block: laterToday,
+    maintenance_decision_explanation: decision,
+  };
+
+  assert.match(formatStatusReport(status), /Maintenance decision/i);
+  assert.match(formatRepairPlanReport(status.repair_plan), /Maintenance decision/i);
+  assert.match(formatWorklistReport(worklist), /Maintenance decision/i);
+  assert.match(formatWorkflowBundleReport(nowNext), /Maintenance decision \(do now\)/i);
+  assert.match(formatWorkflowBundleReport(prepDay), /Maintenance decision \(budget today\)/i);
 });

@@ -460,6 +460,18 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
       return {
         ...status,
         maintenance_window: maintenanceWindow,
+        maintenance_confidence: {
+          eligible: true,
+          step_id: "install_wrappers",
+          level: "high",
+          trend: "rising",
+          summary:
+            "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+          suggested_command: "personal-ops maintenance session",
+          defer_count: 0,
+          handoff_count_30d: 2,
+          cooldown_active: false,
+        },
         maintenance_escalation: {
           eligible: true,
           step_id: "install_wrappers",
@@ -501,6 +513,18 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
             },
           },
           summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+          confidence: {
+            eligible: true,
+            step_id: "install_wrappers",
+            level: "high",
+            trend: "rising",
+            summary:
+              "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+            suggested_command: "personal-ops maintenance session",
+            defer_count: 0,
+            handoff_count_30d: 2,
+            cooldown_active: false,
+          },
         },
         maintenance_scheduling: {
           eligible: true,
@@ -510,10 +534,68 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           suggested_command: "personal-ops maintenance session",
           reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
           bundle_step_ids: ["install_wrappers"],
+          confidence: {
+            eligible: true,
+            step_id: "install_wrappers",
+            level: "high",
+            trend: "rising",
+            summary:
+              "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+            suggested_command: "personal-ops maintenance session",
+            defer_count: 0,
+            handoff_count_30d: 2,
+            cooldown_active: false,
+          },
+          operating_block: {
+            eligible: true,
+            block: "current_block",
+            step_id: "install_wrappers",
+            summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+            suggested_command: "personal-ops maintenance session",
+            reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+            confidence_level: "high",
+            bundle_step_ids: ["install_wrappers"],
+          },
+        },
+        maintenance_operating_block: {
+          eligible: true,
+          block: "current_block",
+          step_id: "install_wrappers",
+          summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+          suggested_command: "personal-ops maintenance session",
+          reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+          confidence_level: "high",
+          bundle_step_ids: ["install_wrappers"],
+        },
+        maintenance_decision_explanation: {
+          eligible: true,
+          step_id: "install_wrappers",
+          state: "do_now",
+          driver: "escalation",
+          summary: "This maintenance work belongs in the current operating block.",
+          why_now: "The system is ready, this family is surfaced for the current block, and there is no higher-priority urgent work ahead of it.",
+          why_not_higher: "It still stays below active repair and truly urgent operator work.",
+          suggested_command: "personal-ops maintenance session",
+          confidence_level: "high",
+          operating_block: "current_block",
+          reasons: ["escalation_active", "confidence_rising", "scheduled_for_current_block"],
+          bundle_step_ids: ["install_wrappers"],
         },
         repair_plan: {
           ...status.repair_plan,
           maintenance_window: maintenanceWindow,
+          maintenance_confidence: {
+            eligible: true,
+            step_id: "install_wrappers",
+            level: "high",
+            trend: "rising",
+            summary:
+              "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+            suggested_command: "personal-ops maintenance session",
+            defer_count: 0,
+            handoff_count_30d: 2,
+            cooldown_active: false,
+          },
           maintenance_escalation: {
             eligible: true,
             step_id: "install_wrappers",
@@ -555,6 +637,18 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
               },
             },
             summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
+            confidence: {
+              eligible: true,
+              step_id: "install_wrappers",
+              level: "high",
+              trend: "rising",
+              summary:
+                "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+              suggested_command: "personal-ops maintenance session",
+              defer_count: 0,
+              handoff_count_30d: 2,
+              cooldown_active: false,
+            },
           },
           maintenance_scheduling: {
             eligible: true,
@@ -563,6 +657,52 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
             summary: "This maintenance family keeps turning into active repair and should be treated as repair-priority upkeep.",
             suggested_command: "personal-ops maintenance session",
             reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+            bundle_step_ids: ["install_wrappers"],
+            confidence: {
+              eligible: true,
+              step_id: "install_wrappers",
+              level: "high",
+              trend: "rising",
+              summary:
+                "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.",
+              suggested_command: "personal-ops maintenance session",
+              defer_count: 0,
+              handoff_count_30d: 2,
+              cooldown_active: false,
+            },
+            operating_block: {
+              eligible: true,
+              block: "current_block",
+              step_id: "install_wrappers",
+              summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+              suggested_command: "personal-ops maintenance session",
+              reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+              confidence_level: "high",
+              bundle_step_ids: ["install_wrappers"],
+            },
+          },
+          maintenance_operating_block: {
+            eligible: true,
+            block: "current_block",
+            step_id: "install_wrappers",
+            summary: "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.",
+            suggested_command: "personal-ops maintenance session",
+            reason: "This has become repair-priority upkeep and should be handled in the current operating block.",
+            confidence_level: "high",
+            bundle_step_ids: ["install_wrappers"],
+          },
+          maintenance_decision_explanation: {
+            eligible: true,
+            step_id: "install_wrappers",
+            state: "do_now",
+            driver: "escalation",
+            summary: "This maintenance work belongs in the current operating block.",
+            why_now: "The system is ready, this family is surfaced for the current block, and there is no higher-priority urgent work ahead of it.",
+            why_not_higher: "It still stays below active repair and truly urgent operator work.",
+            suggested_command: "personal-ops maintenance session",
+            confidence_level: "high",
+            operating_block: "current_block",
+            reasons: ["escalation_active", "confidence_rising", "scheduled_for_current_block"],
             bundle_step_ids: ["install_wrappers"],
           },
         },
@@ -602,6 +742,22 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           placement?: string | null;
           step_id?: string | null;
         };
+        maintenance_confidence?: {
+          eligible?: boolean;
+          step_id?: string | null;
+          level?: string | null;
+        };
+        maintenance_operating_block?: {
+          eligible?: boolean;
+          step_id?: string | null;
+          block?: string | null;
+        };
+        maintenance_decision_explanation?: {
+          eligible?: boolean;
+          step_id?: string | null;
+          state?: string | null;
+          driver?: string | null;
+        };
       };
     };
 
@@ -614,6 +770,16 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
     assert.equal(payload.status?.maintenance_scheduling?.eligible, true);
     assert.equal(payload.status?.maintenance_scheduling?.placement, "now");
     assert.equal(payload.status?.maintenance_scheduling?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_confidence?.eligible, true);
+    assert.equal(payload.status?.maintenance_confidence?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_confidence?.level, "high");
+    assert.equal(payload.status?.maintenance_operating_block?.eligible, true);
+    assert.equal(payload.status?.maintenance_operating_block?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_operating_block?.block, "current_block");
+    assert.equal(payload.status?.maintenance_decision_explanation?.eligible, true);
+    assert.equal(payload.status?.maintenance_decision_explanation?.step_id, "install_wrappers");
+    assert.equal(payload.status?.maintenance_decision_explanation?.state, "do_now");
+    assert.equal(payload.status?.maintenance_decision_explanation?.driver, "escalation");
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

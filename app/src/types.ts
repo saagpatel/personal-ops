@@ -1245,6 +1245,9 @@ export interface WorklistReport {
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
   items: AttentionItem[];
 }
 
@@ -2083,6 +2086,9 @@ export interface WorkflowBundleReport {
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
 }
 
 export interface MailSyncState {
@@ -2387,6 +2393,75 @@ export interface MaintenanceCommitmentSummary {
   bundle_step_ids: RepairStepId[];
 }
 
+export type MaintenanceConfidenceLevel = "low" | "medium" | "high";
+
+export type MaintenanceConfidenceTrend = "rising" | "steady" | "cooling";
+
+export interface MaintenanceConfidenceSummary {
+  eligible: boolean;
+  step_id: RepairStepId | null;
+  level: MaintenanceConfidenceLevel | null;
+  trend: MaintenanceConfidenceTrend | null;
+  summary: string | null;
+  suggested_command: string | null;
+  defer_count: number;
+  handoff_count_30d: number;
+  cooldown_active: boolean;
+}
+
+export type MaintenanceOperatingBlock = "current_block" | "later_today" | "calm_window" | "suppressed";
+
+export interface MaintenanceOperatingBlockSummary {
+  eligible: boolean;
+  block: MaintenanceOperatingBlock;
+  step_id: RepairStepId | null;
+  summary: string | null;
+  suggested_command: string | null;
+  reason: string | null;
+  confidence_level: MaintenanceConfidenceLevel | null;
+  bundle_step_ids: RepairStepId[];
+}
+
+export type MaintenanceDecisionState = "do_now" | "budget_today" | "calm_window" | "suppressed";
+
+export type MaintenanceDecisionDriver =
+  | "commitment"
+  | "escalation"
+  | "confidence"
+  | "operating_block"
+  | "scheduling"
+  | "repair_blocked"
+  | "readiness_blocked";
+
+export type MaintenanceDecisionReasonCode =
+  | "active_repair_present"
+  | "system_not_ready"
+  | "urgent_work_ahead"
+  | "commitment_active"
+  | "defer_memory_present"
+  | "confidence_rising"
+  | "confidence_cooling"
+  | "escalation_active"
+  | "scheduled_for_current_block"
+  | "scheduled_for_later_today"
+  | "scheduled_for_calm_window"
+  | "quiet_window_only";
+
+export interface MaintenanceDecisionExplanationSummary {
+  eligible: boolean;
+  step_id: RepairStepId | null;
+  state: MaintenanceDecisionState;
+  driver: MaintenanceDecisionDriver | null;
+  summary: string | null;
+  why_now: string | null;
+  why_not_higher: string | null;
+  suggested_command: string | null;
+  confidence_level: MaintenanceConfidenceLevel | null;
+  operating_block: MaintenanceOperatingBlock | null;
+  reasons: MaintenanceDecisionReasonCode[];
+  bundle_step_ids: RepairStepId[];
+}
+
 export interface MaintenanceDeferMemorySummary {
   active: boolean;
   step_id: RepairStepId | null;
@@ -2405,6 +2480,9 @@ export interface MaintenanceSchedulingSummary {
   bundle_step_ids: RepairStepId[];
   commitment?: MaintenanceCommitmentSummary | undefined;
   defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  confidence?: MaintenanceConfidenceSummary | undefined;
+  operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
 }
 
 export interface MaintenanceFollowThroughSummary {
@@ -2420,6 +2498,7 @@ export interface MaintenanceFollowThroughSummary {
   summary: string | null;
   commitment?: MaintenanceCommitmentSummary | undefined;
   defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  confidence?: MaintenanceConfidenceSummary | undefined;
 }
 
 export interface MaintenanceSessionStep {
@@ -2446,6 +2525,9 @@ export interface MaintenanceSessionPlan {
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
 }
 
 export interface RepairExecutionRecord {
@@ -2489,6 +2571,9 @@ export interface RepairPlan {
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
   steps: RepairStep[];
@@ -2513,6 +2598,9 @@ export interface RepairPlanSummary {
   maintenance_window: MaintenanceWindowSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
   last_repair: RepairOutcomeSummary | null;
   recurring_issue: RepairRecurringIssue | null;
 }
@@ -2546,6 +2634,7 @@ export interface MaintenanceSessionRunResult {
   deferred_reason?: MaintenanceWindowDeferredReason | undefined;
   remaining_reason?: string | undefined;
   maintenance_follow_through?: MaintenanceFollowThroughSummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
   message: string;
 }
 
@@ -2692,6 +2781,9 @@ export interface ServiceStatusReport {
   maintenance_scheduling: MaintenanceSchedulingSummary;
   maintenance_commitment?: MaintenanceCommitmentSummary | undefined;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | undefined;
+  maintenance_confidence?: MaintenanceConfidenceSummary | undefined;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | undefined;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | undefined;
   daemon_reachable: boolean;
   send_enabled: boolean;
   send_policy: {

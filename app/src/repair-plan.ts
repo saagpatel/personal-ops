@@ -6,12 +6,16 @@ import type {
   DoctorReport,
   InstallCheckReport,
   MaintenanceBundleOutcome,
+  MaintenanceConfidenceSummary,
   MaintenanceCommitmentRecord,
   MaintenanceCommitmentSummary,
   MaintenanceCommitmentState,
+  MaintenanceDecisionExplanationSummary,
+  MaintenanceDecisionReasonCode,
   MaintenanceDeferMemorySummary,
   MaintenanceEscalationSummary,
   MaintenanceFollowThroughSummary,
+  MaintenanceOperatingBlockSummary,
   MaintenanceOutcomeSignal,
   MaintenancePressureSummary,
   MaintenanceSchedulingSummary,
@@ -273,6 +277,20 @@ function emptyMaintenancePressureSummary(): MaintenancePressureSummary {
   };
 }
 
+export function emptyMaintenanceConfidenceSummary(): MaintenanceConfidenceSummary {
+  return {
+    eligible: false,
+    step_id: null,
+    level: null,
+    trend: null,
+    summary: null,
+    suggested_command: null,
+    defer_count: 0,
+    handoff_count_30d: 0,
+    cooldown_active: false,
+  };
+}
+
 export function emptyMaintenanceCommitmentSummary(): MaintenanceCommitmentSummary {
   return {
     active: false,
@@ -320,6 +338,39 @@ export function emptyMaintenanceSchedulingSummary(): MaintenanceSchedulingSummar
     bundle_step_ids: [],
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
+    confidence: emptyMaintenanceConfidenceSummary(),
+    operating_block: emptyMaintenanceOperatingBlockSummary(),
+    decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+  };
+}
+
+export function emptyMaintenanceOperatingBlockSummary(): MaintenanceOperatingBlockSummary {
+  return {
+    eligible: false,
+    block: "suppressed",
+    step_id: null,
+    summary: null,
+    suggested_command: null,
+    reason: null,
+    confidence_level: null,
+    bundle_step_ids: [],
+  };
+}
+
+export function emptyMaintenanceDecisionExplanationSummary(): MaintenanceDecisionExplanationSummary {
+  return {
+    eligible: false,
+    step_id: null,
+    state: "suppressed",
+    driver: null,
+    summary: null,
+    why_now: null,
+    why_not_higher: null,
+    suggested_command: null,
+    confidence_level: null,
+    operating_block: null,
+    reasons: [],
+    bundle_step_ids: [],
   };
 }
 
@@ -337,6 +388,7 @@ export function emptyMaintenanceFollowThroughSummary(generatedAt: string): Maint
     summary: null,
     commitment: emptyMaintenanceCommitmentSummary(),
     defer_memory: emptyMaintenanceDeferMemorySummary(),
+    confidence: emptyMaintenanceConfidenceSummary(),
   };
 }
 
@@ -354,6 +406,33 @@ function withinRecurringWindow(completedAt: string, now: Date): boolean {
     return false;
   }
   return now.getTime() - completed.getTime() <= RECURRING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function withinConfidenceCooldownWindow(completedAt: string, now: Date): boolean {
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime())) {
+    return false;
+  }
+  return now.getTime() - completed.getTime() <= MAINTENANCE_RECENTLY_HANDLED_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function maintenanceConfidenceSummaryFor(
+  level: NonNullable<MaintenanceConfidenceSummary["level"]>,
+  trend: NonNullable<MaintenanceConfidenceSummary["trend"]>,
+): string {
+  if (level === "high" && trend === "rising") {
+    return "This maintenance family keeps resurfacing or handing off into repair and should be treated as repair-priority upkeep when surfaced.";
+  }
+  if (level === "medium" && trend === "rising") {
+    return "This maintenance block has resurfaced multiple times and should no longer be treated as a passive reminder.";
+  }
+  if (level === "medium" && trend === "steady") {
+    return "This maintenance block is committed work and should be handled in its scheduled window.";
+  }
+  if (level === "low" && trend === "cooling") {
+    return "Recent successful maintenance is cooling pressure on this family; keep it quiet unless it resurfaces soon.";
+  }
+  return "This maintenance commitment is active, but recent history does not yet justify stronger pressure.";
 }
 
 function maintenanceDeferredSummary(reason: MaintenanceWindowDeferredReason, topStepId: RepairStepId | null): string {
@@ -694,6 +773,281 @@ export function buildMaintenanceSchedulingSummary(input: {
   };
 }
 
+function maintenanceSuccessfulExecutionForStep(
+  stepId: RepairStepId,
+  recentExecutions: RepairExecutionRecord[],
+): RepairExecutionRecord | null {
+  return (
+    recentExecutions.find(
+      (execution) =>
+        execution.trigger_source === "maintenance_run" &&
+        execution.step_id === stepId &&
+        execution.outcome === "resolved" &&
+        execution.resolved_target_step &&
+        !execution.after_first_step_id,
+    ) ?? null
+  );
+}
+
+function maintenanceHandoffCountForStep(
+  stepId: RepairStepId,
+  recentExecutions: RepairExecutionRecord[],
+  now: Date,
+): number {
+  return recentExecutions.filter(
+    (execution) =>
+      execution.trigger_source === "maintenance_run" &&
+      execution.step_id === stepId &&
+      execution.outcome === "resolved" &&
+      execution.resolved_target_step &&
+      Boolean(execution.after_first_step_id) &&
+      withinRecurringWindow(execution.completed_at, now),
+  ).length;
+}
+
+export function buildMaintenanceConfidenceSummary(input: {
+  generated_at?: string;
+  state: ServiceState;
+  repair_plan: Pick<RepairPlan, "steps">;
+  maintenance_follow_through: MaintenanceFollowThroughSummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_commitment: MaintenanceCommitmentSummary;
+  maintenance_defer_memory: MaintenanceDeferMemorySummary;
+  recent_repair_executions?: RepairExecutionRecord[];
+}): MaintenanceConfidenceSummary {
+  const summary = emptyMaintenanceConfidenceSummary();
+  const candidateStepId =
+    ((input.maintenance_commitment.active || input.maintenance_commitment.state === "completed")
+      ? input.maintenance_commitment.step_id
+      : null) ??
+    input.maintenance_escalation.step_id ??
+    input.maintenance_defer_memory.step_id ??
+    ((input.maintenance_scheduling.placement === "now" || input.maintenance_scheduling.placement === "prep_day")
+      ? input.maintenance_scheduling.step_id
+      : null) ??
+    null;
+  if (!candidateStepId) {
+    return summary;
+  }
+  if (input.state !== "ready") {
+    return summary;
+  }
+  if (input.repair_plan.steps.some((step) => step.id === candidateStepId)) {
+    return summary;
+  }
+
+  const generatedAt = input.generated_at ?? new Date().toISOString();
+  const generatedAtDate = new Date(generatedAt);
+  const recentExecutions = [...(input.recent_repair_executions ?? [])].sort((left, right) =>
+    right.completed_at.localeCompare(left.completed_at),
+  );
+  const activeCommitmentForStep =
+    input.maintenance_commitment.active && input.maintenance_commitment.step_id === candidateStepId
+      ? input.maintenance_commitment
+      : null;
+  const deferCount = activeCommitmentForStep?.defer_count ?? input.maintenance_defer_memory.defer_count;
+  const handoffCount30d = maintenanceHandoffCountForStep(candidateStepId, recentExecutions, generatedAtDate);
+  const latestSuccessfulExecution = maintenanceSuccessfulExecutionForStep(candidateStepId, recentExecutions);
+  const cooldownActive =
+    latestSuccessfulExecution !== null &&
+    withinConfidenceCooldownWindow(latestSuccessfulExecution.completed_at, generatedAtDate) &&
+    !activeCommitmentForStep &&
+    !(input.maintenance_escalation.eligible && input.maintenance_escalation.step_id === candidateStepId);
+
+  let level: MaintenanceConfidenceSummary["level"] = null;
+  let trend: MaintenanceConfidenceSummary["trend"] = null;
+
+  if (cooldownActive) {
+    level = "low";
+    trend = "cooling";
+  } else if (
+    (input.maintenance_escalation.eligible && input.maintenance_escalation.step_id === candidateStepId) ||
+    (activeCommitmentForStep?.defer_count ?? 0) >= 3 ||
+    handoffCount30d >= RECURRING_THRESHOLD
+  ) {
+    level = "high";
+    trend = "rising";
+  } else if (
+    activeCommitmentForStep &&
+    (activeCommitmentForStep.defer_count === 1 || activeCommitmentForStep.defer_count === 2)
+  ) {
+    level = "medium";
+    trend = "rising";
+  } else if (
+    (activeCommitmentForStep && activeCommitmentForStep.defer_count === 0) ||
+    (!activeCommitmentForStep && input.maintenance_defer_memory.step_id === candidateStepId && input.maintenance_defer_memory.defer_count >= 2)
+  ) {
+    level = "medium";
+    trend = "steady";
+  } else if (
+    !activeCommitmentForStep &&
+    input.maintenance_defer_memory.step_id === candidateStepId &&
+    input.maintenance_defer_memory.defer_count === 1
+  ) {
+    level = "low";
+    trend = "steady";
+  }
+
+  if (!level || !trend) {
+    return summary;
+  }
+
+  const suggestedCommand =
+    input.maintenance_scheduling.eligible || Boolean(activeCommitmentForStep) ? MAINTENANCE_SESSION_COMMAND : null;
+
+  return {
+    eligible: true,
+    step_id: candidateStepId,
+    level,
+    trend,
+    summary: maintenanceConfidenceSummaryFor(level, trend),
+    suggested_command: suggestedCommand,
+    defer_count: deferCount,
+    handoff_count_30d: handoffCount30d,
+    cooldown_active: cooldownActive,
+  };
+}
+
+function maintenanceOperatingBlockSummaryFor(
+  block: Exclude<MaintenanceOperatingBlockSummary["block"], "suppressed">,
+): string {
+  if (block === "current_block") {
+    return "This maintenance work belongs in the current operating block and should be handled before lower-priority upkeep.";
+  }
+  if (block === "later_today") {
+    return "Budget this maintenance into today's upkeep block after time-sensitive work.";
+  }
+  return "Keep this maintenance for a calm window; do not displace active operator work.";
+}
+
+function maintenanceDecisionStateFromOperatingBlock(
+  operatingBlock: MaintenanceOperatingBlockSummary | null | undefined,
+): MaintenanceDecisionExplanationSummary["state"] {
+  if (!operatingBlock?.eligible) {
+    return "suppressed";
+  }
+  if (operatingBlock.block === "current_block") {
+    return "do_now";
+  }
+  if (operatingBlock.block === "later_today") {
+    return "budget_today";
+  }
+  if (operatingBlock.block === "calm_window") {
+    return "calm_window";
+  }
+  return "suppressed";
+}
+
+function maintenanceDecisionReasonSummary(
+  state: MaintenanceDecisionExplanationSummary["state"],
+  driver: MaintenanceDecisionExplanationSummary["driver"],
+  schedulingReason: string | null,
+): Pick<MaintenanceDecisionExplanationSummary, "summary" | "why_now" | "why_not_higher"> {
+  if (state === "do_now") {
+    return {
+      summary: "This maintenance work belongs in the current operating block.",
+      why_now: "The system is ready, this family is surfaced for the current block, and there is no higher-priority urgent work ahead of it.",
+      why_not_higher: "It still stays below active repair and truly urgent operator work.",
+    };
+  }
+  if (state === "budget_today") {
+    return {
+      summary: "This maintenance work should be budgeted into today's upkeep block.",
+      why_now: "The system is ready and this family should be handled today, but not as the immediate next move.",
+      why_not_higher: "Time-sensitive work still comes first.",
+    };
+  }
+  if (state === "calm_window") {
+    return {
+      summary: "This maintenance work is available only as calm-window guidance.",
+      why_now: "It is useful preventive upkeep, but not important enough to displace active operator work.",
+      why_not_higher: "It is intentionally quieter than scheduled or escalated maintenance.",
+    };
+  }
+  if (driver === "repair_blocked") {
+    return {
+      summary: "This maintenance family is currently suppressed because the same family is already in active repair.",
+      why_now: null,
+      why_not_higher: "Active repair already owns this family right now.",
+    };
+  }
+  if (driver === "readiness_blocked") {
+    return {
+      summary: "This maintenance family is currently suppressed because the system is not ready for maintenance guidance.",
+      why_now: null,
+      why_not_higher: "Maintenance stays quiet until the system returns to a ready state.",
+    };
+  }
+  return {
+    summary: "This maintenance family is currently suppressed and should not surface until it has a valid operating block again.",
+    why_now: null,
+    why_not_higher: schedulingReason ?? "Maintenance stays suppressed until it has a valid operating block again.",
+  };
+}
+
+export function buildMaintenanceOperatingBlockSummary(input: {
+  state: ServiceState;
+  repair_plan: Pick<RepairPlan, "steps">;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
+  maintenance_confidence?: MaintenanceConfidenceSummary | null;
+}): MaintenanceOperatingBlockSummary {
+  const scheduling = input.maintenance_scheduling;
+  const confidenceLevel =
+    input.maintenance_confidence?.eligible && input.maintenance_confidence.step_id === scheduling.step_id
+      ? input.maintenance_confidence.level
+      : null;
+  const base = {
+    ...emptyMaintenanceOperatingBlockSummary(),
+    step_id: scheduling.step_id,
+    reason: scheduling.reason,
+    confidence_level: confidenceLevel,
+    bundle_step_ids: [...scheduling.bundle_step_ids],
+  };
+
+  if (input.state !== "ready") {
+    return base;
+  }
+  if (!scheduling.step_id) {
+    return base;
+  }
+  if (input.repair_plan.steps.some((step) => step.id === scheduling.step_id)) {
+    return base;
+  }
+  if (!scheduling.eligible) {
+    return base;
+  }
+
+  if (scheduling.placement === "now") {
+    return {
+      ...base,
+      eligible: true,
+      block: "current_block",
+      summary: maintenanceOperatingBlockSummaryFor("current_block"),
+      suggested_command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    };
+  }
+  if (scheduling.placement === "prep_day") {
+    return {
+      ...base,
+      eligible: true,
+      block: "later_today",
+      summary: maintenanceOperatingBlockSummaryFor("later_today"),
+      suggested_command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    };
+  }
+  if (scheduling.placement === "calm_window") {
+    return {
+      ...base,
+      eligible: true,
+      block: "calm_window",
+      summary: maintenanceOperatingBlockSummaryFor("calm_window"),
+      suggested_command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    };
+  }
+  return base;
+}
+
 function maintenanceCommitmentSummaryFor(record: MaintenanceCommitmentRecord): string {
   if (record.state === "handed_off_to_repair") {
     return "This maintenance commitment stopped for the right reason and moved into repair.";
@@ -742,6 +1096,118 @@ function buildMaintenanceCommitmentSummary(
     defer_count: record.defer_count,
     last_presented_at: record.last_presented_at,
     bundle_step_ids: [...record.bundle_step_ids],
+  };
+}
+
+export function buildMaintenanceDecisionExplanationSummary(input: {
+  state: ServiceState;
+  repair_plan: Pick<RepairPlan, "steps">;
+  maintenance_commitment: MaintenanceCommitmentSummary;
+  maintenance_defer_memory: MaintenanceDeferMemorySummary;
+  maintenance_escalation: MaintenanceEscalationSummary;
+  maintenance_confidence?: MaintenanceConfidenceSummary | null;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | null;
+  maintenance_scheduling: MaintenanceSchedulingSummary;
+}): MaintenanceDecisionExplanationSummary {
+  const summary = emptyMaintenanceDecisionExplanationSummary();
+  const candidateStepId =
+    (input.maintenance_commitment.active ? input.maintenance_commitment.step_id : null) ??
+    input.maintenance_escalation.step_id ??
+    (input.maintenance_operating_block?.eligible ? input.maintenance_operating_block.step_id : null) ??
+    input.maintenance_scheduling.step_id ??
+    null;
+  if (!candidateStepId) {
+    return summary;
+  }
+
+  const activeRepairForStep = input.repair_plan.steps.some((step) => step.id === candidateStepId);
+  const explanationState = maintenanceDecisionStateFromOperatingBlock(input.maintenance_operating_block);
+  const driver: MaintenanceDecisionExplanationSummary["driver"] =
+    activeRepairForStep
+      ? "repair_blocked"
+      : input.state !== "ready"
+        ? "readiness_blocked"
+        : input.maintenance_commitment.active && input.maintenance_commitment.step_id === candidateStepId
+          ? "commitment"
+          : input.maintenance_escalation.eligible && input.maintenance_escalation.step_id === candidateStepId
+            ? "escalation"
+            : input.maintenance_confidence?.eligible && input.maintenance_confidence.step_id === candidateStepId
+              ? "confidence"
+              : input.maintenance_operating_block?.eligible && input.maintenance_operating_block.step_id === candidateStepId
+                ? "operating_block"
+                : "scheduling";
+  const reasons: MaintenanceDecisionReasonCode[] = [];
+  if (activeRepairForStep) {
+    reasons.push("active_repair_present");
+  }
+  if (input.state !== "ready") {
+    reasons.push("system_not_ready");
+  }
+  if (input.maintenance_commitment.active && input.maintenance_commitment.step_id === candidateStepId) {
+    reasons.push("commitment_active");
+  }
+  if (
+    input.maintenance_defer_memory.step_id === candidateStepId &&
+    input.maintenance_defer_memory.defer_count > 0
+  ) {
+    reasons.push("defer_memory_present");
+  }
+  if (input.maintenance_confidence?.eligible && input.maintenance_confidence.step_id === candidateStepId) {
+    if (input.maintenance_confidence.trend === "rising") {
+      reasons.push("confidence_rising");
+    }
+    if (input.maintenance_confidence.trend === "cooling") {
+      reasons.push("confidence_cooling");
+    }
+  }
+  if (input.maintenance_escalation.eligible && input.maintenance_escalation.step_id === candidateStepId) {
+    reasons.push("escalation_active");
+  }
+  if (explanationState === "do_now") {
+    reasons.push("scheduled_for_current_block");
+  } else if (explanationState === "budget_today") {
+    reasons.push("urgent_work_ahead", "scheduled_for_later_today");
+  } else if (explanationState === "calm_window") {
+    reasons.push("scheduled_for_calm_window", "quiet_window_only");
+  }
+
+  const explanationText = maintenanceDecisionReasonSummary(
+    explanationState,
+    driver,
+    input.maintenance_scheduling.reason,
+  );
+  const operatingBlock =
+    input.maintenance_operating_block?.step_id === candidateStepId
+      ? input.maintenance_operating_block.block
+      : explanationState === "do_now"
+        ? "current_block"
+        : explanationState === "budget_today"
+          ? "later_today"
+          : explanationState === "calm_window"
+            ? "calm_window"
+            : "suppressed";
+  return {
+    eligible: true,
+    step_id: candidateStepId,
+    state: explanationState,
+    driver,
+    summary: explanationText.summary,
+    why_now: explanationText.why_now,
+    why_not_higher: explanationText.why_not_higher,
+    suggested_command:
+      explanationState === "suppressed"
+        ? null
+        : input.maintenance_scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    confidence_level:
+      input.maintenance_confidence?.eligible && input.maintenance_confidence.step_id === candidateStepId
+        ? input.maintenance_confidence.level
+        : input.maintenance_operating_block?.confidence_level ?? null,
+    operating_block: operatingBlock,
+    reasons,
+    bundle_step_ids:
+      input.maintenance_scheduling.bundle_step_ids.length > 0
+        ? [...input.maintenance_scheduling.bundle_step_ids]
+        : [candidateStepId],
   };
 }
 
@@ -1005,6 +1471,9 @@ export function buildMaintenanceSessionPlan(input: {
   maintenance_scheduling?: MaintenanceSchedulingSummary | null;
   maintenance_commitment?: MaintenanceCommitmentSummary | null;
   maintenance_defer_memory?: MaintenanceDeferMemorySummary | null;
+  maintenance_confidence?: MaintenanceConfidenceSummary | null;
+  maintenance_operating_block?: MaintenanceOperatingBlockSummary | null;
+  maintenance_decision_explanation?: MaintenanceDecisionExplanationSummary | null;
   recent_repair_executions?: RepairExecutionRecord[];
 }): MaintenanceSessionPlan {
   const generatedAt = input.generated_at ?? new Date().toISOString();
@@ -1033,16 +1502,34 @@ export function buildMaintenanceSessionPlan(input: {
       ...(input.maintenance_follow_through ?? emptyMaintenanceFollowThroughSummary(generatedAt)),
       commitment: input.maintenance_commitment ?? input.maintenance_follow_through?.commitment ?? emptyMaintenanceCommitmentSummary(),
       defer_memory: input.maintenance_defer_memory ?? input.maintenance_follow_through?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      confidence: input.maintenance_confidence ?? input.maintenance_follow_through?.confidence ?? emptyMaintenanceConfidenceSummary(),
     },
     maintenance_scheduling: {
       ...(input.maintenance_scheduling ?? emptyMaintenanceSchedulingSummary()),
       commitment: input.maintenance_commitment ?? input.maintenance_scheduling?.commitment ?? emptyMaintenanceCommitmentSummary(),
       defer_memory: input.maintenance_defer_memory ?? input.maintenance_scheduling?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+      confidence: input.maintenance_confidence ?? input.maintenance_scheduling?.confidence ?? emptyMaintenanceConfidenceSummary(),
+      operating_block:
+        input.maintenance_operating_block ??
+        input.maintenance_scheduling?.operating_block ??
+        emptyMaintenanceOperatingBlockSummary(),
+      decision_explanation:
+        input.maintenance_decision_explanation ??
+        input.maintenance_scheduling?.decision_explanation ??
+        emptyMaintenanceDecisionExplanationSummary(),
     },
     maintenance_commitment:
       input.maintenance_commitment ?? input.maintenance_follow_through?.commitment ?? input.maintenance_scheduling?.commitment ?? emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory:
       input.maintenance_defer_memory ?? input.maintenance_follow_through?.defer_memory ?? input.maintenance_scheduling?.defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence:
+      input.maintenance_confidence ?? input.maintenance_follow_through?.confidence ?? input.maintenance_scheduling?.confidence ?? emptyMaintenanceConfidenceSummary(),
+    maintenance_operating_block:
+      input.maintenance_operating_block ?? input.maintenance_scheduling?.operating_block ?? emptyMaintenanceOperatingBlockSummary(),
+    maintenance_decision_explanation:
+      input.maintenance_decision_explanation ??
+      input.maintenance_scheduling?.decision_explanation ??
+      emptyMaintenanceDecisionExplanationSummary(),
   };
 }
 
@@ -1066,6 +1553,9 @@ export function summarizeRepairPlan(plan: RepairPlan): RepairPlanSummary {
     maintenance_window: plan.maintenance_window,
     maintenance_commitment: plan.maintenance_commitment,
     maintenance_defer_memory: plan.maintenance_defer_memory,
+    maintenance_confidence: plan.maintenance_confidence,
+    maintenance_operating_block: plan.maintenance_operating_block,
+    maintenance_decision_explanation: plan.maintenance_decision_explanation,
     last_repair: plan.last_repair,
     recurring_issue: plan.recurring_issue,
   };
@@ -1382,6 +1872,9 @@ export function buildRepairPlan(options: BuildRepairPlanOptions): RepairPlan {
     maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
     maintenance_commitment: emptyMaintenanceCommitmentSummary(),
     maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
     last_repair: lastRepair,
     recurring_issue: recurringIssue,
     steps,

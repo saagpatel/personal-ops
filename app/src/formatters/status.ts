@@ -103,6 +103,51 @@ function maintenanceDeferMemoryRows(summary: RepairPlan["maintenance_defer_memor
   ];
 }
 
+function maintenanceConfidenceRows(summary: RepairPlan["maintenance_confidence"] | undefined): string[] {
+  if (!summary || !summary.eligible || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  const descriptor = summary.level && summary.trend ? `${summary.level}/${summary.trend}` : "active";
+  return [
+    `- Maintenance confidence (${descriptor}): ${summary.summary}${
+      summary.suggested_command ? ` Next: \`${summary.suggested_command}\`.` : ""
+    }`,
+  ];
+}
+
+function maintenanceOperatingBlockRows(summary: RepairPlan["maintenance_operating_block"] | undefined): string[] {
+  if (!summary || !summary.eligible || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  const rows = [
+    `- Maintenance operating block (${summary.block.replaceAll("_", " ")}): ${summary.summary}${
+      summary.suggested_command ? ` Next: \`${summary.suggested_command}\`.` : ""
+    }`,
+  ];
+  if (summary.reason) {
+    rows.push(`- ${summary.reason}`);
+  }
+  return rows;
+}
+
+function maintenanceDecisionExplanationRows(summary: RepairPlan["maintenance_decision_explanation"] | undefined): string[] {
+  if (!summary || !summary.eligible || !summary.summary || !summary.step_id) {
+    return [];
+  }
+  const rows = [
+    `- Maintenance decision (${summary.state.replaceAll("_", " ")} / ${summary.driver?.replaceAll("_", " ") ?? "none"}): ${summary.summary}${
+      summary.suggested_command ? ` Next: \`${summary.suggested_command}\`.` : ""
+    }`,
+  ];
+  if (summary.why_now) {
+    rows.push(`- Why now: ${summary.why_now}`);
+  }
+  if (summary.why_not_higher) {
+    rows.push(`- Why not higher: ${summary.why_not_higher}`);
+  }
+  return rows;
+}
+
 function statusActionItems(report: ServiceStatusReport): string[] {
   const actions: string[] = [];
 
@@ -179,6 +224,9 @@ function formatRepairPlan(plan: RepairPlan): string[] {
   lines.push(...maintenanceFollowThroughRows(plan.maintenance_follow_through));
   lines.push(...maintenanceCommitmentRows(plan.maintenance_commitment));
   lines.push(...maintenanceDeferMemoryRows(plan.maintenance_defer_memory));
+  lines.push(...maintenanceConfidenceRows(plan.maintenance_confidence));
+  lines.push(...maintenanceOperatingBlockRows(plan.maintenance_operating_block));
+  lines.push(...maintenanceDecisionExplanationRows(plan.maintenance_decision_explanation));
   lines.push(...maintenanceSchedulingRows(plan.maintenance_scheduling));
   if (plan.steps.length === 0) {
     lines.push("- No repair actions are pending right now.");
@@ -246,6 +294,30 @@ export function formatRepairPlanReport(plan: RepairPlan): string {
       "Maintenance scheduling",
       plan.maintenance_scheduling.eligible
         ? `${plan.maintenance_scheduling.step_id ?? "none"} (${plan.maintenance_scheduling.placement.replaceAll("_", " ")})`
+        : "none",
+    ),
+  );
+  lines.push(
+    line(
+      "Maintenance operating block",
+      plan.maintenance_operating_block?.eligible
+        ? `${plan.maintenance_operating_block.step_id ?? "none"} (${plan.maintenance_operating_block.block.replaceAll("_", " ")})`
+        : "none",
+    ),
+  );
+  lines.push(
+    line(
+      "Maintenance confidence",
+      plan.maintenance_confidence?.eligible && plan.maintenance_confidence.step_id
+        ? `${plan.maintenance_confidence.step_id} (${plan.maintenance_confidence.level ?? "none"} / ${plan.maintenance_confidence.trend ?? "none"})`
+        : "none",
+    ),
+  );
+  lines.push(
+    line(
+      "Maintenance decision",
+      plan.maintenance_decision_explanation?.eligible
+        ? `${plan.maintenance_decision_explanation.step_id ?? "none"} (${plan.maintenance_decision_explanation.state.replaceAll("_", " ")} / ${plan.maintenance_decision_explanation.driver?.replaceAll("_", " ") ?? "none"})`
         : "none",
     ),
   );
@@ -632,8 +704,35 @@ export function formatSendWindowStatus(status: SendWindowStatus): string {
 export function formatWorklistReport(report: WorklistReport): string {
   const lines: string[] = [];
   const followThroughRows = maintenanceFollowThroughRows(report.maintenance_follow_through);
+  const confidenceRows = maintenanceConfidenceRows(report.maintenance_confidence);
+  const operatingBlockRows = maintenanceOperatingBlockRows(report.maintenance_operating_block);
+  const decisionRows = maintenanceDecisionExplanationRows(report.maintenance_decision_explanation);
   const commitmentRows = maintenanceCommitmentRows(report.maintenance_commitment);
   const deferMemoryRows = maintenanceDeferMemoryRows(report.maintenance_defer_memory);
+  if (confidenceRows.length > 0) {
+    if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...confidenceRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...confidenceRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...confidenceRows);
+    } else {
+      commitmentRows.push(...confidenceRows);
+    }
+  }
+  if (decisionRows.length > 0) {
+    if (operatingBlockRows.length > 0) {
+      operatingBlockRows.push(...decisionRows);
+    } else if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...decisionRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...decisionRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...decisionRows);
+    } else {
+      operatingBlockRows.push(...decisionRows);
+    }
+  }
   const schedulingRows = maintenanceSchedulingRows(report.maintenance_scheduling);
   const maintenanceRows =
     report.maintenance_window.eligible_now && report.maintenance_window.bundle
@@ -645,6 +744,13 @@ export function formatWorklistReport(report: WorklistReport): string {
           ),
         ]
       : [];
+  const hasMaintenanceContext =
+    followThroughRows.length > 0 ||
+    commitmentRows.length > 0 ||
+    deferMemoryRows.length > 0 ||
+    operatingBlockRows.length > 0 ||
+    schedulingRows.length > 0 ||
+    maintenanceRows.length > 0;
   lines.push(`Worklist: ${formatStateLabel(report.state)}`);
   lines.push(line("Generated", report.generated_at));
   lines.push(
@@ -665,9 +771,13 @@ export function formatWorklistReport(report: WorklistReport): string {
 
   if (report.items.length === 0) {
     lines.push("Start Here");
-    lines.push(`- ${maintenanceRows.length > 0 ? "Nothing urgent needs attention right now." : "Nothing needs attention right now."}`);
-    if (maintenanceRows.length > 0) {
-      lines.push("- A calm-window maintenance bundle is available below.");
+    lines.push(`- ${hasMaintenanceContext ? "Nothing urgent needs attention right now." : "Nothing needs attention right now."}`);
+    if (hasMaintenanceContext) {
+      if (maintenanceRows.length > 0) {
+        lines.push("- A calm-window maintenance bundle is available below.");
+      } else {
+        lines.push("- Maintenance guidance is available below.");
+      }
       lines.push("");
       if (followThroughRows.length > 0) {
         pushSection(lines, "Maintenance Follow-Through", followThroughRows);
@@ -678,10 +788,15 @@ export function formatWorklistReport(report: WorklistReport): string {
       if (deferMemoryRows.length > 0) {
         pushSection(lines, "Defer Memory", deferMemoryRows);
       }
+      if (operatingBlockRows.length > 0) {
+        pushSection(lines, "Maintenance Operating Block", operatingBlockRows);
+      }
       if (schedulingRows.length > 0) {
         pushSection(lines, "Maintenance Scheduling", schedulingRows);
       }
-      pushSection(lines, "Preventive Maintenance", maintenanceRows);
+      if (maintenanceRows.length > 0) {
+        pushSection(lines, "Preventive Maintenance", maintenanceRows);
+      }
     }
     return lines.join("\n");
   }
@@ -711,6 +826,10 @@ export function formatWorklistReport(report: WorklistReport): string {
 
   if (deferMemoryRows.length > 0) {
     pushSection(lines, "Defer Memory", deferMemoryRows);
+  }
+
+  if (operatingBlockRows.length > 0) {
+    pushSection(lines, "Maintenance Operating Block", operatingBlockRows);
   }
 
   if (schedulingRows.length > 0) {
@@ -861,9 +980,37 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     summary: session.maintenance_follow_through.summary,
     commitment: session.maintenance_follow_through.commitment,
     defer_memory: session.maintenance_follow_through.defer_memory,
+    confidence: session.maintenance_follow_through.confidence,
   });
+  const confidenceRows = maintenanceConfidenceRows(session.maintenance_confidence);
+  const operatingBlockRows = maintenanceOperatingBlockRows(session.maintenance_operating_block);
+  const decisionRows = maintenanceDecisionExplanationRows(session.maintenance_decision_explanation);
   const commitmentRows = maintenanceCommitmentRows(session.maintenance_commitment);
   const deferMemoryRows = maintenanceDeferMemoryRows(session.maintenance_defer_memory);
+  if (confidenceRows.length > 0) {
+    if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...confidenceRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...confidenceRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...confidenceRows);
+    } else {
+      commitmentRows.push(...confidenceRows);
+    }
+  }
+  if (decisionRows.length > 0) {
+    if (operatingBlockRows.length > 0) {
+      operatingBlockRows.push(...decisionRows);
+    } else if (deferMemoryRows.length > 0) {
+      deferMemoryRows.push(...decisionRows);
+    } else if (commitmentRows.length > 0) {
+      commitmentRows.push(...decisionRows);
+    } else if (followThroughRows.length > 0) {
+      followThroughRows.push(...decisionRows);
+    } else {
+      operatingBlockRows.push(...decisionRows);
+    }
+  }
   const schedulingRows = maintenanceSchedulingRows(session.maintenance_scheduling);
   lines.push("Maintenance Session");
   lines.push(line("Generated", session.generated_at));
@@ -881,6 +1028,9 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
     }
     if (deferMemoryRows.length > 0) {
       pushSection(lines, "Defer Memory", deferMemoryRows);
+    }
+    if (operatingBlockRows.length > 0) {
+      pushSection(lines, "Operating Block", operatingBlockRows);
     }
     if (schedulingRows.length > 0) {
       pushSection(lines, "Scheduling", schedulingRows);
@@ -904,6 +1054,9 @@ export function formatMaintenanceSessionPlan(session: MaintenanceSessionPlan): s
   }
   if (deferMemoryRows.length > 0) {
     pushSection(lines, "Defer Memory", deferMemoryRows);
+  }
+  if (operatingBlockRows.length > 0) {
+    pushSection(lines, "Operating Block", operatingBlockRows);
   }
   if (schedulingRows.length > 0) {
     pushSection(lines, "Scheduling", schedulingRows);
@@ -975,6 +1128,9 @@ export function formatVersionReport(report: VersionReport): string {
 export function formatNowReport(status: ServiceStatusReport, worklist: WorklistReport): string {
   const lines: string[] = [];
   const maintenanceScheduling = worklist.maintenance_scheduling;
+  const maintenanceConfidence = worklist.maintenance_confidence;
+  const maintenanceOperatingBlock = worklist.maintenance_operating_block;
+  const maintenanceDecisionExplanation = worklist.maintenance_decision_explanation;
   const followThroughRows = maintenanceFollowThroughRows(worklist.maintenance_follow_through);
   lines.push(`Personal Ops Now: ${formatStateLabel(status.state)}`);
   lines.push(line("Next attention", topSummary(worklist.items[0]?.summary, "nothing urgent right now")));
@@ -996,13 +1152,22 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
       lines.push("Maintenance Follow-Through");
       lines.push(...followThroughRows);
     }
-    if (maintenanceScheduling.eligible && maintenanceScheduling.placement === "now") {
+    if (maintenanceOperatingBlock?.eligible && maintenanceOperatingBlock.block === "current_block") {
       lines.push("");
       lines.push("Maintenance Now");
-      lines.push(`- ${maintenanceScheduling.summary}`);
+      if (maintenanceConfidence?.eligible && maintenanceConfidence.step_id === maintenanceScheduling.step_id) {
+        lines.push(`- ${maintenanceConfidence.summary}`);
+      }
+      lines.push(`- ${maintenanceOperatingBlock.summary}`);
+      if (maintenanceDecisionExplanation?.eligible && maintenanceDecisionExplanation.state === "do_now") {
+        lines.push(`- ${maintenanceDecisionExplanation.summary}`);
+        if (maintenanceDecisionExplanation.why_now) {
+          lines.push(`- ${maintenanceDecisionExplanation.why_now}`);
+        }
+      }
       lines.push("- Start with `personal-ops maintenance session`.");
-      if (maintenanceScheduling.reason) {
-        lines.push(`- ${maintenanceScheduling.reason}`);
+      if (maintenanceOperatingBlock.reason) {
+        lines.push(`- ${maintenanceOperatingBlock.reason}`);
       }
       lines.push("");
     }
@@ -1015,13 +1180,22 @@ export function formatNowReport(status: ServiceStatusReport, worklist: WorklistR
     lines.push(`- ${item.title}`);
     lines.push(`  ${item.suggested_command}`);
   }
-  if (maintenanceScheduling.eligible && maintenanceScheduling.placement === "now") {
+  if (maintenanceOperatingBlock?.eligible && maintenanceOperatingBlock.block === "current_block") {
     lines.push("");
     lines.push("Maintenance Now");
-    lines.push(`- ${maintenanceScheduling.summary}`);
+    if (maintenanceConfidence?.eligible && maintenanceConfidence.step_id === maintenanceScheduling.step_id) {
+      lines.push(`- ${maintenanceConfidence.summary}`);
+    }
+    lines.push(`- ${maintenanceOperatingBlock.summary}`);
+    if (maintenanceDecisionExplanation?.eligible && maintenanceDecisionExplanation.state === "do_now") {
+      lines.push(`- ${maintenanceDecisionExplanation.summary}`);
+      if (maintenanceDecisionExplanation.why_now) {
+        lines.push(`- ${maintenanceDecisionExplanation.why_now}`);
+      }
+    }
     lines.push("- Start with `personal-ops maintenance session`.");
-    if (maintenanceScheduling.reason) {
-      lines.push(`- ${maintenanceScheduling.reason}`);
+    if (maintenanceOperatingBlock.reason) {
+      lines.push(`- ${maintenanceOperatingBlock.reason}`);
     }
   }
   if (followThroughRows.length > 0) {

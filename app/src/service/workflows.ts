@@ -267,6 +267,9 @@ function buildWorkflowReport(input: {
     maintenance_scheduling: input.worklist.maintenance_scheduling,
     maintenance_commitment: input.worklist.maintenance_commitment,
     maintenance_defer_memory: input.worklist.maintenance_defer_memory,
+    maintenance_confidence: input.worklist.maintenance_confidence,
+    maintenance_operating_block: input.worklist.maintenance_operating_block,
+    maintenance_decision_explanation: input.worklist.maintenance_decision_explanation,
   };
 }
 
@@ -966,46 +969,72 @@ function buildPrepDayTimeSensitive(
 function buildMaintenanceWindowItems(worklist: WorklistReport): WorkflowBundleSectionItem[] {
   const items: WorkflowBundleSectionItem[] = [];
   const scheduling = worklist.maintenance_scheduling;
-  if (!scheduling.eligible || !scheduling.step_id) {
+  const operatingBlock = worklist.maintenance_operating_block;
+  const decisionExplanation = worklist.maintenance_decision_explanation;
+  if (!operatingBlock?.eligible || !operatingBlock.step_id) {
     return items;
   }
 
-  if (scheduling.placement === "now" || scheduling.placement === "prep_day") {
+  if (operatingBlock.block === "current_block" || operatingBlock.block === "later_today") {
+    const confidenceSummary =
+      worklist.maintenance_confidence?.eligible && worklist.maintenance_confidence.step_id === operatingBlock.step_id
+        ? worklist.maintenance_confidence.summary
+        : null;
     items.push({
-      label: scheduling.placement === "now" ? "Maintenance now" : "Plan maintenance block",
+      label: operatingBlock.block === "current_block" ? "Maintenance now" : "Plan maintenance block",
       summary:
+        (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
+          ? decisionExplanation.summary
+          : null) ??
+        confidenceSummary ??
         worklist.maintenance_commitment?.summary ??
+        operatingBlock.summary ??
         scheduling.summary ??
         "Recurring maintenance is behaving more like repair-priority upkeep.",
-      command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+      command: operatingBlock.suggested_command ?? scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
       target_type: "system",
-      target_id: `maintenance:${scheduling.step_id}`,
+      target_id: `maintenance:${operatingBlock.step_id}`,
       why_now:
-        scheduling.reason ??
-        (scheduling.placement === "now"
+        (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
+          ? decisionExplanation.why_now
+          : null) ??
+        operatingBlock.reason ??
+        (operatingBlock.block === "current_block"
           ? "This upkeep has become repair-priority work in the current operating block."
           : "This upkeep should be planned after time-sensitive work, not surfaced as the immediate next move."),
-      score_band: scheduling.placement === "now" ? "high" : "medium",
+      score_band: operatingBlock.block === "current_block" ? "high" : "medium",
       signals: [
-        scheduling.placement === "now" ? "maintenance_scheduling_now" : "maintenance_scheduling_prep_day",
-        scheduling.step_id,
+        operatingBlock.block === "current_block" ? "maintenance_operating_block_current" : "maintenance_operating_block_later_today",
+        operatingBlock.step_id,
       ],
     });
     return items;
   }
 
-  if (scheduling.placement !== "calm_window" || !worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
+  if (operatingBlock.block !== "calm_window" || !worklist.maintenance_window.eligible_now || !worklist.maintenance_window.bundle) {
     return items;
   }
   items.push({
     label: "Calm-window maintenance",
-    summary: scheduling.summary ?? worklist.maintenance_window.bundle.summary,
-    command: scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
+    summary:
+      (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
+        ? decisionExplanation.summary
+        : null) ??
+      operatingBlock.summary ??
+      scheduling.summary ??
+      worklist.maintenance_window.bundle.summary,
+    command: operatingBlock.suggested_command ?? scheduling.suggested_command ?? MAINTENANCE_SESSION_COMMAND,
     target_type: "system",
-    target_id: `maintenance:${scheduling.step_id}`,
-    why_now: scheduling.reason ?? "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
+    target_id: `maintenance:${operatingBlock.step_id}`,
+    why_now:
+      (decisionExplanation?.eligible && decisionExplanation.step_id === operatingBlock.step_id
+        ? decisionExplanation.why_now
+        : null) ??
+      operatingBlock.reason ??
+      scheduling.reason ??
+      "This is preventive maintenance for a calm window, not active repair or urgent delivery work.",
     score_band: "medium",
-    signals: ["maintenance_scheduling_calm_window", scheduling.step_id],
+    signals: ["maintenance_operating_block_calm_window", operatingBlock.step_id],
   });
   return items.concat(worklist.maintenance_window.bundle.recommendations.map((recommendation) => ({
     label: recommendation.title,

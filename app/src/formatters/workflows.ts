@@ -28,6 +28,48 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
   if (report.maintenance_defer_memory?.summary) {
     lines.push(`Defer memory: ${report.maintenance_defer_memory.summary}`);
   }
+  if (
+    report.maintenance_confidence?.eligible &&
+    report.maintenance_confidence.summary &&
+    ((report.workflow === "now-next" && report.maintenance_scheduling.placement === "now") ||
+      (report.workflow === "prep-day" && report.maintenance_scheduling.placement === "prep_day"))
+  ) {
+    lines.push(`Maintenance confidence: ${report.maintenance_confidence.summary}`);
+  }
+  if (
+    report.maintenance_operating_block?.eligible &&
+    report.maintenance_operating_block.summary &&
+    ((report.workflow === "now-next" && report.maintenance_operating_block.block === "current_block") ||
+      (report.workflow === "prep-day" &&
+        (report.maintenance_operating_block.block === "current_block" ||
+          report.maintenance_operating_block.block === "later_today" ||
+          report.maintenance_operating_block.block === "calm_window")))
+  ) {
+    lines.push(
+      `Maintenance operating block (${report.maintenance_operating_block.block.replaceAll("_", " ")}): ${report.maintenance_operating_block.summary}`,
+    );
+    if (report.maintenance_operating_block.suggested_command) {
+      lines.push(`Next: ${report.maintenance_operating_block.suggested_command}`);
+    }
+  }
+  if (
+    report.maintenance_decision_explanation?.eligible &&
+    report.maintenance_decision_explanation.summary &&
+    ((report.workflow === "now-next" && report.maintenance_decision_explanation.state === "do_now") ||
+      (report.workflow === "prep-day" &&
+        (report.maintenance_decision_explanation.state === "budget_today" ||
+          report.maintenance_decision_explanation.state === "calm_window")))
+  ) {
+    lines.push(
+      `Maintenance decision (${report.maintenance_decision_explanation.state.replaceAll("_", " ")}): ${report.maintenance_decision_explanation.summary}`,
+    );
+    if (report.maintenance_decision_explanation.why_now) {
+      lines.push(`Why now: ${report.maintenance_decision_explanation.why_now}`);
+    }
+    if (report.maintenance_decision_explanation.why_not_higher) {
+      lines.push(`Why not higher: ${report.maintenance_decision_explanation.why_not_higher}`);
+    }
+  }
   if (report.maintenance_escalation.eligible && report.maintenance_escalation.summary) {
     lines.push(`Maintenance escalation: ${report.maintenance_escalation.summary}`);
     lines.push(`Next: ${report.maintenance_escalation.suggested_command}`);
