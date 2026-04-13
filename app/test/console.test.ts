@@ -1098,6 +1098,170 @@ test("phase 27 console payloads carry workflow-first personalization through now
   }
 });
 
+test("phase 31 console endpoints carry duplicate suppression and balanced quieting for top surfaced work", async () => {
+  const fixture = await createConsoleFixture();
+  try {
+    const serviceAny = fixture.service as any;
+    const originalStatus = await fixture.service.getStatusReport({ httpReachable: true });
+    const originalQueue = await fixture.service.getAssistantActionQueueReport({ httpReachable: true });
+    const originalWorkflow = await fixture.service.getNowNextWorkflowReport({ httpReachable: true });
+    const topAssistant = originalQueue.actions.find((action) => action.action_id === "assistant.review-top-attention") ?? originalQueue.actions[0]!;
+
+    serviceAny.getStatusReport = async () => ({
+      ...originalStatus,
+      workspace_home: {
+        ...originalStatus.workspace_home,
+        ready: true,
+        state: "assistant",
+        title: "Assistant-prepared work is ready",
+        summary: topAssistant.summary,
+        why_now: topAssistant.why_now,
+        primary_command: topAssistant.command ?? "personal-ops assistant queue",
+        assistant_action_id: topAssistant.action_id,
+        surfaced_work_helpfulness: {
+          eligible: true,
+          surface: "workspace_home",
+          target_type: "assistant_action",
+          target_id: topAssistant.action_id,
+          level: "helpful",
+          summary: "Recent outcomes suggest this surfaced work is usually acted on.",
+          sample_count_30d: 4,
+          helpful_count_30d: 3,
+          attempted_failed_count_30d: 0,
+          superseded_count_30d: 1,
+          expired_count_30d: 0,
+          helpful_rate_30d: 0.75,
+        },
+      },
+    });
+    serviceAny.getNowNextWorkflowReport = async () => ({
+      ...originalWorkflow,
+      actions: originalWorkflow.actions.map((action: any, index: number) =>
+        index === 0
+          ? {
+              ...action,
+              summary: "Quiet secondary workflow item.",
+              why_now: "This is still available if the focus changes.",
+              target_type: "planning_recommendation",
+              target_id: "phase31-console-quiet",
+              planning_recommendation_id: "phase31-console-quiet",
+              workflow_personalization: {
+                eligible: true,
+                category: "followup",
+                preferred_window: "early_day",
+                current_window: "early_day",
+                fit: "favored",
+                reason: "aligned_with_habit",
+                summary: "This is a good fit for how you usually handle this kind of work.",
+                sample_count_30d: 3,
+              },
+              surfaced_work_helpfulness: {
+                eligible: true,
+                surface: "workflow_now_next",
+                target_type: "planning_recommendation",
+                target_id: "phase31-console-quiet",
+                level: "weak",
+                summary: "Recent outcomes suggest this surfaced work is often surfaced without follow-through.",
+                sample_count_30d: 4,
+                helpful_count_30d: 0,
+                attempted_failed_count_30d: 2,
+                superseded_count_30d: 1,
+                expired_count_30d: 1,
+                helpful_rate_30d: 0,
+              },
+            }
+          : action,
+      ),
+      sections: originalWorkflow.sections.map((section: any) =>
+        section.title === "Best Next Move"
+          ? {
+              ...section,
+              items: section.items.map((item: any, index: number) =>
+                index === 0
+                  ? {
+                      ...item,
+                      summary: "Quiet secondary workflow item.",
+                      why_now: "This is still available if the focus changes.",
+                      target_type: "planning_recommendation",
+                      target_id: "phase31-console-quiet",
+                      planning_recommendation_id: "phase31-console-quiet",
+                      workflow_personalization: {
+                        eligible: true,
+                        category: "followup",
+                        preferred_window: "early_day",
+                        current_window: "early_day",
+                        fit: "favored",
+                        reason: "aligned_with_habit",
+                        summary: "This is a good fit for how you usually handle this kind of work.",
+                        sample_count_30d: 3,
+                      },
+                      surfaced_work_helpfulness: {
+                        eligible: true,
+                        surface: "workflow_now_next",
+                        target_type: "planning_recommendation",
+                        target_id: "phase31-console-quiet",
+                        level: "weak",
+                        summary: "Recent outcomes suggest this surfaced work is often surfaced without follow-through.",
+                        sample_count_30d: 4,
+                        helpful_count_30d: 0,
+                        attempted_failed_count_30d: 2,
+                        superseded_count_30d: 1,
+                        expired_count_30d: 1,
+                        helpful_rate_30d: 0,
+                      },
+                    }
+                  : item,
+              ),
+            }
+          : section,
+      ),
+    });
+
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-phase31-test",
+      },
+    });
+    assert.equal(grantResponse.status, 200);
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const assistantResponse = await fetch(`${baseUrl}/v1/assistant/actions`, {
+      headers: { cookie },
+    });
+    assert.equal(assistantResponse.status, 200);
+    const assistantPayload = (await assistantResponse.json()) as {
+      assistant_queue?: { actions?: Array<{ action_id?: string; surfaced_noise_reduction?: { disposition?: string; show_helpfulness?: boolean; summary?: string | null } }> };
+    };
+
+    const workflowResponse = await fetch(`${baseUrl}/v1/workflows/now-next`, {
+      headers: { cookie },
+    });
+    assert.equal(workflowResponse.status, 200);
+    const workflowPayload = (await workflowResponse.json()) as {
+      workflow?: { actions?: Array<{ surfaced_noise_reduction?: { disposition?: string; show_helpfulness?: boolean; summary?: string | null } }> };
+    };
+
+    assert.equal(
+      assistantPayload.assistant_queue?.actions?.find((action) => action.action_id === topAssistant.action_id)?.surfaced_noise_reduction?.disposition,
+      "suppressed_duplicate",
+    );
+    assert.equal(
+      assistantPayload.assistant_queue?.actions?.find((action) => action.action_id === topAssistant.action_id)?.surfaced_noise_reduction?.show_helpfulness,
+      false,
+    );
+    assert.equal(workflowPayload.workflow?.actions?.[0]?.surfaced_noise_reduction?.disposition, "quieted");
+    assert.equal(workflowPayload.workflow?.actions?.[0]?.surfaced_noise_reduction?.summary, "This stays available, but recent follow-through has been weak.");
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("assistant-led Phase 2 console sessions can prepare inbox autopilot drafts, review them, and request approval", async () => {
   const mailbox = "machine@example.com";
   const fixture = await createConsoleFixture({ mailbox });

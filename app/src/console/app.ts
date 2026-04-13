@@ -2082,6 +2082,9 @@ function renderWorkflowItemMeta(item: WorkflowBundleReport["sections"][number]["
 function renderWorkflowPersonalization(
   item: WorkflowBundleReport["sections"][number]["items"][number],
 ): string {
+  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_personalization) {
+    return "";
+  }
   if (!item.workflow_personalization?.eligible || !item.workflow_personalization.summary || item.workflow_personalization.fit === "neutral") {
     return "";
   }
@@ -2095,10 +2098,24 @@ function renderSurfacedWorkHelpfulness(
     | ServiceStatusReport["workspace_home"]
     | AssistantActionQueueReport["actions"][number],
 ): string {
+  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_helpfulness) {
+    return "";
+  }
   if (!item.surfaced_work_helpfulness?.eligible || !item.surfaced_work_helpfulness.summary) {
     return "";
   }
   return `<p class="subtle subtle--body">${escapeHtml(item.surfaced_work_helpfulness.summary)}</p>`;
+}
+
+function surfacedNoiseSummary(
+  item:
+    | WorkflowBundleReport["sections"][number]["items"][number]
+    | WorkflowBundleReport["actions"][number]
+    | AssistantActionQueueReport["actions"][number],
+): string | null {
+  return item.surfaced_noise_reduction?.eligible && item.surfaced_noise_reduction.summary
+    ? item.surfaced_noise_reduction.summary
+    : null;
 }
 
 function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]): string {
@@ -2399,9 +2416,11 @@ function renderWorkflowSections(
                         <div class="list-item__top">
                           <h4>${escapeHtml(item.label)}</h4>
                         </div>
-                        <p>${escapeHtml(item.summary)}</p>
+                        <p>${escapeHtml(surfacedNoiseSummary(item) ?? item.summary)}</p>
                         ${
-                          item.why_now && !(options.suppressPrimaryWhyNow && sectionIndex === 0 && itemIndex === 0)
+                          item.why_now &&
+                          !(options.suppressPrimaryWhyNow && sectionIndex === 0 && itemIndex === 0) &&
+                          !(item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_why_now)
                             ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>`
                             : ""
                         }
@@ -2489,13 +2508,18 @@ function renderAssistantActionCard(
         <h4>${escapeHtml(action.title)}</h4>
         <span class="${assistantStateClass(action)}">${escapeHtml(action.state)}</span>
       </div>
-      <p>${escapeHtml(action.summary)}</p>
-      ${options.suppressWhyNow ? "" : `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`}
+      <p>${escapeHtml(surfacedNoiseSummary(action) ?? action.summary)}</p>
+      ${
+        options.suppressWhyNow || (action.surfaced_noise_reduction?.eligible && !action.surfaced_noise_reduction.show_why_now)
+          ? ""
+          : `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
+      }
       ${
         action.workflow_personalization?.eligible &&
         action.workflow_personalization.summary &&
         action.workflow_personalization.fit !== "neutral" &&
-        !options.suppressPersonalization
+        !options.suppressPersonalization &&
+        !(action.surfaced_noise_reduction?.eligible && !action.surfaced_noise_reduction.show_personalization)
           ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
           : ""
       }
@@ -3173,17 +3197,21 @@ function renderOverview(payload: ConsolePayload): string {
         ${
           primaryNowNext
             ? `
-              <p>${escapeHtml(primaryNowNext.summary)}</p>
+              <p>${escapeHtml(surfacedNoiseSummary(primaryNowNext) ?? primaryNowNext.summary)}</p>
               <div class="detail-list detail-list--spaced">
                 <div class="detail-row"><dt>Command</dt><dd>${escapeHtml(primaryNowNext.command)}</dd></div>
                 <div class="detail-row"><dt>Score band</dt><dd>${escapeHtml(primaryNowNext.score_band ?? "medium")}</dd></div>
-                <div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
-                  focusIsWorkflow
-                    ? workspaceHome.why_now ?? "This already owns the workspace focus."
-                    : focusIsRepair
-                      ? "Repair still comes first, so this is the next-up move after repair."
-                      : primaryNowNext.why_now ?? "This is the strongest current next move.",
-                )}</dd></div>
+                ${
+                  primaryNowNext.surfaced_noise_reduction?.eligible && !primaryNowNext.surfaced_noise_reduction.show_why_now
+                    ? ""
+                    : `<div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
+                        focusIsWorkflow
+                          ? workspaceHome.why_now ?? "This already owns the workspace focus."
+                          : focusIsRepair
+                            ? "Repair still comes first, so this is the next-up move after repair."
+                            : primaryNowNext.why_now ?? "This is the strongest current next move.",
+                      )}</dd></div>`
+                }
               </div>
               <div class="list-item__actions">
                 <button class="button button--primary" data-workflow="${escapeHtml(nowNext.workflow)}" data-workflow-action="0" type="button">Open related detail</button>
@@ -3883,7 +3911,7 @@ function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail
           <p>The selected recommendation controls are still loading.</p>
           <label class="field">
             <span class="eyebrow">Preset</span>
-            <select id="planning-snooze-preset">
+            <select data-planning-loading-snooze-preset="1">
               <option value="end-of-day">end-of-day</option>
               <option value="tomorrow-morning" selected>tomorrow-morning</option>
               <option value="next-business-day">next-business-day</option>
@@ -3891,7 +3919,7 @@ function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail
           </label>
           <label class="field">
             <span class="eyebrow">Note</span>
-            <textarea id="planning-snooze-note" rows="3" placeholder="Why this can wait."></textarea>
+            <textarea data-planning-loading-snooze-note="1" rows="3" placeholder="Why this can wait."></textarea>
           </label>
           <button class="button" data-planning-loading-snooze="1" type="button">Snooze recommendation</button>
         </section>

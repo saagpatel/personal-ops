@@ -135,7 +135,7 @@ import {
   buildPrepDayWorkflowReport,
   buildPrepMeetingsWorkflowReport,
 } from "./service/workflows.js";
-import { trackWorkspaceHomeOutcome } from "./surfaced-work.js";
+import { applySurfacedNoiseReduction, trackWorkspaceHomeOutcome } from "./surfaced-work.js";
 import { readServiceVersion } from "./version.js";
 import {
   AttentionItem,
@@ -911,7 +911,7 @@ export class PersonalOpsService {
         assistantQueue,
         nowNextWorkflow,
       });
-      return trackWorkspaceHomeOutcome(this, {
+      const tracked = trackWorkspaceHomeOutcome(this, {
         report: {
           ...report,
           workspace_home: workspaceHome,
@@ -920,6 +920,7 @@ export class PersonalOpsService {
         assistant_queue: assistantQueue,
         now_next_workflow: nowNextWorkflow,
       }).report;
+      return applySurfacedNoiseReduction({ status: tracked }).status;
     } finally {
       this.statusWorkspaceHomeDepth = Math.max(0, this.statusWorkspaceHomeDepth - 1);
     }

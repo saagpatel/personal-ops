@@ -1423,6 +1423,160 @@ test("phase 30 workflow formatter renders surfaced-work helpfulness for the trac
   assert.equal((formatted.match(/Surface proof:/gi) ?? []).length, 1);
 });
 
+test("phase 31 workflow formatter quiets duplicate and weak top now-next copy while keeping commands", () => {
+  const favored = {
+    eligible: true,
+    category: "followup" as const,
+    preferred_window: "early_day" as const,
+    current_window: "early_day" as const,
+    fit: "favored" as const,
+    reason: "aligned_with_habit" as const,
+    summary: "This is a good fit for how you usually handle this kind of work.",
+    sample_count_30d: 3,
+  };
+  const duplicateAndWeakNowNext = {
+    workflow: "now-next" as const,
+    generated_at: "2026-04-13T16:00:00.000Z",
+    readiness: "ready" as const,
+    summary: "Reply to the active client thread.",
+    sections: [
+      {
+        title: "Best Next Move",
+        items: [
+          {
+            label: "Reply to active client",
+            summary: "Reply to the active client thread.",
+            command: "personal-ops recommendation show followup-1",
+            why_now: "A live conversation still needs your reply.",
+            score_band: "highest" as const,
+            target_type: "planning_recommendation" as const,
+            target_id: "followup-1",
+            planning_recommendation_id: "followup-1",
+            signals: ["reply_needed"],
+            workflow_personalization: favored,
+            surfaced_work_helpfulness: {
+              eligible: true,
+              surface: "workflow_now_next" as const,
+              target_type: "planning_recommendation" as const,
+              target_id: "followup-1",
+              level: "helpful" as const,
+              summary: "Recent outcomes suggest this surfaced work is usually acted on.",
+              sample_count_30d: 5,
+              helpful_count_30d: 4,
+              attempted_failed_count_30d: 0,
+              superseded_count_30d: 1,
+              expired_count_30d: 0,
+              helpful_rate_30d: 0.8,
+            },
+            surfaced_noise_reduction: {
+              eligible: true,
+              surface: "workflow_now_next" as const,
+              target_type: "planning_recommendation" as const,
+              target_id: "followup-1",
+              disposition: "suppressed_duplicate" as const,
+              reason: "same_target_primary" as const,
+              summary: "This matches the current workspace focus.",
+              show_helpfulness: false,
+              show_why_now: false,
+              show_personalization: false,
+            },
+          },
+        ],
+      },
+      {
+        title: "Alternatives",
+        items: [
+          {
+            label: "Draft a follow-up",
+            summary: "Draft a follow-up message.",
+            command: "personal-ops recommendation show followup-2",
+            why_now: "This is still available if the top focus changes.",
+            score_band: "high" as const,
+            target_type: "planning_recommendation" as const,
+            target_id: "followup-2",
+            planning_recommendation_id: "followup-2",
+            signals: ["followup_needed"],
+            workflow_personalization: favored,
+            surfaced_work_helpfulness: {
+              eligible: true,
+              surface: "workflow_now_next" as const,
+              target_type: "planning_recommendation" as const,
+              target_id: "followup-2",
+              level: "weak" as const,
+              summary: "Recent outcomes suggest this surfaced work is often surfaced without follow-through.",
+              sample_count_30d: 4,
+              helpful_count_30d: 0,
+              attempted_failed_count_30d: 2,
+              superseded_count_30d: 1,
+              expired_count_30d: 1,
+              helpful_rate_30d: 0,
+            },
+            surfaced_noise_reduction: {
+              eligible: true,
+              surface: "workflow_now_next" as const,
+              target_type: "planning_recommendation" as const,
+              target_id: "followup-2",
+              disposition: "quieted" as const,
+              reason: "weak_recent_outcomes" as const,
+              summary: "This stays available, but recent follow-through has been weak.",
+              show_helpfulness: false,
+              show_why_now: false,
+              show_personalization: false,
+            },
+          },
+        ],
+      },
+    ],
+    actions: [
+      {
+        label: "Reply to active client",
+        summary: "Reply to the active client thread.",
+        command: "personal-ops recommendation show followup-1",
+        why_now: "A live conversation still needs your reply.",
+        score_band: "highest" as const,
+        target_type: "planning_recommendation" as const,
+        target_id: "followup-1",
+        planning_recommendation_id: "followup-1",
+        signals: ["reply_needed"],
+        workflow_personalization: favored,
+        surfaced_noise_reduction: {
+          eligible: true,
+          surface: "workflow_now_next" as const,
+          target_type: "planning_recommendation" as const,
+          target_id: "followup-1",
+          disposition: "suppressed_duplicate" as const,
+          reason: "same_target_primary" as const,
+          summary: "This matches the current workspace focus.",
+          show_helpfulness: false,
+          show_why_now: false,
+          show_personalization: false,
+        },
+      },
+    ],
+    first_repair_step: null,
+    maintenance_follow_through: emptyMaintenanceFollowThrough(),
+    maintenance_escalation: { eligible: false, step_id: null, signal: null, summary: null, suggested_command: null, handoff_count_30d: 0, cue: null },
+    maintenance_scheduling: emptyMaintenanceScheduling(),
+    maintenance_commitment: emptyMaintenanceCommitment(),
+    maintenance_defer_memory: emptyMaintenanceDeferMemory(),
+    maintenance_confidence: emptyMaintenanceConfidence(),
+    maintenance_operating_block: emptyMaintenanceOperatingBlock(),
+    maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+    maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+    workflow_personalization: undefined,
+  };
+
+  const formatted = formatWorkflowBundleReport(duplicateAndWeakNowNext as any);
+
+  assert.match(formatted, /Best Next Move[\s\S]*This matches the current workspace focus\./i);
+  assert.match(formatted, /Alternatives[\s\S]*This stays available, but recent follow-through has been weak\./i);
+  assert.doesNotMatch(formatted, /Best Next Move[\s\S]*why now: A live conversation still needs your reply\./i);
+  assert.doesNotMatch(formatted, /Best Next Move[\s\S]*Surface proof:/i);
+  assert.doesNotMatch(formatted, /Best Next Move[\s\S]*workflow fit:/i);
+  assert.match(formatted, /next: personal-ops recommendation show followup-1/i);
+  assert.match(formatted, /next: personal-ops recommendation show followup-2/i);
+});
+
 test("Phase 4 version command reports the current release identity and upgrade path", () => {
   const { env, paths } = createTempEnv("version");
   writeFixtureFiles(paths, 46211);

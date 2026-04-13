@@ -20,6 +20,7 @@ import {
 } from "../src/service/workflows.js";
 import { buildWorkspaceHomeSummary, PersonalOpsService } from "../src/service.js";
 import {
+  applySurfacedNoiseReduction,
   trackAssistantTopActionOutcome,
   trackWorkflowNowNextOutcome,
   trackWorkspaceHomeOutcome,
@@ -240,6 +241,9 @@ function buildNowNextReportForSurfaceTest(
     target_id?: string;
     planning_recommendation_id?: string;
     why_now?: string;
+    workflow_personalization?: any;
+    surfaced_work_helpfulness?: any;
+    surfaced_noise_reduction?: any;
   }>,
   generatedAt = "2026-04-13T16:00:00.000Z",
 ) {
@@ -9104,6 +9108,264 @@ test("phase 30 workspace-home and assistant queue summaries agree on helpfulness
   assert.equal(queue.actions[0]?.surfaced_work_helpfulness?.level, "helpful");
   assert.equal(workspaceTracked.workspace_home?.surfaced_work_helpfulness?.level, "helpful");
   assert.equal(queue.actions[0]?.surfaced_work_helpfulness?.summary, workspaceTracked.workspace_home?.surfaced_work_helpfulness?.summary);
+});
+
+test("phase 31 suppresses duplicate assistant top-action copy when it matches the workspace focus", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const assistantQueue = trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [
+        {
+          action_id: "assistant.review-top-attention",
+          summary: "Review the prepared assistant action.",
+          state: "awaiting_review",
+          command: "personal-ops assistant queue",
+        },
+      ],
+      "2026-04-13T20:00:00.000Z",
+    ),
+  ).queue;
+  const nowNext = buildNowNextReportForSurfaceTest([], "2026-04-13T20:00:00.000Z");
+  const workspaceHome = buildWorkspaceHomeSummary({
+    status: { ...baseStatus, generated_at: "2026-04-13T20:00:00.000Z", first_repair_step: null },
+    assistantQueue,
+    nowNextWorkflow: nowNext,
+  });
+  const trackedStatus = trackWorkspaceHomeOutcome(service, {
+    report: { ...baseStatus, generated_at: "2026-04-13T20:00:00.000Z", first_repair_step: null },
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  }).report;
+
+  const reduced = applySurfacedNoiseReduction({
+    status: trackedStatus,
+    assistant_queue: assistantQueue,
+    now_next_workflow: nowNext,
+  });
+
+  assert.equal(reduced.status.workspace_home.surfaced_noise_reduction?.disposition, "primary");
+  assert.equal(reduced.assistant_queue?.actions[0]?.surfaced_noise_reduction?.disposition, "suppressed_duplicate");
+  assert.equal(reduced.assistant_queue?.actions[0]?.surfaced_noise_reduction?.summary, "This matches the current workspace focus.");
+  assert.equal(reduced.assistant_queue?.actions[0]?.surfaced_noise_reduction?.show_helpfulness, false);
+  assert.equal(reduced.assistant_queue?.actions[0]?.command, "personal-ops assistant queue");
+});
+
+test("phase 31 suppresses duplicate workflow copy when now-next matches the workspace focus", async () => {
+  const { service } = createFixture();
+  const recommendation = service.db.createPlanningRecommendation(cliIdentity, {
+    kind: "schedule_thread_followup",
+    priority: "high",
+    source: "system_generated",
+    reason_summary: "Reply to the open thread.",
+    reason_code: "needs_reply",
+    dedupe_key: "phase31:workflow:duplicate",
+    source_fingerprint: "phase31:workflow:duplicate",
+    rank_score: 600,
+    ranking_version: "phase31-test",
+    slot_state: "ready",
+    outcome_state: "none",
+    source_thread_id: "thread-phase31-duplicate",
+    source_last_seen_at: "2026-04-13T20:00:00.000Z",
+    trigger_signals: ["reply_needed"],
+    suppressed_signals: [],
+  });
+  const workflow = trackWorkflowNowNextOutcome(
+    service,
+    buildNowNextReportForSurfaceTest(
+      [
+        {
+          label: "Reply to the open thread",
+          summary: "Reply to the open thread.",
+          command: "personal-ops recommendation show phase31:workflow:duplicate",
+          target_type: "planning_recommendation",
+          target_id: recommendation.recommendation_id,
+          planning_recommendation_id: recommendation.recommendation_id,
+          why_now: "A live conversation still needs your reply.",
+        },
+      ],
+      "2026-04-13T20:00:00.000Z",
+    ),
+  ).report;
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const assistantQueue = buildAssistantQueueForSurfaceTest([], workflow.generated_at);
+  const trackedStatus = trackWorkspaceHomeOutcome(service, {
+    report: { ...baseStatus, generated_at: workflow.generated_at, first_repair_step: null },
+    workspace_home: buildWorkspaceHomeSummary({
+      status: { ...baseStatus, generated_at: workflow.generated_at, first_repair_step: null },
+      assistantQueue,
+      nowNextWorkflow: workflow,
+    }),
+    assistant_queue: assistantQueue,
+    now_next_workflow: workflow,
+  }).report;
+
+  const reduced = applySurfacedNoiseReduction({
+    status: trackedStatus,
+    assistant_queue: assistantQueue,
+    now_next_workflow: workflow,
+  });
+
+  assert.equal(reduced.now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition, "suppressed_duplicate");
+  assert.equal(reduced.now_next_workflow?.actions[0]?.surfaced_noise_reduction?.show_why_now, false);
+  assert.equal(reduced.now_next_workflow?.actions[0]?.command, "personal-ops recommendation show phase31:workflow:duplicate");
+  assert.equal(reduced.now_next_workflow?.sections[0]?.items[0]?.surfaced_noise_reduction?.disposition, "suppressed_duplicate");
+});
+
+test("phase 31 quiets weak and mixed secondary cues but keeps helpful and unproven cues visible", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const assistantQueue = trackAssistantTopActionOutcome(
+    service,
+    buildAssistantQueueForSurfaceTest(
+      [
+        {
+          action_id: "assistant.review-top-attention",
+          summary: "Review the prepared assistant action.",
+          state: "awaiting_review",
+          command: "personal-ops assistant queue",
+        },
+      ],
+      "2026-04-13T20:00:00.000Z",
+    ),
+  ).queue;
+  const workspaceHome = buildWorkspaceHomeSummary({
+    status: { ...baseStatus, generated_at: "2026-04-13T20:00:00.000Z", first_repair_step: null },
+    assistantQueue,
+    nowNextWorkflow: buildNowNextReportForSurfaceTest([], "2026-04-13T20:00:00.000Z"),
+  });
+  const trackedStatus = trackWorkspaceHomeOutcome(service, {
+    report: { ...baseStatus, generated_at: "2026-04-13T20:00:00.000Z", first_repair_step: null },
+    workspace_home: workspaceHome,
+    assistant_queue: assistantQueue,
+    now_next_workflow: buildNowNextReportForSurfaceTest([], "2026-04-13T20:00:00.000Z"),
+  }).report;
+
+  const makeWorkflow = (level: "weak" | "mixed" | "helpful" | "unproven") =>
+    buildNowNextReportForSurfaceTest(
+      [
+        {
+          label: `Workflow ${level}`,
+          summary: `Workflow ${level} summary.`,
+          command: `personal-ops workflow ${level}`,
+          target_type: "planning_recommendation",
+          target_id: `workflow-${level}`,
+          planning_recommendation_id: `workflow-${level}`,
+          why_now: `Why ${level}.`,
+          workflow_personalization: {
+            eligible: true,
+            category: "followup",
+            preferred_window: "early_day",
+            current_window: "early_day",
+            fit: "favored",
+            reason: "aligned_with_habit",
+            summary: "This is a good fit for how you usually handle this kind of work.",
+            sample_count_30d: 3,
+          },
+          surfaced_work_helpfulness: {
+            eligible: true,
+            surface: "workflow_now_next",
+            target_type: "planning_recommendation",
+            target_id: `workflow-${level}`,
+            level,
+            summary:
+              level === "helpful"
+                ? "Recent outcomes suggest this surfaced work is usually acted on."
+                : level === "mixed"
+                  ? "Recent outcomes are mixed; this surfaced work is sometimes acted on and sometimes passed over."
+                  : level === "weak"
+                    ? "Recent outcomes suggest this surfaced work is often surfaced without follow-through."
+                    : "This surfaced work does not have enough recent outcome history yet.",
+            sample_count_30d: level === "unproven" ? 0 : 4,
+            helpful_count_30d: level === "helpful" ? 3 : level === "mixed" ? 2 : 0,
+            attempted_failed_count_30d: level === "mixed" ? 1 : level === "weak" ? 2 : 0,
+            superseded_count_30d: 0,
+            expired_count_30d: level === "weak" ? 2 : 0,
+            helpful_rate_30d: level === "helpful" ? 0.75 : level === "mixed" ? 0.5 : 0,
+          },
+        },
+      ],
+      "2026-04-13T20:00:00.000Z",
+    );
+
+  assert.equal(
+    applySurfacedNoiseReduction({ status: trackedStatus, assistant_queue: assistantQueue, now_next_workflow: makeWorkflow("weak") })
+      .now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition,
+    "quieted",
+  );
+  assert.equal(
+    applySurfacedNoiseReduction({ status: trackedStatus, assistant_queue: assistantQueue, now_next_workflow: makeWorkflow("mixed") })
+      .now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition,
+    "quieted",
+  );
+  assert.equal(
+    applySurfacedNoiseReduction({ status: trackedStatus, assistant_queue: assistantQueue, now_next_workflow: makeWorkflow("helpful") })
+      .now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition,
+    "supporting",
+  );
+  assert.equal(
+    applySurfacedNoiseReduction({ status: trackedStatus, assistant_queue: assistantQueue, now_next_workflow: makeWorkflow("unproven") })
+      .now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition,
+    "supporting",
+  );
+});
+
+test("phase 31 keeps weak surfaced work visible when no stronger workspace focus exists", async () => {
+  const { service } = createFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    workspace_home: {
+      ...baseStatus.workspace_home,
+      state: "caught_up" as const,
+      title: "The workspace is caught up",
+      summary: "No urgent repair, assistant-prepared, workflow, or maintenance focus is currently leading.",
+      why_now: null,
+      primary_command: null,
+      assistant_action_id: null,
+      workflow: null,
+      surfaced_work_helpfulness: undefined,
+    },
+  };
+  const workflow = buildNowNextReportForSurfaceTest(
+    [
+      {
+        label: "Weak workflow item",
+        summary: "Weak workflow item.",
+        command: "personal-ops workflow weak",
+        target_type: "planning_recommendation",
+        target_id: "weak-only",
+        planning_recommendation_id: "weak-only",
+        why_now: "Fallback weak item.",
+        surfaced_work_helpfulness: {
+          eligible: true,
+          surface: "workflow_now_next",
+          target_type: "planning_recommendation",
+          target_id: "weak-only",
+          level: "weak",
+          summary: "Recent outcomes suggest this surfaced work is often surfaced without follow-through.",
+          sample_count_30d: 4,
+          helpful_count_30d: 0,
+          attempted_failed_count_30d: 2,
+          superseded_count_30d: 1,
+          expired_count_30d: 1,
+          helpful_rate_30d: 0,
+        },
+      },
+    ],
+    "2026-04-13T20:00:00.000Z",
+  );
+
+  const reduced = applySurfacedNoiseReduction({
+    status,
+    assistant_queue: buildAssistantQueueForSurfaceTest([], "2026-04-13T20:00:00.000Z"),
+    now_next_workflow: workflow,
+  });
+
+  assert.equal(reduced.now_next_workflow?.actions[0]?.surfaced_noise_reduction?.disposition, "supporting");
+  assert.equal(reduced.now_next_workflow?.actions[0]?.surfaced_noise_reduction?.show_helpfulness, true);
 });
 
 test("phase 27 suppresses workflow personalization when workflow readiness is not ready", async () => {

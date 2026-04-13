@@ -11,6 +11,9 @@ function shouldRenderWorkflowPersonalization(
   report: WorkflowBundleReport,
   item: WorkflowBundleReport["sections"][number]["items"][number],
 ): boolean {
+  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_personalization) {
+    return false;
+  }
   if (!item.workflow_personalization?.eligible || !item.workflow_personalization.summary) {
     return false;
   }
@@ -26,7 +29,24 @@ function shouldRenderWorkflowPersonalization(
 function shouldRenderSurfacedWorkHelpfulness(
   item: WorkflowBundleReport["sections"][number]["items"][number],
 ): boolean {
+  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_helpfulness) {
+    return false;
+  }
   return Boolean(item.surfaced_work_helpfulness?.eligible && item.surfaced_work_helpfulness.summary);
+}
+
+function renderedItemSummary(item: WorkflowBundleReport["sections"][number]["items"][number]): string {
+  if (item.surfaced_noise_reduction?.eligible && item.surfaced_noise_reduction.summary) {
+    return item.surfaced_noise_reduction.summary;
+  }
+  return item.summary;
+}
+
+function shouldRenderWhyNow(item: WorkflowBundleReport["sections"][number]["items"][number]): boolean {
+  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_why_now) {
+    return false;
+  }
+  return Boolean(item.why_now);
 }
 
 export function formatWorkflowBundleReport(report: WorkflowBundleReport): string {
@@ -139,8 +159,8 @@ export function formatWorkflowBundleReport(report: WorkflowBundleReport): string
       lines,
       section.title,
       section.items.flatMap((item) => {
-        const rendered = [`- ${item.label}: ${item.summary}`];
-        if (item.why_now) {
+        const rendered = [`- ${item.label}: ${renderedItemSummary(item)}`];
+        if (shouldRenderWhyNow(item)) {
           rendered.push(`  why now: ${item.why_now}`);
         }
         if (shouldRenderSurfacedWorkHelpfulness(item)) {
