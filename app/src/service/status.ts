@@ -88,6 +88,7 @@ export async function buildStatusReport(
   options: { httpReachable: boolean; skipDerived?: boolean },
 ): Promise<ServiceStatusReport> {
   const skipDerived = Boolean(options.skipDerived);
+  const generatedAt = new Date().toISOString();
   const checks = await service.collectDoctorChecks({ deep: false, httpReachable: options.httpReachable });
   const summary = service.summarizeChecks(checks);
   const classifiedState = service.classifyState(checks);
@@ -175,8 +176,9 @@ export async function buildStatusReport(
   const installCheck = buildInstallCheckReport(service.paths);
   const recoveryRehearsal = readRecoveryRehearsalStamp(service.paths);
   const prune = pruneSnapshots(service.paths, { dryRun: true });
+  const recentRepairExecutions = service.db.listRepairExecutions({ days: 30, limit: 100 });
   const repairPlan = buildRepairPlan({
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     install_check: installCheck,
     doctor: {
       checks,
@@ -190,32 +192,32 @@ export async function buildStatusReport(
     prune_candidate_count: prune.prune_candidates,
     recovery_rehearsal_missing: recoveryRehearsal.status !== "configured" || !recoveryRehearsal.stamp,
     machine_state_origin: describeStateOrigin(provenance),
-    recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+    recent_repair_executions: recentRepairExecutions,
   });
   const maintenanceWindow = worklist.maintenance_window ?? buildMaintenanceWindowSummary({
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     state: classifiedState,
     worklist_items: worklist.items,
     repair_plan: repairPlan,
-    recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+    recent_repair_executions: recentRepairExecutions,
   });
   const maintenanceFollowThrough =
     worklist.maintenance_follow_through ??
     buildMaintenanceFollowThroughSummary({
-      generated_at: new Date().toISOString(),
+      generated_at: generatedAt,
       maintenance_window: maintenanceWindow,
       repair_plan: repairPlan,
-      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+      recent_repair_executions: recentRepairExecutions,
     });
   const maintenanceEscalation =
     worklist.maintenance_escalation ??
     buildMaintenanceEscalationSummary({
-      generated_at: new Date().toISOString(),
+      generated_at: generatedAt,
       state: classifiedState,
       maintenance_window: maintenanceWindow,
       maintenance_follow_through: maintenanceFollowThrough,
       repair_plan: repairPlan,
-      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+      recent_repair_executions: recentRepairExecutions,
     });
   const maintenanceScheduling =
     worklist.maintenance_scheduling ??
@@ -241,7 +243,7 @@ export async function buildStatusReport(
     maintenanceFollowThrough.confidence ??
     maintenanceScheduling.confidence ??
     buildMaintenanceConfidenceSummary({
-      generated_at: new Date().toISOString(),
+      generated_at: generatedAt,
       state: classifiedState,
       repair_plan: repairPlan,
       maintenance_follow_through: maintenanceFollowThrough,
@@ -249,7 +251,7 @@ export async function buildStatusReport(
       maintenance_scheduling: maintenanceScheduling,
       maintenance_commitment: maintenanceCommitment,
       maintenance_defer_memory: maintenanceDeferMemory,
-      recent_repair_executions: service.db.listRepairExecutions({ days: 30, limit: 100 }),
+      recent_repair_executions: recentRepairExecutions,
     });
   const maintenanceFollowThroughWithCommitment = {
     ...maintenanceFollowThrough,
@@ -328,7 +330,7 @@ export async function buildStatusReport(
     repair_plan_summary: summarizeRepairPlan(repairPlanWithMaintenance),
   };
   return {
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     service_version: service.getServiceVersion(),
     state: classifiedState,
     first_repair_step: repairPlanWithMaintenance.first_repair_step,

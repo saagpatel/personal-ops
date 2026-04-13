@@ -8540,6 +8540,29 @@ test("phase 29 workspace home falls through assistant, workflow, maintenance, th
   assert.equal(caughtUpSummary.state, "caught_up");
   assert.match(caughtUpSummary.title ?? "", /caught up/i);
   assert.match(caughtUpSummary.summary ?? "", /no urgent repair/i);
+
+  const suppressedMaintenanceSummary = buildWorkspaceHomeSummary({
+    status: {
+      ...maintenanceStatus,
+      maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+      maintenance_decision_explanation: {
+        ...emptyMaintenanceDecisionExplanation(),
+        eligible: true,
+        step_id: "install_wrappers",
+        state: "suppressed",
+        driver: "readiness_blocked",
+        summary: "This maintenance family is currently suppressed because the system is not ready for maintenance guidance.",
+      },
+    },
+    assistantQueue: {
+      ...assistantQueue,
+      counts_by_state: { proposed: 0, running: 0, awaiting_review: 0, blocked: 0, completed: 0, failed: 0 },
+      top_item_summary: null,
+      actions: [],
+    },
+    nowNextWorkflow: { ...workflow, actions: [] },
+  });
+  assert.equal(suppressedMaintenanceSummary.state, "caught_up");
 });
 
 test("assistant-led phase 5 drive sync feeds docs, sheets, and read-only routes", async () => {
