@@ -170,6 +170,7 @@ personal-ops install check
 ## What to read next
 
 - `START-HERE.md` for the main documentation entry point
+- `docs/ASSISTANT-LED-ROADMAP.md` for the current assistant-led source of truth
 - `OPERATIONS.md` for the operational runbook
 - `CLIENTS.md` for the assistant/client contract
-- `docs/PROGRAM-COMPLETE-SUMMARY.md` for the full project story
+- `docs/PROGRAM-COMPLETE-SUMMARY.md` for the historical Phase 1 to 33 program story

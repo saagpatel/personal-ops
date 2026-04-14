@@ -162,6 +162,7 @@ test("Phase 4 release notes extracts the target changelog section", () => {
 test("Phase 4 release workflow uses tags, release baseline, and changelog notes", () => {
   const workflow = fs.readFileSync(releaseWorkflowPath(), "utf8");
   assert.match(workflow, /tags:\s*\n\s*-\s*"v\*"/);
+  assert.match(workflow, /npx playwright install --with-deps chromium/);
   assert.match(workflow, /npm run release:check:ci/);
   assert.match(workflow, /npm run release:notes -- --version/);
   assert.match(workflow, /softprops\/action-gh-release@v2/);

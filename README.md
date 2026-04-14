@@ -107,7 +107,7 @@ Today, the repo includes:
 - Client usage contract: [CLIENTS.md](CLIENTS.md)
 - Next roadmap: [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
 - New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
-- Full project summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
+- Historical program summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
 - Deep system audit: [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)
 
 ## License

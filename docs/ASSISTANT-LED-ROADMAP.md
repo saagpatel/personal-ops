@@ -808,23 +808,95 @@ Unchanged trust boundaries:
 
 ## Phase 35
 
-Phase 35 is the next target.
+Phase 35 is now complete.
+
+Delivered shape:
+
+- the shipped Phase 34 proof-gated review/approval presentation remains the default and no new wording pass was justified
+- release workflow now matches CI for browser-backed tests while `release:check:ci` continues to run `npm test`
+- the named console verifier now covers one narrow end-to-end proof-gated review/approval browser scenario
+- routine verifier output now uses neutral durable wording instead of stale phase-era labels
+- primary onboarding docs now route current readers to this roadmap first and historical readers to `docs/PROGRAM-COMPLETE-SUMMARY.md`
+- the assistant-led roadmap now encodes a stronger closeout rule for every future phase
+
+What Phase 35 reviewed and cleaned up:
+
+- release and CI browser prerequisite drift
+- stale verifier success banners
+- stale doc routing that still treated older program history as current state
+- missing explicit artifact roles for roadmap, plan, rollout, and historical summary docs
+
+Unchanged trust boundaries:
+
+- no `pickFlowCandidate` changes
+- no lifecycle or calibration changes
+- no new schema, routes, commands, MCP tools, or queue kinds
+- no browser authority expansion
+- no widening of the current console asset allowlist
+- no change to the current exact-string dedupe against `workspace_home`
+- no change to the current `/console/*.js` route shape
+
+## Phase 36
+
+Phase 36 is planned in detail so Phase 35 can close with a concrete next step.
+
+Working title:
+
+- Prepared Handoff Consistency Review
 
 Contract shape:
 
-- validate whether the new proof-gated supporting explanation is stable enough to remain the default presentation
-- stay read-model and evidence-first instead of immediately making another wording or ranking pass
-- only reopen review/approval surface work if repeated follow-through evidence still points at the same unresolved gap
+- review the now-stable prepared handoff surfaces together instead of treating review/approval in isolation
+- audit whether workspace focus, top assistant guidance, Drafts, Outbound Finish-Work, Approvals, and the console still tell the same handoff story after Phases 32 through 35
+- remove redundant or stale handoff wording only when the surfaces are clearly duplicating each other
+- keep the same trust, lifecycle, and transport boundaries unless a proven contradiction requires escalation
+
+Expected scope:
+
+- one bounded consistency pass across the current prepared-action read surfaces
+- cleanup of dead or duplicative handoff wording that no longer helps the operator
+- deterministic seam coverage updates only where the consistency pass exposes real drift
+- another explicit review-and-cleanup closeout at the end of the phase
+
+Frozen non-goals:
+
+- no new action authority
+- no lifecycle rewrites for review, approval, send, or grouped outbound work
+- no new product routes or commands
+- no schema or persistence expansion
+
+## Phase 37
+
+Planned follow-on:
+
+- simplify verification and documentation surfaces after the prepared handoff contract stops moving, removing duplication that no longer adds confidence
+
+## Phase 38
+
+Planned follow-on:
+
+- compact the assistant-led history into durable summaries once the review-surface sequence is stable enough to stop carrying so much phase-by-phase scaffolding
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, and 34 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, and 35 are complete
 - Cluster A is complete
 - Cluster B is complete
 - the post-Cluster-B stabilization pass is merged
-- Assistant-Led Phase 35 is the next target
+- Assistant-Led Phase 36 is the next target
 - every completed phase should have a plan doc and a rollout doc
+- every completed assistant-led phase must also end with:
+  - a review of what it built
+  - cleanup of what is no longer needed
+  - a summary of what shipped
+  - a detailed writeup of the next phase
+  - short one-line notes for the remaining roadmap phases
+- artifact roles are:
+  - this roadmap = current and future truth
+  - the current phase plan doc = implementation contract
+  - the current phase rollout doc = shipped summary and cleanup record
+  - `docs/PROGRAM-COMPLETE-SUMMARY.md` = historical snapshot and legacy context
 - the intended product direction is:
   - less manual operator work
   - more prepared assistant actions

@@ -50,3 +50,18 @@ test("hardening CI workflow runs the stable cross-platform checks from app", () 
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run verify:smoke/);
 });
+
+test("hardening release workflow matches CI browser prerequisites before the release baseline", () => {
+  const workflowPath = path.join(repoRoot(), ".github", "workflows", "release.yml");
+  assert.equal(fs.existsSync(workflowPath), true, "Release workflow should exist.");
+
+  const workflow = fs.readFileSync(workflowPath, "utf8");
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /tags:\s*\n\s*-\s*"v\*"/);
+  assert.match(workflow, /uses: actions\/checkout@v5/);
+  assert.match(workflow, /uses: actions\/setup-node@v5/);
+  assert.match(workflow, /working-directory:\s+app/);
+  assert.match(workflow, /npm ci/);
+  assert.match(workflow, /npx playwright install --with-deps chromium/);
+  assert.match(workflow, /npm run release:check:ci/);
+});

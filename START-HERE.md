@@ -89,16 +89,16 @@ Use this path if you want to:
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The assistant-led initiative, now through Phase 8 with continuous warm-start autopilot over the existing assistant workspace.
+  The current and future source of truth for the assistant-led initiative, now through Phase 34 with Phase 35 in progress.
 
 ## History and deep context
 
 These docs are still important, but they are history and deeper context, not the main onboarding path:
 
 - [docs/IMPROVEMENT-ROADMAP.md](docs/IMPROVEMENT-ROADMAP.md)
-  The active post-program roadmap and current phase memory.
+  The earlier post-program roadmap that now serves as supporting context for the assistant-led track.
 - [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
-  The summary of the earlier Phase 1 to 33 program.
+  The historical summary of the earlier Phase 1 to 33 program.
 - [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)
   The deep system audit and prior live verification record.
 - [docs/PHASE-1-ROLLOUT.md](docs/PHASE-1-ROLLOUT.md)

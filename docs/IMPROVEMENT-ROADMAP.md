@@ -27,6 +27,21 @@ That post-launch track is now complete.
 
 The current next initiative is the assistant-led roadmap recorded in `docs/ASSISTANT-LED-ROADMAP.md`.
 
+The current truth ordering is now:
+
+- `docs/ASSISTANT-LED-ROADMAP.md` for the live roadmap and future phases
+- the current assistant-led phase plan doc for implementation contract details
+- the current assistant-led phase rollout doc for shipped summary, cleanup record, and next-phase handoff
+- `docs/PROGRAM-COMPLETE-SUMMARY.md` for the historical Phase 1 to 33 snapshot
+
+Completed assistant-led phases now close with:
+
+- a review of what they built
+- cleanup of what is no longer needed
+- a shipped summary
+- a detailed writeup of the next phase
+- short one-line notes for the remaining roadmap phases
+
 ## Phase Ledger
 
 | Phase | Title | Goal | Status | Primary Docs |
