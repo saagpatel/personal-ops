@@ -29,23 +29,25 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 
 The currently shipped assistant-led baseline is:
 
-- Phases 1 through 29 complete
+- Phases 1 through 32 complete
 - Cluster A complete:
   - Phases 24, 25, and 26 shipped together as the maintenance-maturity cluster
 - Cluster B complete:
   - Phases 27, 28, and 29 shipped together as the workspace-intelligence-and-maturity cluster
 - the post-Cluster-B stabilization pass is merged
+- the Phase 30 usefulness-proof slice is merged
+- the Phase 31 cross-surface noise-reduction slice is merged
+- the Phase 32 review/approval handoff ergonomics slice is merged
 - this assistant-led roadmap remains separate from the older legacy `PHASE-*` governance track
 
 The next assistant-led target is:
 
-- Phase 30: Surfaced Work Outcome Memory and Helpfulness Proof
-- status: In Progress
+- Phase 34: Review Surface Adjustment Proof
+- status: Planned
 - focus:
-  - refresh and preserve the roadmap first
-  - add surfaced-work outcome memory for top surfaced work only
-  - prove whether surfaced workspace, assistant, and `now-next` work is actually being acted on
-  - keep ranking, precedence, and trust boundaries unchanged in this first usefulness-proof slice
+  - use the new Phase 33 calibration evidence before changing handoff presentation again
+  - only adjust review, approval, and send surfaces when the evidence keeps pointing to the same gap
+  - preserve the same bounded trust and authority model while proving any further surface changes are worthwhile
 
 ## Phase Ledger
 
@@ -742,14 +744,43 @@ Delivered shape:
   - no lifecycle changes for review, approval, or grouped outbound state transitions
   - no worklist ordering changes
 
+## Phase 33
+
+Phase 33 is now complete.
+
+Delivered shape:
+
+- a small `review_approval_flow_outcomes` SQLite memory layer for the current primary handoff only
+- one additive calibration summary attached to `ReviewApprovalFlowSummary` that says whether recent handoff evidence is:
+  - `insufficient_evidence`
+  - `working`
+  - `mixed`
+  - `attention_needed`
+- one bounded recommendation over that same evidence:
+  - keep the current handoff
+  - consider more batching
+  - consider review tuning
+  - consider decision-surface adjustment
+- additive calibration visibility across:
+  - `status`
+  - workspace focus
+  - top assistant guidance
+  - the console-backed desktop shell
+- unchanged trust boundaries:
+  - no new HTTP or MCP routes
+  - no new user-facing commands
+  - no approval, send, or review authority expansion
+  - no lifecycle mutation changes for review, approval, or grouped outbound work
+  - no worklist ordering changes
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, and 32 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, and 33 are complete
 - Cluster A is complete
 - Cluster B is complete
 - the post-Cluster-B stabilization pass is merged
-- Assistant-Led Phase 33 is the next target
+- Assistant-Led Phase 34 is the next target
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

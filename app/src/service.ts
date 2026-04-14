@@ -123,6 +123,7 @@ import {
   submitReviewPackageFeedback,
   updateReviewCalibrationTarget,
 } from "./service/review-intelligence.js";
+import { trackReviewApprovalFlowCalibration } from "./service/review-approval-calibration.js";
 import { applyReviewApprovalFlowPayloads, buildReviewApprovalFlowSummary } from "./service/review-approval-flow.js";
 import {
   createSnapshot as createSnapshotFromModule,
@@ -929,10 +930,14 @@ export class PersonalOpsService {
         outbound_groups: outboundAutopilot.groups,
         assistant_queue: assistantQueue,
       });
+      const calibratedReviewApprovalFlow = trackReviewApprovalFlowCalibration(this, {
+        flow: reviewApprovalFlow,
+        outbound_groups: outboundAutopilot.groups,
+      });
       const withReviewApprovalFlow = applyReviewApprovalFlowPayloads({
         status: {
           ...trackedReport,
-          review_approval_flow: reviewApprovalFlow,
+          review_approval_flow: calibratedReviewApprovalFlow,
         },
       }).status;
       return applySurfacedNoiseReduction({ status: withReviewApprovalFlow }).status;

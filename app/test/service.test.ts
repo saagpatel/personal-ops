@@ -13,6 +13,7 @@ import { Logger } from "../src/logger.js";
 import { ensureMachineIdentity, writeRestoreProvenance } from "../src/machine.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
+import { buildReviewApprovalFlowCalibrationSummary } from "../src/service/review-approval-calibration.js";
 import {
   buildFollowUpBlockWorkflowReport,
   buildNowNextWorkflowReport,
@@ -45,6 +46,7 @@ import {
   PlanningRecommendation,
   PlanningRecommendationDetail,
   Policy,
+  ReviewApprovalFlowOutcomeRecord,
   WorklistReport,
 } from "../src/types.js";
 
@@ -9429,6 +9431,142 @@ test("phase 32 derives grouped outbound handoff states across review, approval, 
 
   const caughtUp = await service.getStatusReport({ httpReachable: true });
   assert.equal((caughtUp as any).review_approval_flow?.state, "caught_up");
+});
+
+test("phase 33 tracks review handoff follow-through and closes progressed flow outcomes", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "phase33-review-calibration-track");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("phase33-review-calibration-track", accountEmail, {
+      thread_id: "thread-phase33-review-calibration-track",
+      history_id: "phase33-review-calibration-track",
+      internal_date: String(now - 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Phase 33 review calibration tracking",
+    }),
+    new Date(now - 60 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const review = service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+  assert.ok(review);
+
+  const reviewNeeded = await service.getStatusReport({ httpReachable: true });
+  assert.equal((reviewNeeded as any).review_approval_flow?.state, "review_needed");
+  assert.equal(service.db.listReviewApprovalFlowOutcomes({ state: "open" }).length, 1);
+  assert.equal(service.db.listReviewApprovalFlowOutcomes({ state: "open" })[0]?.surfaced_state, "review_needed");
+
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for phase 33 tracking");
+
+  const approvalNeeded = await service.getStatusReport({ httpReachable: true });
+  assert.equal((approvalNeeded as any).review_approval_flow?.state, "approval_needed");
+  const helpfulOutcomes = service.db.listReviewApprovalFlowOutcomes({ state: "helpful" });
+  assert.equal(helpfulOutcomes.length, 1);
+  assert.equal(helpfulOutcomes[0]?.evidence_kind, "review_progressed");
+  assert.equal((approvalNeeded as any).review_approval_flow?.calibration?.status, "insufficient_evidence");
+});
+
+test("phase 33 review approval calibration chooses bounded next adjustments from recent outcomes", () => {
+  const record = (
+    suffix: string,
+    overrides: Partial<ReviewApprovalFlowOutcomeRecord> = {},
+  ): ReviewApprovalFlowOutcomeRecord => ({
+    outcome_id: `flow-${suffix}`,
+    surfaced_state: "review_needed",
+    target_type: "outbound_autopilot_group",
+    target_id: `target-${suffix}`,
+    summary_snapshot: "Review the current grouped handoff.",
+    surfaced_at: "2026-04-13T10:00:00.000Z",
+    last_seen_at: "2026-04-13T10:05:00.000Z",
+    state: "helpful",
+    evidence_kind: "review_progressed",
+    acted_at: "2026-04-13T10:05:00.000Z",
+    closed_at: "2026-04-13T10:05:00.000Z",
+    ...overrides,
+  });
+
+  const working = buildReviewApprovalFlowCalibrationSummary([
+    record("working-1"),
+    record("working-2", { surfaced_state: "approval_needed", evidence_kind: "approval_progressed" }),
+    record("working-3", { surfaced_state: "send_ready", evidence_kind: "send_completed" }),
+  ]);
+  assert.equal(working.status, "working");
+  assert.equal(working.recommendation_kind, "keep_current_handoff");
+
+  const batching = buildReviewApprovalFlowCalibrationSummary([
+    record("batch-helpful"),
+    record("batch-stalled-1", {
+      target_type: "approval_request",
+      state: "expired",
+      evidence_kind: "timed_out",
+      surfaced_state: "approval_needed",
+    }),
+    record("batch-stalled-2", {
+      target_type: "draft_artifact",
+      state: "superseded",
+      evidence_kind: "superseded",
+      surfaced_state: "approval_needed",
+    }),
+    record("batch-stalled-3", {
+      target_type: "approval_request",
+      state: "expired",
+      evidence_kind: "timed_out",
+      surfaced_state: "send_ready",
+    }),
+  ]);
+  assert.equal(batching.recommendation_kind, "consider_more_batching");
+
+  const tuning = buildReviewApprovalFlowCalibrationSummary([
+    record("tuning-helpful"),
+    record("tuning-stalled-1", {
+      target_type: "review_item",
+      state: "expired",
+      evidence_kind: "timed_out",
+      surfaced_state: "review_needed",
+    }),
+    record("tuning-stalled-2", {
+      target_type: "draft_artifact",
+      state: "superseded",
+      evidence_kind: "superseded",
+      surfaced_state: "review_needed",
+    }),
+    record("tuning-stalled-3", {
+      state: "attempted_failed",
+      evidence_kind: "regressed_to_recovery",
+      surfaced_state: "review_needed",
+    }),
+  ]);
+  assert.equal(tuning.recommendation_kind, "consider_review_tuning");
+
+  const surfaceAdjustment = buildReviewApprovalFlowCalibrationSummary([
+    record("surface-helpful"),
+    record("surface-stalled-1", {
+      state: "expired",
+      evidence_kind: "timed_out",
+      surfaced_state: "approval_needed",
+    }),
+    record("surface-stalled-2", {
+      state: "superseded",
+      evidence_kind: "superseded",
+      surfaced_state: "send_ready",
+    }),
+    record("surface-stalled-3", {
+      state: "attempted_failed",
+      evidence_kind: "regressed_to_recovery",
+      surfaced_state: "approval_needed",
+    }),
+  ]);
+  assert.equal(surfaceAdjustment.recommendation_kind, "consider_decision_surface_adjustment");
 });
 
 test("phase 27 suppresses workflow personalization when workflow readiness is not ready", async () => {
