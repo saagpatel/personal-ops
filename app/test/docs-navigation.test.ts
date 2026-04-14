@@ -28,32 +28,29 @@ function assertDocLinks(markdownPath: string, expectedLinks: string[]): void {
   }
 }
 
-test("Phase 5 primary docs exist and README routes into the new docs layer", () => {
+test("README routes readers into the current-truth docs layer", () => {
   assertRepoFileExists("START-HERE.md");
   assertRepoFileExists("OPERATIONS.md");
   assertRepoFileExists("RELEASING.md");
   assertRepoFileExists("ARCHITECTURE.md");
   assertRepoFileExists("QUICK-GUIDE.md");
-  assertRepoFileExists("docs/PHASE-5-PLAN.md");
-  assertRepoFileExists("docs/PHASE-5-ROLLOUT.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-ROADMAP.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-HISTORY-SUMMARY.md");
+  assertRepoFileExists("docs/PROGRAM-COMPLETE-SUMMARY.md");
 
   assertDocLinks("README.md", [
     "START-HERE.md",
-    "QUICK-GUIDE.md",
-    "OPERATIONS.md",
-    "RELEASING.md",
-    "ARCHITECTURE.md",
-    "CLIENTS.md",
     "docs/ASSISTANT-LED-ROADMAP.md",
-    "docs/NEW-MACHINE-SETUP.md",
+    "docs/ASSISTANT-LED-HISTORY-SUMMARY.md",
     "docs/PROGRAM-COMPLETE-SUMMARY.md",
   ]);
 
   const readme = readRepoFile("README.md");
-  assert.match(readme, /Historical program summary/);
+  assert.match(readme, /Assistant-led history summary/);
+  assert.match(readme, /Legacy program summary/);
 });
 
-test("Phase 5 start-here doc links to the main role paths and history docs", () => {
+test("START-HERE routes current readers to roadmap truth and historical readers to the summary", () => {
   const expectedLinks = [
     "QUICK-GUIDE.md",
     "OPERATIONS.md",
@@ -61,20 +58,18 @@ test("Phase 5 start-here doc links to the main role paths and history docs", () 
     "ARCHITECTURE.md",
     "CLIENTS.md",
     "docs/ASSISTANT-LED-ROADMAP.md",
+    "docs/ASSISTANT-LED-HISTORY-SUMMARY.md",
     "docs/NEW-MACHINE-SETUP.md",
-    "docs/IMPROVEMENT-ROADMAP.md",
     "docs/PROGRAM-COMPLETE-SUMMARY.md",
     "docs/2026-03-24-system-audit.md",
-    "docs/PHASE-1-ROLLOUT.md",
-    "docs/PHASE-2-ROLLOUT.md",
-    "docs/PHASE-3-ROLLOUT.md",
-    "docs/PHASE-4-ROLLOUT.md",
   ];
 
   assertDocLinks("START-HERE.md", expectedLinks);
 
   const startHere = readRepoFile("START-HERE.md");
   assert.match(startHere, /current and future source of truth/i);
+  assert.match(startHere, /completed assistant-led initiative/i);
+  assert.match(startHere, /assistant-led Phases 1 to 38 track/i);
   assert.match(startHere, /historical summary of the earlier Phase 1 to 33 program/i);
 
   for (const relativePath of expectedLinks) {
@@ -82,7 +77,7 @@ test("Phase 5 start-here doc links to the main role paths and history docs", () 
   }
 });
 
-test("Phase 5 primary doc chain has no dead-end relative links", () => {
+test("primary current-truth doc chain has no dead-end relative links", () => {
   const docsToCheck = ["START-HERE.md", "QUICK-GUIDE.md", "OPERATIONS.md", "ARCHITECTURE.md"];
 
   for (const markdownPath of docsToCheck) {
@@ -95,4 +90,20 @@ test("Phase 5 primary doc chain has no dead-end relative links", () => {
       assert.equal(fs.existsSync(resolved), true, `${markdownPath} has a dead-end link: ${link}`);
     }
   }
+});
+
+test("assistant-led terminal artifacts exist and current-truth docs reflect the completed track", () => {
+  assertRepoFileExists("docs/ASSISTANT-LED-HISTORY-SUMMARY.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-PLAN.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-ROLLOUT.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-PLAN.md");
+  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-ROLLOUT.md");
+
+  const roadmap = readRepoFile("docs/ASSISTANT-LED-ROADMAP.md");
+  const startHere = readRepoFile("START-HERE.md");
+
+  assert.match(roadmap, /Phases 1 through 38 complete/i);
+  assert.match(roadmap, /assistant-led track is complete/i);
+  assert.match(roadmap, /No later assistant-led phases remain/i);
+  assert.match(startHere, /now through Phase 38/i);
 });

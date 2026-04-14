@@ -2,7 +2,7 @@ import { runLaunchAgentVerification } from "./verify-harness.js";
 
 void runLaunchAgentVerification()
   .then(() => {
-    process.stdout.write("Phase 3 launchagent verification passed.\n");
+    process.stdout.write("LaunchAgent verification passed.\n");
   })
   .catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

@@ -279,12 +279,16 @@ const SECTIONS: Record<SectionId, string> = {
   backups: "Backups",
 };
 
+const hasBrowserLocation = typeof location !== "undefined";
+const hasBrowserDocument = typeof document !== "undefined";
+const hasBrowserWindow = typeof window !== "undefined";
+
 const state: ConsoleState = {
-  section: (location.hash.replace(/^#/, "") as SectionId) || "overview",
+  section: hasBrowserLocation ? ((location.hash.replace(/^#/, "") as SectionId) || "overview") : "overview",
   payload: null,
   auditLimit: 20,
   auditCategory: "",
-  lockedHint: new URLSearchParams(location.search).get("locked") === "1",
+  lockedHint: hasBrowserLocation ? new URLSearchParams(location.search).get("locked") === "1" : false,
   flash: null,
   selectedApprovalId: null,
   selectedSnapshotId: null,
@@ -311,19 +315,29 @@ let corePayloadGeneration = 0;
 let corePayloadTimer: number | null = null;
 let planningActionTargetPromise: Promise<void> | null = null;
 
-const content = document.querySelector<HTMLElement>("#content");
-const banner = document.querySelector<HTMLElement>("#banner");
-const sectionTitle = document.querySelector<HTMLElement>("#section-title");
-const refreshButton = document.querySelector<HTMLButtonElement>("#refresh-button");
-
-if (!content || !banner || !sectionTitle || !refreshButton) {
-  throw new Error("Console shell did not render correctly.");
+function getShellElements(): {
+  content: HTMLElement;
+  banner: HTMLElement;
+  sectionTitle: HTMLElement;
+  refreshButton: HTMLButtonElement;
+} {
+  if (!hasBrowserDocument) {
+    throw new Error("Console shell is only available in a browser context.");
+  }
+  const content = document.querySelector<HTMLElement>("#content");
+  const banner = document.querySelector<HTMLElement>("#banner");
+  const sectionTitle = document.querySelector<HTMLElement>("#section-title");
+  const refreshButton = document.querySelector<HTMLButtonElement>("#refresh-button");
+  if (!content || !banner || !sectionTitle || !refreshButton) {
+    throw new Error("Console shell did not render correctly.");
+  }
+  return {
+    content,
+    banner,
+    sectionTitle,
+    refreshButton,
+  };
 }
-
-const requiredContent = content;
-const requiredBanner = banner;
-const requiredSectionTitle = sectionTitle;
-const requiredRefreshButton = refreshButton;
 
 function escapeHtml(value: string | number | boolean | null | undefined): string {
   return String(value ?? "")
@@ -1568,11 +1582,12 @@ function setFlash(message: string, tone: BannerTone = "good"): void {
 }
 
 function renderBannerCards(cards: Array<{ message: string; tone: BannerTone }>): void {
+  const { banner } = getShellElements();
   if (cards.length === 0) {
-    requiredBanner.innerHTML = "";
+    banner.innerHTML = "";
     return;
   }
-  requiredBanner.innerHTML = cards
+  banner.innerHTML = cards
     .map(
       (card) =>
         `<div class="banner__card banner__card--${escapeHtml(card.tone)}"><p>${escapeHtml(card.message)}</p></div>`,
@@ -1581,7 +1596,8 @@ function renderBannerCards(cards: Array<{ message: string; tone: BannerTone }>):
 }
 
 function renderLocked(): void {
-  if (window.parent && window.parent !== window) {
+  const { content } = getShellElements();
+  if (hasBrowserWindow && window.parent && window.parent !== window) {
     window.parent.postMessage({ type: "personal-ops-console-locked" }, "*");
   }
   renderBannerCards([
@@ -1590,7 +1606,7 @@ function renderLocked(): void {
       tone: "critical",
     },
   ]);
-  requiredContent.innerHTML = `
+  content.innerHTML = `
     <section class="hero">
       <p class="eyebrow">Console locked</p>
       <h3>Local browser access uses a short-lived operator session.</h3>
@@ -4410,6 +4426,51 @@ function renderCurrentSection(payload: ConsolePayload): string {
   }
 }
 
+export function buildConsolePayloadForTest(input: {
+  status: ServiceStatusReport;
+  worklist: WorklistReport;
+  nowNextWorkflow: WorkflowBundleReport;
+  prepDayWorkflow: WorkflowBundleReport;
+  deferred: Partial<ConsolePayload>;
+}): ConsolePayload {
+  return {
+    ...buildCoreConsolePayload({
+      status: input.status,
+      worklist: input.worklist,
+      nowNextWorkflow: input.nowNextWorkflow,
+      prepDayWorkflow: input.prepDayWorkflow,
+    }),
+    ...input.deferred,
+  };
+}
+
+export function renderConsoleSectionForTest(input: {
+  section: SectionId;
+  payload: ConsolePayload;
+  selectedApprovalId?: string | null;
+  approvalDetail?: ApprovalDetail | null;
+}): string {
+  const previous = {
+    section: state.section,
+    selectedApprovalId: state.selectedApprovalId,
+    approvalDetail: state.approvalDetail,
+  };
+  state.section = input.section;
+  if ("selectedApprovalId" in input) {
+    state.selectedApprovalId = input.selectedApprovalId ?? null;
+  }
+  if ("approvalDetail" in input) {
+    state.approvalDetail = input.approvalDetail ?? null;
+  }
+  try {
+    return renderCurrentSection(input.payload);
+  } finally {
+    state.section = previous.section;
+    state.selectedApprovalId = previous.selectedApprovalId;
+    state.approvalDetail = previous.approvalDetail;
+  }
+}
+
 function renderLoadingSection(): string {
   if (state.section !== "overview") {
     return `<section class="hero"><h3>Loading ${escapeHtml(SECTIONS[state.section])}…</h3><p>The daemon is gathering local operator state.</p></section>`;
@@ -4445,13 +4506,15 @@ function renderLoadingSection(): string {
 }
 
 function syncNav(): void {
-  requiredSectionTitle.textContent = SECTIONS[state.section];
+  const { sectionTitle } = getShellElements();
+  sectionTitle.textContent = SECTIONS[state.section];
   for (const button of document.querySelectorAll<HTMLButtonElement>(".nav__item")) {
     button.classList.toggle("is-active", button.dataset.section === state.section);
   }
 }
 
 function render(): void {
+  const { content } = getShellElements();
   syncNav();
   if (!state.payload) {
     const cards: Array<{ message: string; tone: BannerTone }> = [];
@@ -4459,7 +4522,7 @@ function render(): void {
       cards.push(state.flash);
     }
     renderBannerCards(cards);
-    requiredContent.innerHTML = renderLoadingSection();
+    content.innerHTML = renderLoadingSection();
     return;
   }
   const payload = state.payload;
@@ -4486,7 +4549,7 @@ function render(): void {
     });
   }
   renderBannerCards(cards);
-  requiredContent.innerHTML = renderCurrentSection(payload);
+  content.innerHTML = renderCurrentSection(payload);
 }
 
 async function hydrateDeferredPayload(): Promise<void> {
@@ -5611,6 +5674,7 @@ async function performPlanningGroupAction(action: "snooze" | "reject"): Promise<
   }
 }
 
+if (hasBrowserDocument && hasBrowserWindow && hasBrowserLocation) {
 document.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
@@ -5931,7 +5995,7 @@ window.addEventListener("hashchange", () => {
   }
 });
 
-requiredRefreshButton.addEventListener("click", () => {
+getShellElements().refreshButton.addEventListener("click", () => {
   void refreshAll();
 });
 
@@ -5942,3 +6006,4 @@ if (!(state.section in SECTIONS)) {
 document.documentElement.dataset.consoleReady = "1";
 
 void refreshAll();
+}

@@ -1133,18 +1133,20 @@ test("assistant queue surfaces safe actions and review-gated work", async () => 
 
   const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
   const actionIds = queue.actions.map((action) => action.action_id);
+  const topAttention = queue.actions.find((action) => action.action_id === "assistant.review-top-attention");
 
   assert.equal(actionIds.includes("assistant.sync-workspace"), true);
   assert.equal(actionIds.includes("assistant.create-snapshot"), true);
-  assert.equal(actionIds.includes("assistant.review-top-attention"), true);
+  assert.equal(actionIds.includes("assistant.review-top-attention"), false);
   assert.equal(
     actionIds.includes("assistant.review-planning") || actionIds.some((actionId) => actionId.startsWith("assistant.prepare-planning-bundle:")),
     true,
   );
-  assert.equal(actionIds.includes("assistant.review-approvals"), true);
+  assert.equal(actionIds.some((actionId) => actionId.startsWith("assistant.review-outbound-group:")), true);
+  assert.equal(actionIds.includes("assistant.review-approvals"), false);
   assert.equal(actionIds.includes("assistant.review-drafts"), true);
   assert.equal(queue.actions.find((action) => action.action_id === "assistant.create-snapshot")?.one_click, true);
-  assert.equal(queue.actions.find((action) => action.action_id === "assistant.review-top-attention")?.state, "awaiting_review");
+  assert.equal(topAttention, undefined);
 });
 
 test("assistant queue runs safe snapshot actions and keeps review actions gated", async () => {
@@ -9431,6 +9433,61 @@ test("phase 32 derives grouped outbound handoff states across review, approval, 
 
   const caughtUp = await service.getStatusReport({ httpReachable: true });
   assert.equal((caughtUp as any).review_approval_flow?.state, "caught_up");
+});
+
+test("phase 36 keeps grouped outbound as the canonical assistant handoff and suppresses duplicate draft and approval queue actions", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({ accountEmail });
+  seedMailboxReadyState(service, accountEmail, "phase36-prepared-handoff");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("phase36-prepared-handoff", accountEmail, {
+      thread_id: "thread-phase36-prepared-handoff",
+      history_id: "phase36-prepared-handoff",
+      internal_date: String(now - 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Phase 36 prepared handoff",
+    }),
+    new Date(now - 60 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const review = service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+  assert.ok(review);
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for grouped phase 36 handoff");
+  await service.requestApprovalForOutboundGroup(cliIdentity, replyGroup!.group_id, "Request grouped approval");
+
+  const status = await service.getStatusReport({ httpReachable: true });
+  const queue = await service.getAssistantActionQueueReport({ httpReachable: true });
+  const flow = (status as any).review_approval_flow;
+  const topAction = queue.actions[0];
+
+  assert.equal(flow?.eligible, true);
+  assert.equal(flow?.state, "approval_needed");
+  assert.equal(flow?.target_type, "outbound_autopilot_group");
+  assert.equal(flow?.target_id, replyGroup!.group_id);
+  assert.equal(flow?.assistant_action_id, topAction?.action_id);
+  assert.equal(topAction?.action_id, `assistant.review-outbound-group:${replyGroup!.group_id}`);
+  assert.equal(topAction?.target_type, flow?.target_type);
+  assert.equal(topAction?.target_id, flow?.target_id);
+  assert.equal((status as any).workspace_home?.state, "repair");
+  assert.equal((status as any).workspace_home?.summary?.includes("Follow personal-ops install wrappers"), true);
+  assert.equal((status as any).workspace_home?.secondary_summary, topAction?.summary);
+  assert.equal((status as any).workspace_home?.review_approval_flow?.summary, flow?.summary);
+  assert.equal((status as any).workspace_home?.review_approval_flow?.supporting_summary, flow?.supporting_summary);
+  assert.equal((status as any).workspace_home?.review_approval_flow?.assistant_action_id, topAction?.action_id);
+  assert.equal(queue.actions.some((action) => action.action_id === "assistant.review-top-attention"), false);
+  assert.equal(queue.actions.some((action) => action.action_id === `assistant.review-draft-group:${replyGroup!.group_id}`), false);
+  assert.equal(queue.actions.some((action) => action.action_id === "assistant.review-approvals"), false);
+  assert.equal(queue.actions.some((action) => action.action_id === "assistant.review-drafts"), false);
 });
 
 test("phase 33 tracks review handoff follow-through and closes progressed flow outcomes", async () => {

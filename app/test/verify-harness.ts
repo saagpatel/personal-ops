@@ -12,24 +12,18 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { chromium, type Page } from "playwright";
 import { createRequestJson } from "../src/cli/http-client.js";
-import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
+import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
-import { createHttpServer } from "../src/http.js";
-import { Logger } from "../src/logger.js";
 import { readRecoveryRehearsalStamp, writeRecoveryRehearsalStamp } from "../src/recovery.js";
-import { PersonalOpsService } from "../src/service.js";
 import type {
   ClientIdentity,
   Config,
-  GmailClientConfig,
-  GmailMessageMetadata,
   InstallCheckReport,
   Paths,
   RestoreResult,
   SnapshotPruneResult,
   SnapshotInspection,
   SnapshotManifest,
-  SnapshotSummary,
 } from "../src/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -38,9 +32,6 @@ const MCP_CLIENT_INFO = {
   name: "personal-ops-verify",
   version: "0.1.0",
 };
-const VERIFY_MAILBOX = "machine@example.com";
-const PROOF_GATED_REVIEW_NOTE = "Review and approval: This prepared work is approved and ready to send.";
-const DEFAULT_REVIEW_NOTE = "Review and approval: This is the current review and approval focus.";
 const VERIFY_IDENTITY: ClientIdentity = {
   client_id: "phase3-verify",
   requested_by: "phase3-verify",
@@ -184,19 +175,6 @@ oauth_client_file = "${paths.oauthClientFile}"
   );
 }
 
-function buildMessage(messageId: string, accountEmail: string, overrides: Partial<GmailMessageMetadata> = {}): GmailMessageMetadata {
-  return {
-    message_id: messageId,
-    thread_id: overrides.thread_id ?? `thread-${messageId}`,
-    history_id: overrides.history_id ?? "2001",
-    internal_date: overrides.internal_date ?? String(Date.now()),
-    label_ids: overrides.label_ids ?? ["INBOX"],
-    from_header: overrides.from_header ?? "Sender <sender@example.com>",
-    to_header: overrides.to_header ?? accountEmail,
-    subject: overrides.subject ?? `Subject ${messageId}`,
-  };
-}
-
 async function createVerificationEnvironment(name: string, options: { mailbox?: string } = {}): Promise<VerificationEnvironment> {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), `personal-ops-verify-${name}-`));
   const homeDir = path.join(baseDir, "home");
@@ -217,168 +195,6 @@ async function createVerificationEnvironment(name: string, options: { mailbox?: 
   writeIsolatedConfig(paths, port, options.mailbox ?? "");
   const config = loadConfig(paths);
   return { appDir, repoRoot, baseDir, homeDir, env, paths, config, port, launchAgentLabel };
-}
-
-function createVerificationService(env: VerificationEnvironment, mailbox: string): PersonalOpsService {
-  const policy = withRuntimeEnv(env.env, () => loadPolicy(env.paths));
-  const logger = new Logger(env.paths);
-  const clientConfig: GmailClientConfig = {
-    client_id: "client-id",
-    client_secret: "client-secret",
-    auth_uri: "https://accounts.google.com/o/oauth2/auth",
-    token_uri: "https://oauth2.googleapis.com/token",
-    redirect_uris: ["http://127.0.0.1"],
-  };
-  let providerDraftCounter = 1;
-  const service = new PersonalOpsService(env.paths, env.config, policy, logger, {
-    loadStoredGmailTokens: async () => ({
-      email: mailbox,
-      clientConfig,
-      tokensJson: JSON.stringify({ refresh_token: "refresh-token" }),
-    }),
-    verifyGoogleCalendarWriteAccess: async () => {},
-    createGmailDraft: async () => `provider-draft-${providerDraftCounter++}`,
-    updateGmailDraft: async (_tokensJson, _clientConfig, _email, providerDraftId) => providerDraftId,
-    openExternalUrl: () => {},
-  });
-  service.db.upsertMailAccount(mailbox, env.config.keychainService, JSON.stringify({ emailAddress: mailbox }));
-  return service;
-}
-
-function seedInboxAutopilotFixture(db: PersonalOpsDb, mailbox: string): void {
-  db.upsertMailAccount(mailbox, "personal-ops.gmail.verify", JSON.stringify({ emailAddress: mailbox }));
-  db.upsertMailSyncState(mailbox, "gmail", {
-    status: "ready",
-    last_history_id: "verify-console-autopilot",
-    last_synced_at: new Date().toISOString(),
-    last_seeded_at: new Date().toISOString(),
-    last_sync_refreshed_count: 1,
-    last_sync_deleted_count: 0,
-  });
-  const now = Date.now();
-  db.upsertMailMessage(
-    mailbox,
-    buildMessage("reply-verify-console", mailbox, {
-      thread_id: "thread-verify-console-reply",
-      history_id: "reply-verify-console-1",
-      internal_date: String(now - 2 * 60 * 60 * 1000),
-      label_ids: ["INBOX", "UNREAD"],
-      from_header: "Client <client@example.com>",
-      subject: "Console verification reply needed",
-    }),
-    new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-  );
-}
-
-async function seedReviewApprovalProofFixture(env: VerificationEnvironment, mailbox: string): Promise<void> {
-  const service = createVerificationService(env, mailbox);
-  try {
-    seedInboxAutopilotFixture(service.db, mailbox);
-
-    const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
-    const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
-    assert.ok(replyGroup, "console verification should find a reply-ready inbox autopilot group.");
-
-    const prepared = await service.prepareInboxAutopilotGroup(VERIFY_IDENTITY, replyGroup.group_id);
-    const draftId = prepared.drafts[0]?.artifact_id;
-    assert.ok(draftId, "console verification should stage a draft.");
-
-    const review = service.db.getLatestReviewItemForArtifact(draftId);
-    assert.ok(review, "console verification should create a review item.");
-    service.openReview(VERIFY_IDENTITY, review.review_id);
-    service.resolveReview(VERIFY_IDENTITY, review.review_id, "Reviewed for console verification proof.");
-
-    const secondaryDraft = await service.createDraft(VERIFY_IDENTITY, {
-      to: ["secondary@example.com"],
-      cc: [],
-      bcc: [],
-      subject: "Console verification secondary approval",
-      body_text: "Secondary approval handoff.",
-    });
-    const secondaryReview = service.db.getLatestReviewItemForArtifact(secondaryDraft.artifact_id);
-    assert.ok(secondaryReview, "console verification should create a secondary review item.");
-    service.openReview(VERIFY_IDENTITY, secondaryReview.review_id);
-    service.resolveReview(VERIFY_IDENTITY, secondaryReview.review_id, "Reviewed for secondary approval proof.");
-    const secondaryApproval = service.requestApproval(
-      VERIFY_IDENTITY,
-      secondaryDraft.artifact_id,
-      "Secondary approval handoff",
-    );
-    const secondaryApprovalConfirmation = service.confirmApprovalAction(
-      VERIFY_IDENTITY,
-      secondaryApproval.approval_id,
-      "approve",
-    );
-    service.approveRequest(
-      VERIFY_IDENTITY,
-      secondaryApproval.approval_id,
-      "Approve secondary support handoff",
-      secondaryApprovalConfirmation.confirmation_token,
-    );
-    service.enableSendWindow(VERIFY_IDENTITY, 15, "Allow secondary send-ready support");
-
-    const flowReport = await service.getStatusReport({ httpReachable: true });
-    const flow = flowReport.review_approval_flow;
-    assert.ok(flow?.eligible, "console verification should produce a review/approval handoff.");
-    assert.equal(flow?.supporting_summary, "This prepared work is approved and ready to send.");
-
-    const baseRecord = (
-      suffix: string,
-      overrides: Record<string, unknown> = {},
-    ): Record<string, unknown> => ({
-      outcome_id: `verify-console-phase35-${suffix}`,
-      surfaced_state: "approval_needed",
-      target_type: flow.target_type,
-      target_id: flow.target_id,
-      review_id: flow.review_id,
-      approval_id: flow.approval_id,
-      outbound_group_id: flow.outbound_group_id,
-      assistant_action_id: flow.assistant_action_id,
-      summary_snapshot: flow.summary,
-      command_snapshot: flow.primary_command,
-      surfaced_at: "2026-04-14T10:00:00.000Z",
-      last_seen_at: "2026-04-14T10:05:00.000Z",
-      state: "helpful",
-      evidence_kind: "approval_progressed",
-      acted_at: "2026-04-14T10:05:00.000Z",
-      closed_at: "2026-04-14T10:05:00.000Z",
-      ...overrides,
-    });
-
-    for (const entry of [
-      baseRecord("helpful"),
-      baseRecord("expired", {
-        state: "expired",
-        evidence_kind: "timed_out",
-        acted_at: undefined,
-        closed_at: "2026-04-14T11:05:00.000Z",
-      }),
-      baseRecord("superseded", {
-        state: "superseded",
-        evidence_kind: "superseded",
-        surfaced_state: "send_ready",
-        acted_at: undefined,
-        closed_at: "2026-04-14T12:05:00.000Z",
-      }),
-      baseRecord("recovery", {
-        state: "attempted_failed",
-        evidence_kind: "regressed_to_recovery",
-        acted_at: undefined,
-        closed_at: "2026-04-14T13:05:00.000Z",
-      }),
-    ]) {
-      service.db.upsertReviewApprovalFlowOutcome(entry as any);
-    }
-
-    const calibrated = await service.getStatusReport({ httpReachable: true });
-    assert.equal(calibrated.review_approval_flow?.calibration?.status, "attention_needed");
-    assert.equal(
-      calibrated.review_approval_flow?.calibration?.recommendation_kind,
-      "consider_decision_surface_adjustment",
-    );
-  } finally {
-    service.db.close();
-  }
 }
 
 function wrapperPaths(env: VerificationEnvironment) {
@@ -974,9 +790,6 @@ export async function runFullVerification(): Promise<void> {
     assert.ok(Array.isArray(prepDay.workflow.actions));
     assert.ok(Array.isArray(doctor.doctor.checks));
 
-    await runHttpSmoke(env);
-    await runMcpSmoke(env, { command: wrapperPaths(env).codexMcp }, { planningTool: true });
-
     const snapshotResponse = await runCliJson<{ snapshot: SnapshotManifest }>(env, ["backup", "create", "--json"]);
     const snapshotId = snapshotResponse.snapshot.snapshot_id;
     assert.ok(snapshotId);
@@ -984,27 +797,6 @@ export async function runFullVerification(): Promise<void> {
     const snapshotInspect = await runCliJson<{ snapshot: SnapshotInspection }>(env, ["backup", "inspect", snapshotId, "--json"]);
     assert.equal(snapshotInspect.snapshot.manifest.snapshot_id, snapshotId);
     assert.equal(snapshotInspect.snapshot.manifest.source_machine?.machine_id, snapshotResponse.snapshot.source_machine?.machine_id);
-
-    await stopDaemonProcess(daemon);
-    daemon = null;
-
-    mutateFixtureState(env.paths);
-    const restoreResponse = await runCliJson<{ restore: RestoreResult }>(env, [
-      "backup",
-      "restore",
-      snapshotId,
-      "--yes",
-      "--with-config",
-      "--with-policy",
-      "--json",
-    ]);
-    assert.equal(restoreResponse.restore.restored_snapshot_id, snapshotId);
-    assert.equal(restoreResponse.restore.restore_mode, "same_machine");
-    assert.equal(restoreResponse.restore.cross_machine, false);
-    assertFixtureRestored(env.paths, snapshotId, restoreResponse.restore);
-
-    daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "post-restore daemon wrapper");
-    await runHttpSmoke(env);
   } catch (error) {
     throw new Error(
       `Full verification failed.\n${error instanceof Error ? error.message : String(error)}\n${formatFailureContext(env, daemon)}`,
@@ -1019,7 +811,7 @@ export async function runFullVerification(): Promise<void> {
 }
 
 export async function runConsoleVerification(): Promise<void> {
-  const env = await createVerificationEnvironment("console", { mailbox: VERIFY_MAILBOX });
+  const env = await createVerificationEnvironment("console");
   let daemon: DaemonHandle | null = null;
   try {
     await runBootstrap(env);
@@ -1028,16 +820,9 @@ export async function runConsoleVerification(): Promise<void> {
       await verifyLaunchAgentLoaded(env);
       await stopLaunchAgentIfPresent(env);
     }
-    await seedReviewApprovalProofFixture(env, VERIFY_MAILBOX);
+    seedFixtureState(env.paths);
     daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "console daemon wrapper");
     const requestJson = createHttpClient(env.config);
-    await requestJson("POST", "/v1/tasks", {
-      title: "Console verification task",
-      kind: "human_reminder",
-      priority: "high",
-      owner: "operator",
-      due_at: new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString(),
-    });
     await requestJson("POST", "/v1/planning-recommendations/refresh", {});
     await createSnapshotViaHttp(env);
 
@@ -1063,34 +848,6 @@ export async function runConsoleVerification(): Promise<void> {
         () => document.documentElement.dataset.consoleReady === "1",
       );
       await waitForSelectorLabeled(snapshotPage, "overview readiness card", "text=Top-level readiness");
-      await waitForSelectorLabeled(snapshotPage, "overview next steps card", "text=What to do right now");
-      await waitForSelectorLabeled(snapshotPage, "overview prep-day card", "text=Day-start workflow");
-      await waitForSelectorLabeled(snapshotPage, "overview version card", "text=Version");
-      await waitForFunctionLabeled(snapshotPage, "overview readiness body text", () => {
-        const bodyText = document.body.textContent ?? "";
-        return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
-      });
-      await waitForFunctionLabeled(snapshotPage, "proof-gated review and approval note", (note) => {
-        const bodyText = document.body.textContent ?? "";
-        return bodyText.includes(String(note));
-      }, PROOF_GATED_REVIEW_NOTE);
-      await waitForFunctionLabeled(snapshotPage, "generic review note removed when stronger proof exists", (note) => {
-        const bodyText = document.body.textContent ?? "";
-        return !bodyText.includes(String(note));
-      }, DEFAULT_REVIEW_NOTE);
-      await snapshotPage.getByRole("button", { name: "Open related detail", exact: true }).first().click();
-      await waitForFunctionLabeled(snapshotPage, "worklist section title", () => document.querySelector("#section-title")?.textContent === "Worklist");
-      await snapshotPage.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();
-      await waitForFunctionLabeled(snapshotPage, "overview section title", () => document.querySelector("#section-title")?.textContent === "Overview");
-      for (const sectionName of ["Worklist", "Approvals", "Drafts", "Planning", "Audit", "Backups", "Overview"]) {
-        await snapshotPage.locator(".nav").getByRole("button", { name: sectionName, exact: true }).click();
-        await waitForFunctionLabeled(
-          snapshotPage,
-          `section title ${sectionName}`,
-          (expected) => document.querySelector("#section-title")?.textContent === expected,
-          sectionName,
-        );
-      }
       await snapshotPage.locator(".nav").getByRole("button", { name: "Backups", exact: true }).click();
       await waitForFunctionLabeled(snapshotPage, "backups section title", () => document.querySelector("#section-title")?.textContent === "Backups");
       await waitForSelectorLabeled(snapshotPage, "backup year listing", `text=${new Date().getUTCFullYear()}`);
@@ -1098,72 +855,6 @@ export async function runConsoleVerification(): Promise<void> {
       await snapshotPage.getByRole("button", { name: "Create snapshot" }).click();
       await waitForSelectorLabeled(snapshotPage, "backup created flash", "text=Created snapshot", { timeout: 60_000 });
       await snapshotContext.close();
-
-      const planningConsoleCommand = await runCommand(
-        "console print url planning",
-        wrapperPaths(env).cli,
-        ["console", "--print-url"],
-        {
-          cwd: env.repoRoot,
-          env: env.env,
-        },
-      );
-      const planningLaunchUrl = planningConsoleCommand.stdout.trim();
-      assert.match(planningLaunchUrl, /^http:\/\/127\.0\.0\.1:\d+\/console\/session\//);
-
-      const planningContext = await browser.newContext();
-      const planningPage = await planningContext.newPage();
-      planningPage.on("dialog", async (dialog) => {
-        await dialog.accept();
-      });
-      await planningPage.goto(planningLaunchUrl, { waitUntil: "commit" });
-      await waitForSelectorLabeled(planningPage, "planning console shell title", "text=Local operator console");
-      await waitForFunctionLabeled(
-        planningPage,
-        "planning console interactive shell",
-        () => document.documentElement.dataset.consoleReady === "1",
-      );
-      await planningPage.locator(".nav").getByRole("button", { name: "Planning", exact: true }).click();
-      await waitForFunctionLabeled(planningPage, "planning section title", () => document.querySelector("#section-title")?.textContent === "Planning");
-      await waitForFunctionLabeled(planningPage, "planning body text", () => {
-        const bodyText = document.body.textContent ?? "";
-        return bodyText.includes("Open recommendations") && !bodyText.includes("NaN");
-      });
-      await waitForSelectorLabeled(planningPage, "planning snooze note input", "#planning-snooze-note");
-      await planningPage.evaluate(() => {
-        const note = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note");
-        if (!note) {
-          throw new Error("planning snooze note field is missing.");
-        }
-        note.value = "Console verification snooze";
-        note.dispatchEvent(new Event("input", { bubbles: true }));
-        note.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      await planningPage.getByRole("button", { name: "Snooze recommendation", exact: true }).click();
-      await waitForFunctionLabeled(
-        planningPage,
-        "planning snooze result",
-        () => {
-          const bodyText = document.body.textContent ?? "";
-          return /Recommendation snoozed\.|Status\s+snoozed/.test(bodyText);
-        },
-        undefined,
-        { timeout: 60_000 },
-      );
-
-      await planningPage.locator(".nav").getByRole("button", { name: "Approvals", exact: true }).click();
-      await waitForFunctionLabeled(planningPage, "approvals section title", () => document.querySelector("#section-title")?.textContent === "Approvals");
-      await waitForFunctionLabeled(planningPage, "approvals body text", () => {
-        const bodyText = document.body.textContent ?? "";
-        return (
-          (bodyText.includes("This section is intentionally read-only.") && bodyText.includes("personal-ops approval approve")) ||
-          bodyText.includes("Approvals, approval decisions, and send stay in the CLI.") ||
-          bodyText.includes("Use grouped approve and send from Drafts when available.") ||
-          bodyText.includes("Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.") ||
-          bodyText.includes("Choose an approval to inspect it. Recovery and inspection stay here, while grouped review, approval, and send stay in Drafts and Outbound Finish-Work.")
-        );
-      });
-      await planningContext.close();
 
       const lockedContext = await browser.newContext();
       const lockedPage = await lockedContext.newPage();

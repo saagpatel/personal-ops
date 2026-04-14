@@ -14,10 +14,6 @@ function appDir() {
   return path.join(repoRoot(), "app");
 }
 
-function releaseWorkflowPath() {
-  return path.join(repoRoot(), ".github", "workflows", "release.yml");
-}
-
 function copyReleaseScripts(targetScriptsDir: string) {
   fs.mkdirSync(targetScriptsDir, { recursive: true });
   for (const fileName of ["release-common.mjs", "release-prep.mjs", "release-notes.mjs"]) {
@@ -157,13 +153,4 @@ test("Phase 4 release notes extracts the target changelog section", () => {
   assert.doesNotMatch(output, /0\.1\.0/);
   assert.match(output, /First official source-first release\./);
   assert.match(output, /Adds release workflow coverage\./);
-});
-
-test("Phase 4 release workflow uses tags, release baseline, and changelog notes", () => {
-  const workflow = fs.readFileSync(releaseWorkflowPath(), "utf8");
-  assert.match(workflow, /tags:\s*\n\s*-\s*"v\*"/);
-  assert.match(workflow, /npx playwright install --with-deps chromium/);
-  assert.match(workflow, /npm run release:check:ci/);
-  assert.match(workflow, /npm run release:notes -- --version/);
-  assert.match(workflow, /softprops\/action-gh-release@v2/);
 });

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { chromium } from "playwright";
+import { buildConsolePayloadForTest, renderConsoleSectionForTest } from "../src/console/app.js";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
 import { createHttpServer } from "../src/http.js";
@@ -1400,6 +1401,80 @@ test("phase 32 console status payload keeps grouped outbound as the primary revi
     const sendReadyPayload = (await sendReadyResponse.json()) as { status: Record<string, unknown> };
     assert.equal((sendReadyPayload.status as any).review_approval_flow?.state, "send_ready");
     assert.equal((sendReadyPayload.status as any).review_approval_flow?.outbound_group_id, outboundGroupId);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("phase 36 console keeps grouped outbound guidance aligned across overview, drafts, and approvals", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+
+    const inboxReport = await fixture.service.getInboxAutopilotReport({ httpReachable: true });
+    const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+    assert.ok(replyGroup);
+
+    const prepared = await fixture.service.prepareInboxAutopilotGroup(TEST_IDENTITY, replyGroup!.group_id);
+    const review = fixture.service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+    assert.ok(review);
+    fixture.service.openReview(TEST_IDENTITY, review!.review_id);
+    fixture.service.resolveReview(TEST_IDENTITY, review!.review_id, "Reviewed for grouped phase 36 console handoff");
+    await fixture.service.requestApprovalForOutboundGroup(TEST_IDENTITY, replyGroup!.group_id, "Request grouped approval");
+    const status = await fixture.service.getStatusReport({ httpReachable: true });
+    const assistantQueue = await fixture.service.getAssistantActionQueueReport({ httpReachable: true });
+    assert.equal((status as any).review_approval_flow?.outbound_group_id, replyGroup!.group_id);
+    assert.equal(assistantQueue.actions[0]?.action_id, `assistant.review-outbound-group:${replyGroup!.group_id}`);
+    assert.equal(assistantQueue.actions.some((action) => action.action_id === "assistant.review-top-attention"), false);
+    assert.equal(assistantQueue.actions.some((action) => action.action_id === `assistant.review-draft-group:${replyGroup!.group_id}`), false);
+    const worklist = await fixture.service.getWorklistReport({ httpReachable: true });
+    const nowNextWorkflow = await fixture.service.getNowNextWorkflowReport({ httpReachable: true });
+    const prepDayWorkflow = await fixture.service.getPrepDayWorkflowReport({ httpReachable: true });
+    const autopilot = await fixture.service.getAutopilotStatusReport({ httpReachable: true });
+    const outboundAutopilot = await fixture.service.getOutboundAutopilotReport({ httpReachable: true });
+    const approvals = fixture.service.listApprovalQueue({ limit: 20 });
+    const pendingApproval = approvals.find((approval) => approval.state === "pending");
+    assert.ok(pendingApproval);
+    const payload = buildConsolePayloadForTest({
+      status,
+      worklist,
+      nowNextWorkflow,
+      prepDayWorkflow,
+      deferred: {
+        autopilot,
+        assistantQueue,
+        inboxAutopilot: inboxReport,
+        outboundAutopilot,
+        approvals,
+        drafts: fixture.service.listDrafts(),
+        reviewItems: fixture.service.listReviewQueue(),
+      },
+    });
+
+    const overviewHtml = renderConsoleSectionForTest({ section: "overview", payload });
+    assert.match(
+      overviewHtml,
+      /Repair is the active owner right now, so assistant-prepared work stays visible here as next-up context\./,
+    );
+    assert.match(overviewHtml, /Approve grouped outbound work/);
+    assert.match(overviewHtml, /1 reply draft already have approval requests pending\./);
+
+    const draftsHtml = renderConsoleSectionForTest({ section: "drafts", payload });
+    assert.match(
+      draftsHtml,
+      /This grouped handoff owns the forward path for review, approval, and send across the drafts below\./,
+    );
+
+    const approvalsHtml = renderConsoleSectionForTest({
+      section: "approvals",
+      payload,
+      selectedApprovalId: pendingApproval!.approval_id,
+      approvalDetail: fixture.service.getApprovalDetail(pendingApproval!.approval_id),
+    });
+    assert.match(approvalsHtml, /This approval belongs to the current grouped handoff\./);
+    assert.match(approvalsHtml, /Use the grouped approval path first/);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

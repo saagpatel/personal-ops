@@ -227,6 +227,15 @@ async function buildCandidates(
   const drive = service.getDriveStatusReport();
   const drafts: DraftArtifact[] = service.listDrafts();
   const approvals: ApprovalRequest[] = service.listApprovalQueue({ limit: 100 });
+  const outboundDraftIds = new Set(outboundAutopilot.groups.flatMap((group: OutboundAutopilotGroup) => group.draft_artifact_ids));
+  const outboundApprovalIds = new Set(outboundAutopilot.groups.flatMap((group: OutboundAutopilotGroup) => group.approval_ids));
+  const standaloneDrafts = drafts.filter((draft) => !outboundDraftIds.has(draft.artifact_id));
+  const standalonePendingApprovals = approvals.filter(
+    (approval) => approval.state === "pending" && !outboundApprovalIds.has(approval.approval_id),
+  );
+  const activeOutboundGroup = outboundAutopilot.groups.find((group: OutboundAutopilotGroup) =>
+    ["review_pending", "approval_ready", "approval_pending", "send_ready"].includes(group.state),
+  );
   const planningNext = service.getNextPlanningRecommendationDetail(undefined, { assistant_safe: false });
   const latestSnapshot = service.getLatestSnapshotSummary();
   const latestSnapshotAge = hoursSince(latestSnapshot?.created_at);
@@ -295,7 +304,9 @@ async function buildCandidates(
       satisfied: latestSnapshotAge !== null && latestSnapshotAge <= COMPLETED_SNAPSHOT_HOURS,
       priority: latestSnapshotAge !== null && latestSnapshotAge <= COMPLETED_SNAPSHOT_HOURS ? 90 : 25,
     },
-    {
+  ];
+  if (!activeOutboundGroup) {
+    candidates.push({
       action_id: ACTION_REVIEW_TOP_ATTENTION,
       title: "Review the best next move",
       summary: primary.summary,
@@ -311,8 +322,8 @@ async function buildCandidates(
       workflow_personalization: primary.workflow_personalization,
       satisfied: false,
       priority: 0,
-    },
-  ];
+    });
+  }
 
   const planningBundles = planningAutopilot.bundles.slice(0, 3);
   if (planningBundles.length > 0) {
@@ -357,16 +368,15 @@ async function buildCandidates(
     });
   }
 
-  const pendingApprovals = approvals.filter((approval) => approval.state === "pending");
-  if (pendingApprovals.length > 0) {
-    const first = pendingApprovals[0]!;
+  if (standalonePendingApprovals.length > 0) {
+    const first = standalonePendingApprovals[0]!;
     candidates.push({
       action_id: ACTION_REVIEW_APPROVALS,
       title: "Review pending approvals",
       summary:
-        pendingApprovals.length === 1
+        standalonePendingApprovals.length === 1
           ? "1 approval is waiting for a decision before send can continue."
-          : `${pendingApprovals.length} approvals are waiting for a decision before send can continue.`,
+          : `${standalonePendingApprovals.length} approvals are waiting for a decision before send can continue.`,
       section: "approvals",
       batch: false,
       one_click: false,
@@ -381,15 +391,15 @@ async function buildCandidates(
     });
   }
 
-  if (drafts.length > 0) {
-    const first = drafts[0]!;
+  if (standaloneDrafts.length > 0) {
+    const first = standaloneDrafts[0]!;
     candidates.push({
       action_id: ACTION_REVIEW_DRAFTS,
       title: "Review prepared drafts",
       summary:
-        drafts.length === 1
+        standaloneDrafts.length === 1
           ? `1 local draft is ready for operator review: ${first.subject}.`
-          : `${drafts.length} local drafts are ready for operator review.`,
+          : `${standaloneDrafts.length} local drafts are ready for operator review.`,
       section: "drafts",
       batch: false,
       one_click: false,
@@ -404,9 +414,7 @@ async function buildCandidates(
     });
   }
 
-  const outboundGroup = outboundAutopilot.groups.find((group: OutboundAutopilotGroup) =>
-    ["review_pending", "approval_ready", "approval_pending", "send_ready"].includes(group.state),
-  );
+  const outboundGroup = activeOutboundGroup;
   if (outboundGroup) {
     const outbound = outboundActionSummary(outboundGroup);
     candidates.push({
@@ -428,6 +436,9 @@ async function buildCandidates(
   }
 
   for (const group of inboxAutopilot.groups) {
+    if (activeOutboundGroup && group.group_id === activeOutboundGroup.group_id) {
+      continue;
+    }
     const representedByPlanningBundle = planningBundles.some(
       (bundle: PlanningAutopilotBundle) =>
         bundle.kind === "thread_followup" &&

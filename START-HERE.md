@@ -89,26 +89,20 @@ Use this path if you want to:
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
-  The current and future source of truth for the assistant-led initiative, now through Phase 34 with Phase 35 in progress.
+  The current and future source of truth for the completed assistant-led initiative, now through Phase 38.
 
 ## History and deep context
 
 These docs are still important, but they are history and deeper context, not the main onboarding path:
 
+- [docs/ASSISTANT-LED-HISTORY-SUMMARY.md](docs/ASSISTANT-LED-HISTORY-SUMMARY.md)
+  The durable historical summary of the assistant-led Phases 1 to 38 track.
 - [docs/IMPROVEMENT-ROADMAP.md](docs/IMPROVEMENT-ROADMAP.md)
   The earlier post-program roadmap that now serves as supporting context for the assistant-led track.
 - [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
   The historical summary of the earlier Phase 1 to 33 program.
 - [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)
   The deep system audit and prior live verification record.
-- [docs/PHASE-1-ROLLOUT.md](docs/PHASE-1-ROLLOUT.md)
-  Install and productization rollout.
-- [docs/PHASE-2-ROLLOUT.md](docs/PHASE-2-ROLLOUT.md)
-  Refactor and roadmap-memory rollout.
-- [docs/PHASE-3-ROLLOUT.md](docs/PHASE-3-ROLLOUT.md)
-  End-to-end verification rollout.
-- [docs/PHASE-4-ROLLOUT.md](docs/PHASE-4-ROLLOUT.md)
-  Daily operator experience rollout.
 
 ## Recommended first moves
 

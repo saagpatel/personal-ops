@@ -14,6 +14,7 @@ It is **not** the current roadmap or current-state record anymore.
 Use:
 
 - `docs/ASSISTANT-LED-ROADMAP.md` for the live assistant-led roadmap and current phase status
+- `docs/ASSISTANT-LED-HISTORY-SUMMARY.md` for the durable historical summary of the completed assistant-led track
 - the current assistant-led phase plan and rollout docs for implementation truth and shipped closeout details
 
 It is meant to answer five questions in one place:
@@ -28,6 +29,7 @@ This summary complements, rather than replaces:
 
 - `README.md` for the current product shape
 - `docs/ASSISTANT-LED-ROADMAP.md` for the current and future roadmap truth
+- `docs/ASSISTANT-LED-HISTORY-SUMMARY.md` for the historical assistant-led Phases 1 through 38 story
 - `CLIENTS.md` for the shared client contract
 - `docs/2026-03-24-system-audit.md` for the full system audit and live verification record
 - the individual `PHASE-*-PLAN.md` and `PHASE-*-ROLLOUT.md` files for implementation history
