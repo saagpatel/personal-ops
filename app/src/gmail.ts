@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { gmail_v1, google } from "googleapis";
 import {
   DraftInput,
   GmailClientConfig,
@@ -79,7 +79,10 @@ export function createOAuthClient(clientConfig: GmailClientConfig, redirectUri?:
   );
 }
 
-function createAuthorizedGmail(tokensJson: string, clientConfig: GmailClientConfig) {
+function createAuthorizedGmail(tokensJson: string, clientConfig: GmailClientConfig): {
+  oauthClient: ReturnType<typeof createOAuthClient>;
+  gmail: gmail_v1.Gmail;
+} {
   const oauthClient = createOAuthClient(clientConfig);
   oauthClient.setCredentials(JSON.parse(tokensJson) as Record<string, string>);
   return {
@@ -188,7 +191,7 @@ export async function listGmailMessageRefsByLabel(
   pageToken?: string,
 ): Promise<GmailMessageRefPage> {
   const { gmail } = createAuthorizedGmail(tokensJson, clientConfig);
-  const params: Record<string, unknown> = {
+  const params: gmail_v1.Params$Resource$Users$Messages$List = {
     userId: "me",
     labelIds: [labelId],
     maxResults: 100,
@@ -196,7 +199,7 @@ export async function listGmailMessageRefsByLabel(
   if (pageToken) {
     params.pageToken = pageToken;
   }
-  const response = await gmail.users.messages.list(params as any);
+  const response = await gmail.users.messages.list(params);
   return {
     message_ids: (response.data.messages ?? []).map((message: { id?: string | null }) => String(message.id)).filter(Boolean),
     next_page_token: response.data.nextPageToken ?? undefined,
@@ -238,7 +241,7 @@ export async function listGmailHistory(
   pageToken?: string,
 ): Promise<GmailHistoryPage> {
   const { gmail } = createAuthorizedGmail(tokensJson, clientConfig);
-  const params: Record<string, unknown> = {
+  const params: gmail_v1.Params$Resource$Users$History$List = {
     userId: "me",
     startHistoryId,
     historyTypes: ["messageAdded", "labelsAdded", "labelsRemoved", "messageDeleted"],
@@ -247,8 +250,8 @@ export async function listGmailHistory(
   if (pageToken) {
     params.pageToken = pageToken;
   }
-  const response = await gmail.users.history.list(params as any);
-  const records = (response.data.history ?? []).map((entry: any) => {
+  const response = await gmail.users.history.list(params);
+  const records = (response.data.history ?? []).map((entry) => {
     const refreshIds = new Set<string>();
     const deletedIds = new Set<string>();
     for (const item of entry.messagesAdded ?? []) {

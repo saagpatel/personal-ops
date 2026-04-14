@@ -6,9 +6,9 @@ If you only read one document after `README.md`, read this one.
 
 ## What this project is
 
-`personal-ops` is a local control layer for personal workflow.
+`personal-ops` is a local workflow hub for one person.
 
-It gives one machine-owned source of truth for:
+It gives you one machine-owned source of truth for:
 
 - inbox and mailbox awareness
 - calendar context
@@ -118,6 +118,12 @@ If you are a new operator:
 8. If you want the console to feel more native on macOS, run `personal-ops install desktop` and then `personal-ops desktop open`.
 9. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
 10. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
+
+If you just want the plain-English version:
+
+- `README.md` explains what the project is and why it exists
+- this file tells you where to go next
+- `QUICK-GUIDE.md` gives the shortest practical setup and daily-use path
 
 If you are a new assistant or contributor:
 

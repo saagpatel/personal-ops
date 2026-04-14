@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { docs_v1, drive_v3, google, sheets_v4 } from "googleapis";
 import type {
   Config,
   DriveDocRecord,
@@ -25,7 +25,10 @@ function createAuthorizedOAuthClient(tokensJson: string, clientConfig: GmailClie
   return oauthClient;
 }
 
-function createAuthorizedDrive(tokensJson: string, clientConfig: GmailClientConfig) {
+function createAuthorizedDrive(tokensJson: string, clientConfig: GmailClientConfig): {
+  oauthClient: ReturnType<typeof createOAuthClient>;
+  drive: drive_v3.Drive;
+} {
   const oauthClient = createAuthorizedOAuthClient(tokensJson, clientConfig);
   return {
     oauthClient,
@@ -33,7 +36,10 @@ function createAuthorizedDrive(tokensJson: string, clientConfig: GmailClientConf
   };
 }
 
-function createAuthorizedDocs(tokensJson: string, clientConfig: GmailClientConfig) {
+function createAuthorizedDocs(tokensJson: string, clientConfig: GmailClientConfig): {
+  oauthClient: ReturnType<typeof createOAuthClient>;
+  docs: docs_v1.Docs;
+} {
   const oauthClient = createAuthorizedOAuthClient(tokensJson, clientConfig);
   return {
     oauthClient,
@@ -41,7 +47,10 @@ function createAuthorizedDocs(tokensJson: string, clientConfig: GmailClientConfi
   };
 }
 
-function createAuthorizedSheets(tokensJson: string, clientConfig: GmailClientConfig) {
+function createAuthorizedSheets(tokensJson: string, clientConfig: GmailClientConfig): {
+  oauthClient: ReturnType<typeof createOAuthClient>;
+  sheets: sheets_v4.Sheets;
+} {
   const oauthClient = createAuthorizedOAuthClient(tokensJson, clientConfig);
   return {
     oauthClient,
@@ -85,7 +94,10 @@ function escapeSheetRangeName(value: string): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function collectDocTextFromStructuralElement(element: any, parts: string[]): void {
+function collectDocTextFromStructuralElement(
+  element: docs_v1.Schema$StructuralElement | null | undefined,
+  parts: string[],
+): void {
   if (!element) {
     return;
   }
@@ -109,7 +121,11 @@ function collectDocTextFromStructuralElement(element: any, parts: string[]): voi
   }
 }
 
-function mapDriveFile(item: any, scopeSource: DriveFileScopeSource, syncedAt: string): DriveFileRecord | null {
+function mapDriveFile(
+  item: drive_v3.Schema$File,
+  scopeSource: DriveFileScopeSource,
+  syncedAt: string,
+): DriveFileRecord | null {
   const fileId = item.id ? String(item.id) : "";
   if (!fileId) {
     return null;
@@ -174,12 +190,12 @@ async function listFolderChildren(
   tokensJson: string,
   clientConfig: GmailClientConfig,
   folderId: string,
-): Promise<any[]> {
+): Promise<drive_v3.Schema$File[]> {
   const { drive } = createAuthorizedDrive(tokensJson, clientConfig);
-  const files: any[] = [];
+  const files: drive_v3.Schema$File[] = [];
   let pageToken: string | undefined;
   do {
-    const params: Record<string, unknown> = {
+    const params: drive_v3.Params$Resource$Files$List = {
       corpora: "user",
       includeItemsFromAllDrives: false,
       supportsAllDrives: false,
@@ -191,7 +207,7 @@ async function listFolderChildren(
     if (pageToken) {
       params.pageToken = pageToken;
     }
-    const response = await drive.files.list(params as any);
+    const response = await drive.files.list(params);
     files.push(...(response.data.files ?? []));
     pageToken = response.data.nextPageToken ?? undefined;
   } while (pageToken);
@@ -202,7 +218,7 @@ async function getDriveFileMetadata(
   tokensJson: string,
   clientConfig: GmailClientConfig,
   fileId: string,
-): Promise<any | null> {
+): Promise<drive_v3.Schema$File | null> {
   const { drive } = createAuthorizedDrive(tokensJson, clientConfig);
   try {
     const response = await drive.files.get({

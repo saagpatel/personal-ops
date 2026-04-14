@@ -121,6 +121,76 @@ function normalizeGoogleDriveScopeList(value: unknown): string[] {
     : [];
 }
 
+function readObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return fallback;
+}
+
+function readString(value: unknown, fallback: string, options: { allowEmpty?: boolean } = {}): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0 && !options.allowEmpty) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    : [];
+}
+
+function readNumber(
+  value: unknown,
+  fallback: number,
+  options: { min?: number; integer?: boolean } = {},
+): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const normalized = options.integer ? Math.trunc(parsed) : parsed;
+  if (options.min !== undefined && normalized < options.min) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function readWorkdayTime(value: unknown, fallback: string): string {
+  const normalized = readString(value, fallback);
+  const match = normalized.match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return fallback;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return fallback;
+  }
+  return normalized;
+}
+
 function ensureFile(path: string, contents: string): void {
   if (!fs.existsSync(path)) {
     fs.writeFileSync(path, contents, { encoding: "utf8", mode: 0o600 });
@@ -151,58 +221,65 @@ export function ensureRuntimeFiles(): Paths {
 
 export function loadConfig(paths: Paths): Config {
   const raw = fs.readFileSync(paths.configFile, "utf8");
-  const doc = parse(raw) as Record<string, any>;
+  const doc = readObject(parse(raw));
+  const service = readObject(doc.service);
+  const http = readObject(doc.http);
+  const autopilot = readObject(doc.autopilot);
+  const gmail = readObject(doc.gmail);
+  const github = readObject(doc.github);
+  const drive = readObject(doc.drive);
+  const calendar = readObject(doc.calendar);
+  const auth = readObject(doc.auth);
   const token = ensureApiToken(paths.apiTokenFile);
   const assistantToken = ensureApiToken(paths.assistantApiTokenFile);
   return {
-    serviceHost: doc.service?.host ?? "127.0.0.1",
-    servicePort: Number(doc.service?.port ?? 46210),
-    allowedOrigins: Array.isArray(doc.http?.allowed_origins) ? doc.http.allowed_origins : [],
-    autopilotEnabled: Boolean(doc.autopilot?.enabled ?? true),
+    serviceHost: readString(service.host, "127.0.0.1"),
+    servicePort: readNumber(service.port, 46210, { min: 1, integer: true }),
+    allowedOrigins: readStringArray(http.allowed_origins),
+    autopilotEnabled: readBoolean(autopilot.enabled, true),
     autopilotMode:
-      doc.autopilot?.mode === "off" || doc.autopilot?.mode === "observe" || doc.autopilot?.mode === "continuous"
-        ? doc.autopilot.mode
+      autopilot.mode === "off" || autopilot.mode === "observe" || autopilot.mode === "continuous"
+        ? autopilot.mode
         : "continuous",
-    autopilotRunIntervalMinutes: Number(doc.autopilot?.run_interval_minutes ?? 5),
-    autopilotWarmOnConsoleOpen: Boolean(doc.autopilot?.warm_on_console_open ?? true),
-    autopilotWarmOnDesktopOpen: Boolean(doc.autopilot?.warm_on_desktop_open ?? true),
-    autopilotProfiles: Array.isArray(doc.autopilot?.profiles)
-      ? doc.autopilot.profiles
+    autopilotRunIntervalMinutes: readNumber(autopilot.run_interval_minutes, 5, { min: 1, integer: true }),
+    autopilotWarmOnConsoleOpen: readBoolean(autopilot.warm_on_console_open, true),
+    autopilotWarmOnDesktopOpen: readBoolean(autopilot.warm_on_desktop_open, true),
+    autopilotProfiles: Array.isArray(autopilot.profiles)
+      ? autopilot.profiles
           .map((value: unknown) => String(value).trim())
           .filter((value: string) => ["day_start", "inbox", "meetings", "planning", "outbound"].includes(value)) as Config["autopilotProfiles"]
       : ["day_start", "inbox", "meetings", "planning", "outbound"],
-    autopilotFailureBackoffMinutes: Number(doc.autopilot?.failure_backoff_minutes ?? 15),
-    autopilotNotificationCooldownMinutes: Number(doc.autopilot?.notification_cooldown_minutes ?? 30),
-    gmailAccountEmail: String(doc.gmail?.account_email ?? ""),
-    gmailReviewUrl: String(doc.gmail?.review_url ?? "https://mail.google.com/mail/u/0/#drafts"),
-    githubEnabled: Boolean(doc.github?.enabled ?? false),
-    includedGithubRepositories: Array.isArray(doc.github?.included_repositories)
-      ? doc.github.included_repositories.map((value: unknown) => String(value).trim()).filter(Boolean)
+    autopilotFailureBackoffMinutes: readNumber(autopilot.failure_backoff_minutes, 15, { min: 1, integer: true }),
+    autopilotNotificationCooldownMinutes: readNumber(autopilot.notification_cooldown_minutes, 30, { min: 1, integer: true }),
+    gmailAccountEmail: readString(gmail.account_email, "", { allowEmpty: true }),
+    gmailReviewUrl: readString(gmail.review_url, "https://mail.google.com/mail/u/0/#drafts"),
+    githubEnabled: readBoolean(github.enabled, false),
+    includedGithubRepositories: readStringArray(github.included_repositories),
+    githubSyncIntervalMinutes: readNumber(github.sync_interval_minutes, 10, { min: 1, integer: true }),
+    githubKeychainService: readString(github.keychain_service, "personal-ops.github"),
+    driveEnabled: readBoolean(drive.enabled, false),
+    includedDriveFolders: normalizeGoogleDriveScopeList(drive.included_folders),
+    includedDriveFiles: normalizeGoogleDriveScopeList(drive.included_files),
+    driveSyncIntervalMinutes: readNumber(drive.sync_interval_minutes, 30, { min: 1, integer: true }),
+    driveRecentDocsLimit: readNumber(drive.recent_docs_limit, 10, { min: 1, integer: true }),
+    calendarEnabled: readBoolean(calendar.enabled, true),
+    calendarProvider: calendar.provider === "google" ? "google" : "google",
+    includedCalendarIds: Array.isArray(calendar.included_calendar_ids)
+      ? calendar.included_calendar_ids.map((value: unknown) => String(value))
       : [],
-    githubSyncIntervalMinutes: Number(doc.github?.sync_interval_minutes ?? 10),
-    githubKeychainService: String(doc.github?.keychain_service ?? "personal-ops.github"),
-    driveEnabled: Boolean(doc.drive?.enabled ?? false),
-    includedDriveFolders: normalizeGoogleDriveScopeList(doc.drive?.included_folders),
-    includedDriveFiles: normalizeGoogleDriveScopeList(doc.drive?.included_files),
-    driveSyncIntervalMinutes: Number(doc.drive?.sync_interval_minutes ?? 30),
-    driveRecentDocsLimit: Number(doc.drive?.recent_docs_limit ?? 10),
-    calendarEnabled: Boolean(doc.calendar?.enabled ?? true),
-    calendarProvider: String(doc.calendar?.provider ?? "google") as "google",
-    includedCalendarIds: Array.isArray(doc.calendar?.included_calendar_ids)
-      ? doc.calendar.included_calendar_ids.map((value: unknown) => String(value))
-      : [],
-    calendarSyncPastDays: Number(doc.calendar?.sync_past_days ?? 30),
-    calendarSyncFutureDays: Number(doc.calendar?.sync_future_days ?? 90),
-    calendarSyncIntervalMinutes: Number(doc.calendar?.sync_interval_minutes ?? 5),
-    workdayStartLocal: String(doc.calendar?.workday_start_local ?? "09:00"),
-    workdayEndLocal: String(doc.calendar?.workday_end_local ?? "18:00"),
-    meetingPrepWarningMinutes: Number(doc.calendar?.meeting_prep_warning_minutes ?? 30),
-    dayOverloadEventThreshold: Number(doc.calendar?.day_overload_event_threshold ?? 6),
-    schedulePressureFreeMinutesThreshold: Number(
-      doc.calendar?.schedule_pressure_free_minutes_threshold ?? 60,
-    ),
-    keychainService: String(doc.auth?.keychain_service ?? "personal-ops.gmail"),
-    oauthClientFile: expandHome(String(doc.auth?.oauth_client_file ?? paths.oauthClientFile)),
+    calendarSyncPastDays: readNumber(calendar.sync_past_days, 30, { min: 0, integer: true }),
+    calendarSyncFutureDays: readNumber(calendar.sync_future_days, 90, { min: 0, integer: true }),
+    calendarSyncIntervalMinutes: readNumber(calendar.sync_interval_minutes, 5, { min: 1, integer: true }),
+    workdayStartLocal: readWorkdayTime(calendar.workday_start_local, "09:00"),
+    workdayEndLocal: readWorkdayTime(calendar.workday_end_local, "18:00"),
+    meetingPrepWarningMinutes: readNumber(calendar.meeting_prep_warning_minutes, 30, { min: 0, integer: true }),
+    dayOverloadEventThreshold: readNumber(calendar.day_overload_event_threshold, 6, { min: 1, integer: true }),
+    schedulePressureFreeMinutesThreshold: readNumber(calendar.schedule_pressure_free_minutes_threshold, 60, {
+      min: 0,
+      integer: true,
+    }),
+    keychainService: readString(auth.keychain_service, "personal-ops.gmail"),
+    oauthClientFile: expandHome(readString(auth.oauth_client_file, paths.oauthClientFile)),
     apiToken: token,
     assistantApiToken: assistantToken,
   };
@@ -210,10 +287,13 @@ export function loadConfig(paths: Paths): Config {
 
 export function loadPolicy(paths: Paths): Policy {
   const raw = fs.readFileSync(paths.policyFile, "utf8");
-  const doc = parse(raw) as Record<string, any>;
+  const doc = readObject(parse(raw));
+  const notifications = readObject(doc.notifications);
+  const security = readObject(doc.security);
+  const audit = readObject(doc.audit);
   return {
-    notificationsTitlePrefix: String(doc.notifications?.title_prefix ?? "Personal Ops"),
-    allowSend: Boolean(doc.security?.allow_send ?? false),
-    auditDefaultLimit: Number(doc.audit?.default_limit ?? 50),
+    notificationsTitlePrefix: readString(notifications.title_prefix, "Personal Ops"),
+    allowSend: readBoolean(security.allow_send, false),
+    auditDefaultLimit: readNumber(audit.default_limit, 50, { min: 1, integer: true }),
   };
 }

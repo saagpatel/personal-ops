@@ -1,12 +1,76 @@
 # personal-ops
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript)](#) [![Status](https://img.shields.io/badge/status-WIP-yellow?style=flat-square)](#)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript)](#) [![Status](https://img.shields.io/badge/status-stable%20local--first-green?style=flat-square)](#)
 
-> A private local control plane for personal workflow - shared source of truth for inbox, calendar, tasks, and assistant-safe operations.
+> A local-first personal workflow hub that helps you review inbox, calendar, planning, drafts, and approvals from one safer place.
 
-personal-ops runs as a local daemon that gives AI assistants and operator tooling a shared, audited layer for Gmail and Google Calendar awareness, task tracking, draft/approval flows, and planning recommendations - without handing over unlimited account access.
+`personal-ops` is a private system you run on your own machine. It keeps your work context in one place so you can see what needs attention, review assistant-prepared work, and stay in charge of anything risky like approvals, sends, or destructive changes.
 
-## Features
+## What This Project Is
+
+If you are brand new, the simplest way to think about `personal-ops` is:
+
+- it is a personal operations dashboard for one person
+- it gathers useful work context from tools like Gmail, Google Calendar, Google Drive, and GitHub
+- it can prepare drafts, meeting prep, planning bundles, and outbound handoffs for review
+- it is designed so assistants can help without getting unlimited account power
+
+This is not a generic chatbot and it is not a cloud service. It is a local workflow system with a local daemon, local state, local verification, and a clear operator-in-charge trust model.
+
+## Why You Would Use It
+
+You would use `personal-ops` if you want:
+
+- one place to see what matters now
+- less tab-hopping across email, calendar, docs, and review work
+- assistant help with preparation, not silent control over risky actions
+- a local system you can inspect, verify, and recover
+- the same underlying state available through CLI, browser console, and an optional macOS desktop shell
+
+The core idea stays simple:
+
+- assistants can help
+- the operator stays in charge
+
+## What It Is Good At
+
+`personal-ops` is especially useful for:
+
+- inbox and follow-up review
+- meeting preparation with related context
+- planning the next useful block of work
+- staging outbound work until it is ready for approval or send
+- keeping a shared, audited source of truth for humans and assistants
+- warming up helpful work surfaces before you open them
+
+## How You Use It Day To Day
+
+A beginner-friendly daily flow looks like this:
+
+1. Start the local system and open the console or desktop shell.
+2. Check the day-start or now-next guidance to see what matters most.
+3. Review prepared work like draft replies, meeting prep, or planning bundles.
+4. Approve or send only when you are ready.
+5. Use the same local state from the CLI if you want more direct control.
+
+In other words, `personal-ops` is trying to reduce manual coordination work, not replace your judgment.
+
+## Quick Start
+
+If you want the shortest path to a working setup:
+
+1. Clone the repo to `~/.local/share/personal-ops`.
+2. Run `./bootstrap` from the repo root.
+3. Fill in `~/.config/personal-ops/config.toml`.
+4. Add your Google OAuth client file at `~/.config/personal-ops/gmail-oauth-client.json`.
+5. Run `personal-ops auth gmail login`.
+6. Run `personal-ops auth google login`.
+7. Finish with `personal-ops doctor --deep`.
+8. Open `personal-ops console` to use the main daily workspace.
+
+If you want a guided path instead of raw commands, read [START-HERE.md](START-HERE.md) next.
+
+## Main Capabilities
 
 - Gmail and Google Calendar awareness
 - tasks and task suggestions
@@ -24,16 +88,18 @@ personal-ops runs as a local daemon that gives AI assistants and operator toolin
 - continuous autopilot that warms inbox, meetings, planning, outbound, and day-start surfaces before you ask
 - machine-aware backups and restore guardrails
 
-## Quick Start
+## Project Status
 
-- sync recent mailbox and calendar context into one local system
-- track what needs attention
-- suggest useful work like reply blocks, follow-up blocks, or prep blocks
-- show assistants safe operational context
-- keep higher-risk actions behind operator control
-- give the operator both CLI and local browser views into the same state
-- optionally wrap the same console in a local macOS desktop app without changing the control plane
-- support fresh-machine bootstrap, local install, and LaunchAgent setup from repo-managed commands
+The assistant-led buildout is complete through Phase 38. The project is now in a stable local-first state with:
+
+- a local daemon, CLI, HTTP API, and MCP bridge
+- a browser console for day-to-day review
+- an optional macOS desktop shell for the same console
+- grouped inbox, meeting, planning, and outbound preparation flows
+- verification and recovery workflows
+- durable roadmap and history documentation
+
+This does not mean the project will never change. It means the large assistant-led buildout is complete and the current baseline is meant to be usable, verifiable, and maintainable.
 
 ## Tech Stack
 
@@ -49,26 +115,6 @@ personal-ops runs as a local daemon that gives AI assistants and operator toolin
 - Operator-gated approvals, reviews, and mutation flows
 - Assistant-safe audit feed with categorized recent activity
 - Clear separation between safe reads and risky real-world actions
-
-> **Status: Work in Progress** - Core daemon, MCP tools, and approval flows are functional. Operator console UI in progress.
-
-## Why You Would Want To Use It
-
-You would want `personal-ops` if you want AI help with your personal workflow but do not want to hand over unlimited power to an assistant.
-
-It is useful when you want:
-
-- one place that knows the current operational state
-- safer AI-assisted inbox, task, and calendar workflows
-- less duplicated logic across different assistants
-- clearer visibility into what is happening and what needs attention
-- a local operator UI without giving the browser full control over risky actions
-- a system that is inspectable, documented, and operator-controlled
-
-The core idea is simple:
-
-- assistants can help
-- the operator stays in charge
 
 ## Current Product Shape
 

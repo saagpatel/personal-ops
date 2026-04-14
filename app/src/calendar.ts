@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { calendar_v3, google } from "googleapis";
 import {
   GmailClientConfig,
   GoogleCalendarEventsPage,
@@ -17,13 +17,16 @@ function createAuthorizedOAuthClient(tokensJson: string, clientConfig: GmailClie
   return oauthClient;
 }
 
-function createAuthorizedCalendar(tokensJson: string, clientConfig: GmailClientConfig) {
+function createAuthorizedCalendar(
+  tokensJson: string,
+  clientConfig: GmailClientConfig,
+): calendar_v3.Calendar {
   const oauthClient = createAuthorizedOAuthClient(tokensJson, clientConfig);
   return google.calendar({ version: "v3", auth: oauthClient });
 }
 
 function parseCalendarTime(
-  value: { date?: string | null; dateTime?: string | null } | null | undefined,
+  value: calendar_v3.Schema$EventDateTime | null | undefined,
 ): { at: string; isAllDay: boolean } {
   if (value?.dateTime) {
     return {
@@ -45,10 +48,13 @@ function parseCalendarTime(
   return { at: now, isAllDay: false };
 }
 
-function parseGoogleCalendarEvent(calendarId: string, item: any): GoogleCalendarEventMetadata {
+function parseGoogleCalendarEvent(
+  calendarId: string,
+  item: calendar_v3.Schema$Event,
+): GoogleCalendarEventMetadata {
   const start = parseCalendarTime(item.start);
   const end = parseCalendarTime(item.end);
-  const selfAttendee = (item.attendees ?? []).find((attendee: any) => attendee.self);
+  const selfAttendee = (item.attendees ?? []).find((attendee) => attendee.self);
   const privateProperties = item.extendedProperties?.private ?? {};
   const createdByPersonalOps = privateProperties.po_source === "personal-ops";
   return {
@@ -109,16 +115,16 @@ export async function listGoogleCalendarSources(
   pageToken?: string,
 ): Promise<GoogleCalendarListPage> {
   const calendar = createAuthorizedCalendar(tokensJson, clientConfig);
-  const params: Record<string, unknown> = {
+  const params: calendar_v3.Params$Resource$Calendarlist$List = {
     maxResults: 100,
     showDeleted: false,
     showHidden: false,
   };
   if (pageToken) params.pageToken = pageToken;
-  const response = await calendar.calendarList.list(params as any);
+  const response = await calendar.calendarList.list(params);
   return {
     calendars: (response.data.items ?? [])
-      .map((item: any) => ({
+      .map((item) => ({
         calendar_id: String(item.id ?? ""),
         title: String(item.summaryOverride ?? item.summary ?? ""),
         time_zone: item.timeZone ?? undefined,
@@ -144,7 +150,7 @@ export async function listGoogleCalendarEvents(
   },
 ): Promise<GoogleCalendarEventsPage> {
   const calendar = createAuthorizedCalendar(tokensJson, clientConfig);
-  const params: Record<string, unknown> = {
+  const params: calendar_v3.Params$Resource$Events$List = {
     calendarId,
     timeMin: options.timeMin,
     timeMax: options.timeMax,
@@ -154,12 +160,12 @@ export async function listGoogleCalendarEvents(
     orderBy: "startTime",
   };
   if (options.pageToken) params.pageToken = options.pageToken;
-  const response = await calendar.events.list(params as any);
+  const response = await calendar.events.list(params);
 
   return {
     events: (response.data.items ?? [])
-      .filter((item: any) => item.id && item.start && item.end)
-      .map((item: any) => parseGoogleCalendarEvent(calendarId, item)),
+      .filter((item) => item.id && item.start && item.end)
+      .map((item) => parseGoogleCalendarEvent(calendarId, item)),
     next_page_token: response.data.nextPageToken ?? undefined,
   };
 }
@@ -188,29 +194,30 @@ export async function createGoogleCalendarEvent(
   input: GoogleCalendarEventWriteInput,
 ): Promise<GoogleCalendarEventMetadata> {
   const calendar = createAuthorizedCalendar(tokensJson, clientConfig);
+  const requestBody: calendar_v3.Schema$Event = {
+    start: {
+      dateTime: input.start_at ?? null,
+    },
+    end: {
+      dateTime: input.end_at ?? null,
+    },
+    transparency: "opaque",
+    extendedProperties: {
+      private: {
+        po_source: "personal-ops",
+        ...(input.source_task_id ? { po_source_task_id: input.source_task_id } : {}),
+        ...(input.created_by_client ? { po_created_by: input.created_by_client } : {}),
+      },
+    },
+  };
+  if (input.title !== undefined) requestBody.summary = input.title;
+  if (input.location !== undefined) requestBody.location = input.location;
+  if (input.notes !== undefined) requestBody.description = input.notes;
   const response = await calendar.events.insert({
     calendarId,
     sendUpdates: "none",
-    requestBody: {
-      summary: input.title,
-      location: input.location ?? undefined,
-      description: input.notes ?? undefined,
-      start: {
-        dateTime: input.start_at,
-      },
-      end: {
-        dateTime: input.end_at,
-      },
-      transparency: "opaque",
-      extendedProperties: {
-        private: {
-          po_source: "personal-ops",
-          ...(input.source_task_id ? { po_source_task_id: input.source_task_id } : {}),
-          ...(input.created_by_client ? { po_created_by: input.created_by_client } : {}),
-        },
-      },
-    },
-  } as any);
+    requestBody,
+  });
   if (!response.data.id || !response.data.start || !response.data.end) {
     throw new Error("Google Calendar did not return a complete event after creation.");
   }
@@ -225,7 +232,7 @@ export async function patchGoogleCalendarEvent(
   input: GoogleCalendarEventWriteInput,
 ): Promise<GoogleCalendarEventMetadata> {
   const calendar = createAuthorizedCalendar(tokensJson, clientConfig);
-  const requestBody: Record<string, unknown> = {};
+  const requestBody: calendar_v3.Schema$Event = {};
   if (input.title !== undefined) requestBody.summary = input.title;
   if (input.location !== undefined) requestBody.location = input.location;
   if (input.notes !== undefined) requestBody.description = input.notes;
@@ -245,7 +252,7 @@ export async function patchGoogleCalendarEvent(
     eventId: providerEventId,
     sendUpdates: "none",
     requestBody,
-  } as any);
+  });
   if (!response.data.id || !response.data.start || !response.data.end) {
     throw new Error(`Google Calendar did not return a complete event after updating ${providerEventId}.`);
   }
@@ -263,5 +270,5 @@ export async function cancelGoogleCalendarEvent(
     calendarId,
     eventId: providerEventId,
     sendUpdates: "none",
-  } as any);
+  });
 }

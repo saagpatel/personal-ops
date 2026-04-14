@@ -27,6 +27,7 @@ import {
 } from "./web-console.js";
 
 type AuthRole = "operator" | "assistant";
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 class HttpError extends Error {
   constructor(
@@ -83,8 +84,14 @@ function redirect(response: http.ServerResponse, location: string) {
 
 async function readJsonBody(request: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > MAX_JSON_BODY_BYTES) {
+      throw new HttpError(413, `JSON request body exceeds the ${MAX_JSON_BODY_BYTES}-byte limit.`);
+    }
+    chunks.push(buffer);
   }
   if (chunks.length === 0) {
     return {};
@@ -147,7 +154,13 @@ function parseCookies(rawCookie: string | undefined): Record<string, string> {
         if (splitIndex === -1) {
           return [part, ""];
         }
-        return [part.slice(0, splitIndex), decodeURIComponent(part.slice(splitIndex + 1))];
+        const key = part.slice(0, splitIndex);
+        const rawValue = part.slice(splitIndex + 1);
+        try {
+          return [key, decodeURIComponent(rawValue)];
+        } catch {
+          return [key, rawValue];
+        }
       }),
   );
 }
@@ -1959,7 +1972,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       if (request.method === "GET" && url.pathname === "/v1/audit/events") {
         assertAllowedQueryParams(url, ["limit", "category"]);
         const filter: AuditEventFilter = {
-          limit: Number(url.searchParams.get("limit") ?? policy.auditDefaultLimit),
+          limit: parseLimit(url.searchParams.get("limit") ?? String(policy.auditDefaultLimit)),
           category: parseAuditCategoryQuery(url.searchParams.get("category")),
         };
         sendJson(response, 200, { events: service.listAuditEvents(filter, { assistant_safe: auth?.role === "assistant" }) });
@@ -1968,7 +1981,7 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
 
       if (request.method === "GET" && url.pathname === "/v1/approval-queue") {
         const filter: ApprovalRequestFilter = {
-          limit: Number(url.searchParams.get("limit") ?? policy.auditDefaultLimit),
+          limit: parseLimit(url.searchParams.get("limit") ?? String(policy.auditDefaultLimit)),
           state: (url.searchParams.get("state") ?? undefined) as ApprovalRequestFilter["state"],
         };
         sendJson(response, 200, { approval_requests: service.listApprovalQueue(filter) });

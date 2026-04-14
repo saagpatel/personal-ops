@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { google } from "googleapis";
+import { CodeChallengeMethod } from "google-auth-library";
 import { PersonalOpsDb } from "./db.js";
 import { createOAuthClient, getGmailProfile } from "./gmail.js";
 import { setKeychainSecret } from "./keychain.js";
@@ -41,7 +42,7 @@ export function startGoogleAuth(config: Config, callbackPort: number) {
     prompt: "consent",
     include_granted_scopes: true,
     code_challenge: codeChallenge,
-    code_challenge_method: "S256" as any,
+    code_challenge_method: CodeChallengeMethod.S256,
   });
   pendingSessions.set(state, {
     state,
