@@ -2107,6 +2107,15 @@ function renderSurfacedWorkHelpfulness(
   return `<p class="subtle subtle--body">${escapeHtml(item.surfaced_work_helpfulness.summary)}</p>`;
 }
 
+function renderReviewApprovalFlowNote(
+  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+): string {
+  if (!item.review_approval_flow?.eligible) {
+    return "";
+  }
+  return `<p class="subtle subtle--body">This is the current review and approval focus.</p>`;
+}
+
 function surfacedNoiseSummary(
   item:
     | WorkflowBundleReport["sections"][number]["items"][number]
@@ -2230,6 +2239,67 @@ function groupPrimaryLabel(group: InboxAutopilotGroup): string {
 
 function approvalForDraft(payload: ConsolePayload, artifactId: string): ApprovalRequest | null {
   return payload.approvals.find((approval) => approval.artifact_id === artifactId && approval.state !== "rejected") ?? null;
+}
+
+function groupedOutboundPrimaryPathCopy(group: OutboundAutopilotGroup): string {
+  if (group.state === "review_pending") {
+    return "The next step is already staged here, so review the grouped handoff instead of reconstructing it from separate draft cards.";
+  }
+  if (group.state === "approval_ready") {
+    return "The next step is already staged here, so request grouped approval from this handoff instead of from separate queues.";
+  }
+  if (group.state === "approval_pending") {
+    return "Approval is already staged here, so keep individual approvals in inspection mode while this grouped handoff remains primary.";
+  }
+  if (group.state === "send_ready") {
+    return "Approval is complete, so send the grouped handoff here instead of from an individual approval detail.";
+  }
+  if (group.state === "blocked") {
+    return "Resolve the blocked grouped handoff first, then return to the prepared flow.";
+  }
+  return "The next step is already staged here, so you do not need to reconstruct the handoff from separate queues.";
+}
+
+function groupedOutboundDraftSupportCopy(group: OutboundAutopilotGroup): string {
+  if (group.state === "review_pending") {
+    return "This draft stays inside the grouped handoff, so review here and let the group carry the later approval and send steps.";
+  }
+  if (group.state === "approval_ready" || group.state === "approval_pending" || group.state === "send_ready") {
+    return "This draft is already staged in the grouped handoff, so use the group action above for approval and send.";
+  }
+  if (group.state === "blocked") {
+    return "This draft remains attached to the blocked grouped handoff until the recovery step is cleared.";
+  }
+  return "This draft remains part of the current grouped handoff.";
+}
+
+function groupedApprovalRecoveryCopy(group: OutboundAutopilotGroup): string {
+  if (group.state === "blocked") {
+    return "This approval belongs to a blocked grouped handoff. Resolve the failed or blocked handoff first, then return to the grouped flow.";
+  }
+  if (group.state === "send_ready") {
+    return "This approval belongs to the current grouped handoff. Use the grouped send path first and keep this detail for inspection or recovery.";
+  }
+  if (group.state === "approval_pending") {
+    return "This approval belongs to the current grouped handoff. Use the grouped approval path first and keep this detail for inspection or recovery.";
+  }
+  return "This approval belongs to the current grouped handoff. Keep recovery and inspection here, then return to the grouped path.";
+}
+
+function approvalCommandList(approvalId: string, options: { groupedContext?: OutboundAutopilotGroup | null } = {}): string[] {
+  const commands = [
+    `personal-ops approval show ${approvalId}`,
+    `personal-ops approval reject ${approvalId} --note "<reason>"`,
+    `personal-ops approval reopen ${approvalId} --note "<reason>"`,
+    `personal-ops approval cancel ${approvalId} --note "<reason>"`,
+  ];
+  if (options.groupedContext) {
+    commands.unshift(`personal-ops outbound autopilot --group ${options.groupedContext.group_id}`);
+    return commands;
+  }
+  commands.push(`personal-ops approval approve ${approvalId} --note "<reason>"`);
+  commands.push(`personal-ops approval send ${approvalId} --note "<reason>"`);
+  return commands;
 }
 
 function renderInboxAutopilotGroupCard(
@@ -2362,6 +2432,7 @@ function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopil
       </div>
       <p>${escapeHtml(group.summary)}</p>
       <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
+      <p class="subtle subtle--body">${escapeHtml(groupedOutboundPrimaryPathCopy(group))}</p>
       <p class="subtle subtle--body">${escapeHtml(`Drafts: ${drafts.length} · approvals: ${approvals.length} · score: ${group.score_band}`)}</p>
       ${
         sendWindowBlocked
@@ -2524,6 +2595,7 @@ function renderAssistantActionCard(
           : ""
       }
       ${renderSurfacedWorkHelpfulness(action)}
+      ${renderReviewApprovalFlowNote(action)}
       ${options.referential ? `<p class="subtle subtle--body">Repair owns the workspace right now, so this stays as next-up context.</p>` : ""}
       ${
         action.signals.length > 0
@@ -2877,6 +2949,16 @@ function renderOverview(payload: ConsolePayload): string {
   const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
   const topMeetingPrep = prepMeetings.actions[0] ?? null;
   const topReviewTuning = payload.reviewTuning.proposals.find((proposal) => proposal.status === "proposed") ?? null;
+  const assistantTargetsTopOutboundGroup =
+    Boolean(topAssistantAction) &&
+    Boolean(topOutboundGroup) &&
+    topAssistantAction?.target_type === "outbound_autopilot_group" &&
+    topAssistantAction.target_id === topOutboundGroup?.group_id;
+  const workflowTargetsTopOutboundGroup =
+    Boolean(primaryNowNext) &&
+    Boolean(topOutboundGroup) &&
+    primaryNowNext?.target_type === "outbound_autopilot_group" &&
+    primaryNowNext.target_id === topOutboundGroup?.group_id;
   const focusIsAssistant = workspaceHome.state === "assistant" && topAssistantAction?.action_id === workspaceHome.assistant_action_id;
   const focusIsWorkflow = workspaceHome.state === "workflow";
   const focusIsRepair = workspaceHome.state === "repair";
@@ -2929,6 +3011,8 @@ function renderOverview(payload: ConsolePayload): string {
           <p class="subtle subtle--body">${escapeHtml(
             focusIsRepair
               ? "Repair is the active owner right now, so assistant-prepared work stays visible here as next-up context."
+              : assistantTargetsTopOutboundGroup
+                ? "This points to the same grouped handoff shown below, so use it as supporting guidance rather than a second approval path."
               : focusIsAssistant
                 ? "This is the leading prepared action in the workspace right now."
                 : assistantQueue.summary,
@@ -2936,8 +3020,8 @@ function renderOverview(payload: ConsolePayload): string {
           ${
             topAssistantAction
               ? renderAssistantActionCard(topAssistantAction, {
-                  suppressWhyNow: focusIsAssistant,
-                  suppressPersonalization: focusIsAssistant,
+                  suppressWhyNow: focusIsAssistant || assistantTargetsTopOutboundGroup,
+                  suppressPersonalization: focusIsAssistant || assistantTargetsTopOutboundGroup,
                   referential: focusIsRepair,
                 })
               : `<div class="empty">The assistant queue is currently caught up.</div>`
@@ -3084,7 +3168,7 @@ function renderOverview(payload: ConsolePayload): string {
         </section>
         <section class="detail-card">
           <h3>Review overlay</h3>
-          <p class="subtle subtle--body">Review packages stay separate from the raw worklist so you can compress review work without changing the underlying queue.</p>
+          <p class="subtle subtle--body">Review packages and tuning stay secondary here, so they support inspection without taking over the main review, approval, and send path.</p>
           ${
             payload.reviewPackages.packages.length === 0
               ? `<div class="empty">No review packages are active right now.</div>`
@@ -3121,7 +3205,7 @@ function renderOverview(payload: ConsolePayload): string {
         </section>
         <section class="detail-card">
           <h3>Outbound Finish-Work</h3>
-          <p class="subtle subtle--body">Reviewed mail work lands here so approval request, grouped approval, and grouped send can happen from the console without widening the trust boundary.</p>
+          <p class="subtle subtle--body">Reviewed mail work lands here, and grouped outbound is the primary place to review, request approval, approve, and send when group context exists.</p>
           ${
             topOutboundGroup
               ? renderOutboundGroupCard(payload, topOutboundGroup, { compact: true })
@@ -3156,13 +3240,15 @@ function renderOverview(payload: ConsolePayload): string {
           <p class="subtle subtle--body">${escapeHtml(
             focusIsRepair
               ? "Repair owns the workspace right now, so this bundle is the next-up path once repair is clear."
+              : workflowTargetsTopOutboundGroup
+                ? "This bundle points to the same grouped handoff shown above, so use it as supporting context once you open the outbound flow."
               : focusIsWorkflow
                 ? "This bundle currently owns the workspace focus and gives you one strongest next move plus a short backup path."
                 : "Use this focused bundle when you want one strongest next move plus a short backup path.",
           )}</p>
           ${renderWorkflowSections(nowNext, {
-            suppressPrimaryWhyNow: focusIsWorkflow,
-            suppressPrimaryPersonalization: focusIsWorkflow,
+            suppressPrimaryWhyNow: focusIsWorkflow || workflowTargetsTopOutboundGroup,
+            suppressPrimaryPersonalization: focusIsWorkflow || workflowTargetsTopOutboundGroup,
             referential: focusIsRepair,
           })}
         </section>
@@ -3205,7 +3291,9 @@ function renderOverview(payload: ConsolePayload): string {
                   primaryNowNext.surfaced_noise_reduction?.eligible && !primaryNowNext.surfaced_noise_reduction.show_why_now
                     ? ""
                     : `<div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
-                        focusIsWorkflow
+                        workflowTargetsTopOutboundGroup
+                          ? "This matches the grouped handoff already staged in Outbound Finish-Work."
+                          : focusIsWorkflow
                           ? workspaceHome.why_now ?? "This already owns the workspace focus."
                           : focusIsRepair
                             ? "Repair still comes first, so this is the next-up move after repair."
@@ -3533,11 +3621,12 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         groupedContext
           ? `
             <section class="panel">
-              <h4>Outbound group context</h4>
-              <p>${escapeHtml(groupedContext.summary)}</p>
-              <p class="subtle subtle--body">${escapeHtml(groupedContext.why_now)}</p>
+              <h4>Current grouped handoff</h4>
+              <p>${escapeHtml("This approval belongs to the current grouped handoff.")}</p>
+              <p class="subtle subtle--body">${escapeHtml(groupedOutboundPrimaryPathCopy(groupedContext))}</p>
               <div class="list-item__actions">
-                <button class="button button--primary" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Open outbound group</button>
+                ${outboundPrimaryButton(groupedContext)}
+                <button class="button" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Inspect grouped handoff</button>
                 <button class="copy-button" data-copy="${escapeHtml(`personal-ops outbound autopilot --group ${groupedContext.group_id}`)}" type="button">Copy group command</button>
               </div>
             </section>
@@ -3550,7 +3639,7 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(approval.requested_at))}</dd></div>
         <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(approval.expires_at))}</dd></div>
       </div>
-      <p class="subtle subtle--body">Grouped approve and send now live in outbound autopilot. Use this detail view for recovery actions and exact CLI handoff.</p>
+      <p class="subtle subtle--body">${escapeHtml(groupedContext ? groupedApprovalRecoveryCopy(groupedContext) : "Use this approval detail for direct approval and send work when no grouped handoff exists.")}</p>
       ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button" data-open-approval="${escapeHtml(approval.approval_id)}" type="button">Open in Approvals</button>
@@ -3561,16 +3650,14 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
               ? `<button class="button" data-approval-reject="${escapeHtml(approval.approval_id)}" type="button">Reject approval</button>`
               : ""
         }
+        ${
+          approval.state !== "rejected" && approval.state !== "sent" && approval.state !== "expired"
+            ? `<button class="button" data-approval-cancel="${escapeHtml(approval.approval_id)}" type="button">Cancel approval</button>`
+            : ""
+        }
       </div>
       <div class="list-item__actions list-item__actions--stack">
-        ${commandStack([
-          `personal-ops approval show ${approval.approval_id}`,
-          `personal-ops approval reject ${approval.approval_id} --note "<reason>"`,
-          `personal-ops approval reopen ${approval.approval_id} --note "<reason>"`,
-          `personal-ops approval cancel ${approval.approval_id} --note "<reason>"`,
-          `personal-ops approval approve ${approval.approval_id} --note "<reason>"`,
-          `personal-ops approval send ${approval.approval_id} --note "<reason>"`,
-        ])}
+        ${commandStack(approvalCommandList(approval.approval_id, { groupedContext }))}
       </div>
     `;
   }
@@ -3721,11 +3808,11 @@ function renderApprovals(payload: ConsolePayload): string {
                 <p>Artifact ${escapeHtml(approval.artifact_id)} · requested ${escapeHtml(formatTime(approval.requested_at))}</p>
                 ${
                   outboundGroupForApproval(payload, approval.approval_id)
-                    ? `<p class="subtle subtle--body">${escapeHtml(`Outbound group: ${outboundGroupForApproval(payload, approval.approval_id)?.group_id}`)}</p>`
+                    ? `<p class="subtle subtle--body">${escapeHtml(`Grouped handoff: ${outboundGroupForApproval(payload, approval.approval_id)?.group_id} · inspection and recovery stay here.`)}</p>`
                     : ""
                 }
                 <div class="list-item__actions">
-                  <button class="button" data-approval="${escapeHtml(approval.approval_id)}" type="button">Inspect</button>
+                  <button class="button" data-approval="${escapeHtml(approval.approval_id)}" type="button">${escapeHtml(outboundGroupForApproval(payload, approval.approval_id) ? "Inspect recovery" : "Inspect")}</button>
                   <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}" type="button">Copy show command</button>
                 </div>
               </article>
@@ -3736,17 +3823,18 @@ function renderApprovals(payload: ConsolePayload): string {
   const detail = state.approvalDetail;
   const groupedContext = detail ? outboundGroupForApproval(payload, detail.approval_request.approval_id) : null;
   const detailHtml = !detail
-    ? `<div class="empty">Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.</div>`
+    ? `<div class="empty">Choose an approval to inspect it. Recovery and inspection stay here, while grouped review, approval, and send stay in Drafts and Outbound Finish-Work.</div>`
     : `
         ${
           groupedContext
             ? `
               <section class="panel">
-                <h4>Outbound group context</h4>
-                <p>${escapeHtml(groupedContext.summary)}</p>
-                <p class="subtle subtle--body">${escapeHtml(groupedContext.why_now)}</p>
+                <h4>Current grouped handoff</h4>
+                <p>${escapeHtml("This approval belongs to the current grouped handoff.")}</p>
+                <p class="subtle subtle--body">${escapeHtml(groupedOutboundPrimaryPathCopy(groupedContext))}</p>
                 <div class="list-item__actions">
-                  <button class="button" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Open outbound group</button>
+                  ${outboundPrimaryButton(groupedContext)}
+                  <button class="button" data-outbound-open="${escapeHtml(groupedContext.group_id)}" type="button">Inspect grouped handoff</button>
                   <button class="copy-button" data-copy="${escapeHtml(`personal-ops outbound autopilot --group ${groupedContext.group_id}`)}" type="button">Copy group command</button>
                 </div>
               </section>
@@ -3760,7 +3848,7 @@ function renderApprovals(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Requested</dt><dd>${escapeHtml(formatTime(detail.approval_request.requested_at))}</dd></div>
           <div class="detail-row"><dt>Expires</dt><dd>${escapeHtml(formatTime(detail.approval_request.expires_at))}</dd></div>
         </div>
-        <p class="subtle subtle--body">Use grouped approve and send from Drafts when available. Use the recovery controls here for reject, reopen, or cancel.</p>
+        <p class="subtle subtle--body">${escapeHtml(groupedContext ? groupedApprovalRecoveryCopy(groupedContext) : "Use this approval detail for direct approval and send work when no grouped handoff exists.")}</p>
         <div class="list-item__actions">
           ${
             detail.approval_request.state === "send_failed"
@@ -3776,14 +3864,7 @@ function renderApprovals(payload: ConsolePayload): string {
           }
         </div>
         <div class="list-item__actions list-item__actions--stack">
-          ${commandStack([
-            `personal-ops approval show ${detail.approval_request.approval_id}`,
-            `personal-ops approval reject ${detail.approval_request.approval_id} --note "<reason>"`,
-            `personal-ops approval reopen ${detail.approval_request.approval_id} --note "<reason>"`,
-            `personal-ops approval cancel ${detail.approval_request.approval_id} --note "<reason>"`,
-            `personal-ops approval approve ${detail.approval_request.approval_id} --note "<reason>"`,
-            `personal-ops approval send ${detail.approval_request.approval_id} --note "<reason>"`,
-          ])}
+          ${commandStack(approvalCommandList(detail.approval_request.approval_id, { groupedContext }))}
         </div>
       `;
 
@@ -3836,10 +3917,10 @@ function renderDrafts(payload: ConsolePayload): string {
                         ? `<p class="subtle subtle--body">${escapeHtml(`Source inbox group: ${linkedInboxGroup.summary}`)}</p>`
                         : ""
                     }
+                    <p class="subtle subtle--body">${escapeHtml("This grouped handoff owns the forward path for review, approval, and send across the drafts below.")}</p>
                     <div class="list">
                       ${drafts.map((draft, index) => {
                         const review = reviewItemForArtifact(payload, draft.artifact_id);
-                        const approval = approvalForDraft(payload, draft.artifact_id);
                         return `
                           <article class="list-item">
                             <div class="list-item__top">
@@ -3847,7 +3928,8 @@ function renderDrafts(payload: ConsolePayload): string {
                               <span class="pill ${draft.status === "approved" || draft.status === "sent" ? "pill--good" : draft.review_state === "resolved" ? "pill--warn" : "pill"}">${escapeHtml(draft.status)}</span>
                             </div>
                             <p>${escapeHtml(draft.to.join(", ") || "No recipients yet")}</p>
-                            <p class="subtle subtle--body">${escapeHtml(`Review: ${draft.review_state}${review ? ` (${review.state})` : ""}${approval ? ` · approval ${approval.state}` : ""}`)}</p>
+                            <p class="subtle subtle--body">${escapeHtml(`Review: ${draft.review_state}${review ? ` (${review.state})` : ""}`)}</p>
+                            <p class="subtle subtle--body">${escapeHtml(groupedOutboundDraftSupportCopy(group))}</p>
                             <div class="list-item__actions list-item__actions--stack">
                               ${
                                 review && review.state === "pending"
@@ -3856,15 +3938,7 @@ function renderDrafts(payload: ConsolePayload): string {
                                     ? `<button class="button" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
                                     : ""
                               }
-                              ${
-                                group.state === "approval_ready"
-                                  ? `<button class="button" data-outbound-request-approval="${escapeHtml(group.group_id)}" type="button">Request group approval</button>`
-                                  : group.state === "approval_pending"
-                                    ? `<button class="button" data-outbound-approve="${escapeHtml(group.group_id)}" type="button">Approve group</button>`
-                                    : group.state === "send_ready"
-                                      ? `<button class="button" data-outbound-send="${escapeHtml(group.group_id)}" type="button">Send group</button>`
-                                      : `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect group</button>`
-                              }
+                              <button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open grouped handoff</button>
                               <button class="copy-button" data-copy="${escapeHtml(draftCommand(draft.artifact_id))}" type="button">Copy draft command</button>
                             </div>
                           </article>

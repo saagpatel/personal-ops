@@ -2273,3 +2273,39 @@ test("phase 30 status formatter carries surfaced-work helpfulness for the curren
   assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
   assert.match(formatted, /Surface proof: Recent outcomes are mixed; this surfaced work is sometimes acted on and sometimes passed over\./i);
 });
+
+test("phase 32 status formatter carries one compact review and approval handoff summary", async () => {
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    workspace_home: {
+      ...emptyWorkspaceHome(),
+      ready: true,
+      state: "assistant" as const,
+      title: "Assistant-prepared work is ready",
+      summary: "Review the prepared assistant action.",
+      why_now: "This is the highest-value prepared work right now.",
+      primary_command: "personal-ops assistant queue",
+      assistant_action_id: "assistant.review-top-attention",
+    },
+    review_approval_flow: {
+      eligible: true,
+      state: "approval_needed" as const,
+      summary: "This prepared work is ready for approval handoff.",
+      why_now: "The grouped outbound path is already staged and should stay the primary decision surface.",
+      primary_command: "personal-ops outbound autopilot --group outbound-1",
+      target_type: "outbound_autopilot_group" as const,
+      target_id: "outbound-1",
+      review_id: null,
+      approval_id: "approval-1",
+      outbound_group_id: "outbound-1",
+      assistant_action_id: "assistant.review-top-attention",
+      supporting_summary: "Open review only if the grouped handoff blocks.",
+    },
+  };
+
+  const formatted = formatStatusReport(status as any);
+  assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
+  assert.equal((formatted.match(/This prepared work is ready for approval handoff\./gi) ?? []).length, 1);
+});

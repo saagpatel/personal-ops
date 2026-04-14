@@ -726,22 +726,30 @@ Delivered shape:
 
 ## Phase 32
 
-Phase 32 is the next target.
+Phase 32 is now complete.
 
-Planned direction:
+Delivered shape:
 
-- improve review and approval ergonomics for the work the system already prepares
-- make grouped decisions and approval handoffs clearer, faster, and less repetitive
-- keep authority and trust boundaries explicit while reducing operator friction at decision points
+- one shared `ReviewApprovalFlowSummary` read model for prepared review, approval, and send handoffs
+- grouped outbound treated as the primary forward path when grouped context exists
+- status, workspace focus, assistant guidance, Drafts, and Approvals aligned around one operator handoff story
+- approval detail made more recovery-oriented and inspection-oriented when the approval belongs to a grouped handoff
+- review packages and tuning proposals kept visible but secondary
+- unchanged trust boundaries:
+  - no new HTTP or MCP routes
+  - no new persistence
+  - no new commands
+  - no lifecycle changes for review, approval, or grouped outbound state transitions
+  - no worklist ordering changes
 
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, and 31 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, and 32 are complete
 - Cluster A is complete
 - Cluster B is complete
 - the post-Cluster-B stabilization pass is merged
-- Assistant-Led Phase 32 is the next target
+- Assistant-Led Phase 33 is the next target
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work

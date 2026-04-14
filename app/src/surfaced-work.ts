@@ -786,6 +786,7 @@ function workspaceDescriptor(
 ): { descriptor: OutcomeDescriptor | null; key: string | null } {
   if (workspaceHome.state === "repair") {
     const repairStepId =
+      ((report.first_repair_step as typeof report.repair_plan.first_step_id) ?? null) ??
       report.repair_plan.first_step_id ??
       report.maintenance_repair_convergence?.active_repair_step_id ??
       report.maintenance_repair_convergence?.step_id ??

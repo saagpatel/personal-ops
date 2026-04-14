@@ -123,6 +123,7 @@ import {
   submitReviewPackageFeedback,
   updateReviewCalibrationTarget,
 } from "./service/review-intelligence.js";
+import { applyReviewApprovalFlowPayloads, buildReviewApprovalFlowSummary } from "./service/review-approval-flow.js";
 import {
   createSnapshot as createSnapshotFromModule,
   inspectSnapshot as inspectSnapshotFromModule,
@@ -906,12 +907,13 @@ export class PersonalOpsService {
         this.getAssistantActionQueueReport({ httpReachable: options.httpReachable }),
         this.getNowNextWorkflowReport({ httpReachable: options.httpReachable }),
       ]);
+      const outboundAutopilot = await this.getOutboundAutopilotReport({ httpReachable: options.httpReachable });
       const workspaceHome = buildWorkspaceHomeSummary({
         status: report,
         assistantQueue,
         nowNextWorkflow,
       });
-      const tracked = trackWorkspaceHomeOutcome(this, {
+      const trackedReport = trackWorkspaceHomeOutcome(this, {
         report: {
           ...report,
           workspace_home: workspaceHome,
@@ -920,7 +922,20 @@ export class PersonalOpsService {
         assistant_queue: assistantQueue,
         now_next_workflow: nowNextWorkflow,
       }).report;
-      return applySurfacedNoiseReduction({ status: tracked }).status;
+      const reviewApprovalFlow = buildReviewApprovalFlowSummary({
+        reviews: this.listReviewQueue(),
+        approvals: this.listApprovalQueue({ limit: 500 }),
+        drafts: this.listDrafts(),
+        outbound_groups: outboundAutopilot.groups,
+        assistant_queue: assistantQueue,
+      });
+      const withReviewApprovalFlow = applyReviewApprovalFlowPayloads({
+        status: {
+          ...trackedReport,
+          review_approval_flow: reviewApprovalFlow,
+        },
+      }).status;
+      return applySurfacedNoiseReduction({ status: withReviewApprovalFlow }).status;
     } finally {
       this.statusWorkspaceHomeDepth = Math.max(0, this.statusWorkspaceHomeDepth - 1);
     }
