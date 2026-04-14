@@ -2326,5 +2326,66 @@ test("phase 32 status formatter carries one compact review and approval handoff 
   const formatted = formatStatusReport(status as any);
   assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
   assert.equal((formatted.match(/This prepared work is ready for approval handoff\./gi) ?? []).length, 1);
+  assert.doesNotMatch(formatted, /Open review only if the grouped handoff blocks\./i);
   assert.match(formatted, /Calibration: Recent outcomes are mixed; this handoff sometimes moves forward and sometimes stalls or gets replaced\./i);
+});
+
+test("phase 34 status formatter promotes one secondary review and approval explanation only when the proof gate is met", async () => {
+  const { service } = createServiceFixture();
+  const baseStatus = await service.getStatusReport({ httpReachable: true });
+  const status = {
+    ...baseStatus,
+    workspace_home: {
+      ...emptyWorkspaceHome(),
+      ready: true,
+      state: "assistant" as const,
+      title: "Assistant-prepared work is ready",
+      summary: "Review the prepared assistant action.",
+      why_now: "This is the highest-value prepared work right now.",
+      primary_command: "personal-ops assistant queue",
+      assistant_action_id: "assistant.review-top-attention",
+    },
+    review_approval_flow: {
+      eligible: true,
+      state: "approval_needed" as const,
+      summary: "This prepared work is ready for approval handoff.",
+      why_now: "The grouped outbound path is already staged and should stay the primary decision surface.",
+      primary_command: "personal-ops outbound autopilot --group outbound-1",
+      target_type: "outbound_autopilot_group" as const,
+      target_id: "outbound-1",
+      review_id: null,
+      approval_id: "approval-1",
+      outbound_group_id: "outbound-1",
+      assistant_action_id: "assistant.review-top-attention",
+      supporting_summary: "Open review only if the grouped handoff blocks.",
+      calibration: {
+        eligible: true,
+        status: "attention_needed" as const,
+        recommendation_kind: "consider_decision_surface_adjustment" as const,
+        summary:
+          "Recent outcomes keep stalling at the same handoff, so the current decision surface still looks too easy to pass over.",
+        recommendation_summary:
+          "The same gap keeps repeating, so the next thing to test is a small decision-surface adjustment instead of more batching or review tuning.",
+        sample_count_14d: 4,
+        helpful_count_14d: 1,
+        attempted_failed_count_14d: 1,
+        superseded_count_14d: 1,
+        expired_count_14d: 1,
+        helpful_rate_14d: 0.25,
+        review_needed_count_14d: 0,
+        approval_needed_count_14d: 3,
+        send_ready_count_14d: 1,
+        recovery_needed_count_14d: 0,
+      },
+    },
+  };
+
+  const formatted = formatStatusReport(status as any);
+  assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
+  assert.equal((formatted.match(/This prepared work is ready for approval handoff\./gi) ?? []).length, 1);
+  assert.match(formatted, /Review\/approval handoff: .*Open review only if the grouped handoff blocks\./i);
+  assert.match(
+    formatted,
+    /Calibration: Recent outcomes keep stalling at the same handoff, so the current decision surface still looks too easy to pass over\./i,
+  );
 });

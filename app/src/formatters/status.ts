@@ -11,6 +11,7 @@ import type {
   VersionReport,
   WorklistReport,
 } from "../types.js";
+import { buildReviewApprovalPresentation } from "../review-approval-presentation.js";
 import {
   formatSeverity,
   formatStateLabel,
@@ -45,18 +46,25 @@ function reviewApprovalFlowSummary(report: ServiceStatusReport): string | null {
   if (!flow?.eligible || !flow.summary) {
     return null;
   }
+  const presentation = buildReviewApprovalPresentation(flow, {
+    workspaceWhyNow: report.workspace_home.why_now,
+    workspacePrimaryCommand: report.workspace_home.primary_command,
+  });
   const parts = [flow.summary];
-  if (flow.why_now && flow.why_now !== report.workspace_home.why_now) {
-    parts.push(flow.why_now);
+  if (presentation?.whyNow) {
+    parts.push(presentation.whyNow);
   }
-  if (flow.primary_command && flow.primary_command !== report.workspace_home.primary_command) {
-    parts.push(`Next: \`${flow.primary_command}\`.`);
+  if (presentation?.primaryCommand) {
+    parts.push(`Next: \`${presentation.primaryCommand}\`.`);
   }
-  if (flow.calibration?.eligible && flow.calibration.summary) {
-    parts.push(`Calibration: ${flow.calibration.summary}`);
+  if (presentation?.promotedSupportingSummary) {
+    parts.push(presentation.promotedSupportingSummary);
   }
-  if (flow.calibration?.eligible && flow.calibration.recommendation_summary) {
-    parts.push(flow.calibration.recommendation_summary);
+  if (presentation?.calibrationSummary) {
+    parts.push(`Calibration: ${presentation.calibrationSummary}`);
+  }
+  if (presentation?.calibrationRecommendation) {
+    parts.push(presentation.calibrationRecommendation);
   }
   return parts.join(" ");
 }

@@ -29,7 +29,7 @@ The next roadmap should deepen the assistant behavior on top of that baseline in
 
 The currently shipped assistant-led baseline is:
 
-- Phases 1 through 32 complete
+- Phases 1 through 34 complete
 - Cluster A complete:
   - Phases 24, 25, and 26 shipped together as the maintenance-maturity cluster
 - Cluster B complete:
@@ -38,16 +38,18 @@ The currently shipped assistant-led baseline is:
 - the Phase 30 usefulness-proof slice is merged
 - the Phase 31 cross-surface noise-reduction slice is merged
 - the Phase 32 review/approval handoff ergonomics slice is merged
+- the Phase 33 review outcome calibration slice is merged
+- the Phase 34 review surface adjustment proof slice is merged
 - this assistant-led roadmap remains separate from the older legacy `PHASE-*` governance track
 
 The next assistant-led target is:
 
-- Phase 34: Review Surface Adjustment Proof
+- Phase 35: Review Surface Stability Check
 - status: Planned
 - focus:
-  - use the new Phase 33 calibration evidence before changing handoff presentation again
-  - only adjust review, approval, and send surfaces when the evidence keeps pointing to the same gap
-  - preserve the same bounded trust and authority model while proving any further surface changes are worthwhile
+  - validate whether the new proof-gated supporting explanation is actually stabilizing the review/approval handoff
+  - prefer stability and evidence over another wording pass unless the same gap keeps repeating
+  - preserve the same bounded trust and authority model while deciding whether any further surface work is justified
 
 ## Phase Ledger
 
@@ -773,14 +775,55 @@ Delivered shape:
   - no lifecycle mutation changes for review, approval, or grouped outbound work
   - no worklist ordering changes
 
+## Phase 34
+
+Phase 34 is now complete.
+
+Delivered shape:
+
+- one explicit proof gate now decides when a review/approval supporting explanation may be promoted
+- the status-style handoff narrative remains the canonical composition owner
+- status and console now align on the same primary handoff, command precedence, and proof-triggered secondary explanation
+- the console removes the generic review-focus note when the proof-gated supporting explanation is stronger
+- grouped outbound remains structurally primary whenever it exists
+- calibration remains explanatory and secondary
+- deterministic seam coverage now directly protects the proof gate, console/status alignment, MCP review/approval seams, and browser console module loading
+
+The proof gate requires:
+
+- `calibration.eligible === true`
+- `calibration.status === "attention_needed"`
+- `calibration.recommendation_kind === "consider_decision_surface_adjustment"`
+- `supporting_summary` is present
+- `sample_count_14d >= 4`
+
+Unchanged trust boundaries:
+
+- no new HTTP or MCP product routes
+- no new user-facing commands
+- no new queue kinds or persistence
+- no lifecycle mutation changes for review, approval, or grouped outbound work
+- no approval, send, or review authority expansion
+- no worklist ordering changes
+
+## Phase 35
+
+Phase 35 is the next target.
+
+Contract shape:
+
+- validate whether the new proof-gated supporting explanation is stable enough to remain the default presentation
+- stay read-model and evidence-first instead of immediately making another wording or ranking pass
+- only reopen review/approval surface work if repeated follow-through evidence still points at the same unresolved gap
+
 ## Preserve Across Compaction
 
 - this file is the canonical roadmap for the assistant-led initiative
-- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, and 33 are complete
+- Phases 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, and 34 are complete
 - Cluster A is complete
 - Cluster B is complete
 - the post-Cluster-B stabilization pass is merged
-- Assistant-Led Phase 34 is the next target
+- Assistant-Led Phase 35 is the next target
 - every completed phase should have a plan doc and a rollout doc
 - the intended product direction is:
   - less manual operator work
