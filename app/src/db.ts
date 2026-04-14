@@ -90,6 +90,9 @@ import {
   ReviewTuningProposal,
   ReviewTuningProposalKind,
   ReviewTuningProposalStatus,
+  ReviewApprovalFlowEvidenceKind,
+  ReviewApprovalFlowOutcomeRecord,
+  ReviewApprovalFlowOutcomeState,
   SurfacedWorkEvidenceKind,
   SurfacedWorkOutcomeRecord,
   SurfacedWorkOutcomeState,
@@ -105,7 +108,7 @@ import {
   TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 27;
+export const CURRENT_SCHEMA_VERSION = 28;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -449,6 +452,45 @@ export class PersonalOpsDb {
         expected_version: SCHEMA_VERSION,
         compatible: false,
         message: `Schema ${current} is missing surfaced outcome columns: ${missingSurfacedOutcomeColumns.join(", ")}.`,
+      };
+    }
+    if (!this.tableExists("review_approval_flow_outcomes")) {
+      return {
+        current_version: current,
+        expected_version: SCHEMA_VERSION,
+        compatible: false,
+        message: "Schema is missing review_approval_flow_outcomes.",
+      };
+    }
+    const missingReviewApprovalOutcomeColumns: string[] = [];
+    for (const column of [
+      "outcome_id",
+      "surfaced_state",
+      "target_type",
+      "target_id",
+      "review_id",
+      "approval_id",
+      "outbound_group_id",
+      "assistant_action_id",
+      "summary_snapshot",
+      "command_snapshot",
+      "surfaced_at",
+      "last_seen_at",
+      "state",
+      "evidence_kind",
+      "acted_at",
+      "closed_at",
+    ]) {
+      if (!this.columnExists("review_approval_flow_outcomes", column)) {
+        missingReviewApprovalOutcomeColumns.push(column);
+      }
+    }
+    if (missingReviewApprovalOutcomeColumns.length > 0) {
+      return {
+        current_version: current,
+        expected_version: SCHEMA_VERSION,
+        compatible: false,
+        message: `Schema ${current} is missing review approval outcome columns: ${missingReviewApprovalOutcomeColumns.join(", ")}.`,
       };
     }
     return {
@@ -4357,6 +4399,144 @@ export class PersonalOpsDb {
     return row ? this.mapSurfacedWorkOutcome(row) : null;
   }
 
+  upsertReviewApprovalFlowOutcome(input: ReviewApprovalFlowOutcomeRecord): ReviewApprovalFlowOutcomeRecord {
+    const stored: ReviewApprovalFlowOutcomeRecord = { ...input };
+    this.db
+      .prepare(
+        `INSERT INTO review_approval_flow_outcomes (
+          outcome_id, surfaced_state, target_type, target_id, review_id, approval_id,
+          outbound_group_id, assistant_action_id, summary_snapshot, command_snapshot,
+          surfaced_at, last_seen_at, state, evidence_kind, acted_at, closed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(outcome_id) DO UPDATE SET
+          surfaced_state = excluded.surfaced_state,
+          target_type = excluded.target_type,
+          target_id = excluded.target_id,
+          review_id = excluded.review_id,
+          approval_id = excluded.approval_id,
+          outbound_group_id = excluded.outbound_group_id,
+          assistant_action_id = excluded.assistant_action_id,
+          summary_snapshot = excluded.summary_snapshot,
+          command_snapshot = excluded.command_snapshot,
+          surfaced_at = excluded.surfaced_at,
+          last_seen_at = excluded.last_seen_at,
+          state = excluded.state,
+          evidence_kind = excluded.evidence_kind,
+          acted_at = excluded.acted_at,
+          closed_at = excluded.closed_at`,
+      )
+      .run(
+        stored.outcome_id,
+        stored.surfaced_state,
+        stored.target_type,
+        stored.target_id,
+        stored.review_id ?? null,
+        stored.approval_id ?? null,
+        stored.outbound_group_id ?? null,
+        stored.assistant_action_id ?? null,
+        stored.summary_snapshot,
+        stored.command_snapshot ?? null,
+        stored.surfaced_at,
+        stored.last_seen_at,
+        stored.state,
+        stored.evidence_kind ?? null,
+        stored.acted_at ?? null,
+        stored.closed_at ?? null,
+      );
+    return stored;
+  }
+
+  listReviewApprovalFlowOutcomes(options: {
+    state?: ReviewApprovalFlowOutcomeState;
+    states?: ReviewApprovalFlowOutcomeState[];
+    target_type?: string;
+    target_id?: string;
+    review_id?: string;
+    approval_id?: string;
+    outbound_group_id?: string;
+    assistant_action_id?: string;
+    since?: string;
+    limit?: number;
+  } = {}): ReviewApprovalFlowOutcomeRecord[] {
+    const clauses: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (options.state) {
+      clauses.push(`state = ?`);
+      params.push(options.state);
+    } else if (options.states && options.states.length > 0) {
+      clauses.push(`state IN (${options.states.map(() => `?`).join(", ")})`);
+      params.push(...options.states);
+    }
+    if (options.target_type) {
+      clauses.push(`target_type = ?`);
+      params.push(options.target_type);
+    }
+    if (options.target_id) {
+      clauses.push(`target_id = ?`);
+      params.push(options.target_id);
+    }
+    if (options.review_id) {
+      clauses.push(`review_id = ?`);
+      params.push(options.review_id);
+    }
+    if (options.approval_id) {
+      clauses.push(`approval_id = ?`);
+      params.push(options.approval_id);
+    }
+    if (options.outbound_group_id) {
+      clauses.push(`outbound_group_id = ?`);
+      params.push(options.outbound_group_id);
+    }
+    if (options.assistant_action_id) {
+      clauses.push(`assistant_action_id = ?`);
+      params.push(options.assistant_action_id);
+    }
+    if (options.since) {
+      clauses.push(`COALESCE(closed_at, surfaced_at) >= ?`);
+      params.push(options.since);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = options.limit ? ` LIMIT ${Math.max(1, options.limit)}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM review_approval_flow_outcomes ${whereClause} ORDER BY surfaced_at DESC${limitClause}`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapReviewApprovalFlowOutcome(row));
+  }
+
+  getOpenReviewApprovalFlowOutcome(target_type: string, target_id: string): ReviewApprovalFlowOutcomeRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM review_approval_flow_outcomes
+         WHERE target_type = ? AND target_id = ? AND state = 'open'
+         ORDER BY surfaced_at DESC
+         LIMIT 1`,
+      )
+      .get(target_type, target_id) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewApprovalFlowOutcome(row) : null;
+  }
+
+  closeReviewApprovalFlowOutcome(
+    outcomeId: string,
+    input: {
+      state: Exclude<ReviewApprovalFlowOutcomeState, "open">;
+      evidence_kind: ReviewApprovalFlowEvidenceKind;
+      acted_at?: string | null;
+      closed_at: string;
+    },
+  ): ReviewApprovalFlowOutcomeRecord | null {
+    this.db
+      .prepare(
+        `UPDATE review_approval_flow_outcomes
+         SET state = ?, evidence_kind = ?, acted_at = COALESCE(acted_at, ?), closed_at = ?
+         WHERE outcome_id = ? AND state = 'open'`,
+      )
+      .run(input.state, input.evidence_kind, input.acted_at ?? null, input.closed_at, outcomeId);
+    const row = this.db
+      .prepare(`SELECT * FROM review_approval_flow_outcomes WHERE outcome_id = ?`)
+      .get(outcomeId) as Record<string, unknown> | undefined;
+    return row ? this.mapReviewApprovalFlowOutcome(row) : null;
+  }
+
   private createBaseSchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (
@@ -5203,6 +5383,35 @@ export class PersonalOpsDb {
         ON surfaced_work_outcomes(surface, target_type, target_id)
         WHERE state = 'open';
 
+      CREATE TABLE IF NOT EXISTS review_approval_flow_outcomes (
+        outcome_id TEXT PRIMARY KEY,
+        surfaced_state TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        review_id TEXT,
+        approval_id TEXT,
+        outbound_group_id TEXT,
+        assistant_action_id TEXT,
+        summary_snapshot TEXT NOT NULL,
+        command_snapshot TEXT,
+        surfaced_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        evidence_kind TEXT,
+        acted_at TEXT,
+        closed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_state_seen
+        ON review_approval_flow_outcomes(state, last_seen_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_target
+        ON review_approval_flow_outcomes(target_type, target_id, surfaced_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_open_target
+        ON review_approval_flow_outcomes(target_type, target_id)
+        WHERE state = 'open';
+
       CREATE TABLE IF NOT EXISTS review_tuning_proposals (
         proposal_id TEXT PRIMARY KEY,
         proposal_family_key TEXT NOT NULL,
@@ -5329,7 +5538,9 @@ export class PersonalOpsDb {
   private migrate() {
     const existing = this.db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get() as { version: number } | undefined;
     if (!existing) {
-      const inferred = this.tableExists("review_calibration_targets")
+      const inferred = this.tableExists("review_approval_flow_outcomes")
+        ? 28
+        : this.tableExists("review_calibration_targets")
         ? this.tableExists("repair_executions")
           ? 25
           : 24
@@ -5487,6 +5698,10 @@ export class PersonalOpsDb {
       } else if (version === 26) {
         this.migrateToV27();
         version = 27;
+        this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+      } else if (version === 27) {
+        this.migrateToV28();
+        version = 28;
         this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
       } else {
         throw new Error(`Unsupported personal-ops schema version: ${version}`);
@@ -6550,6 +6765,39 @@ export class PersonalOpsDb {
     `);
   }
 
+  private migrateToV28() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS review_approval_flow_outcomes (
+        outcome_id TEXT PRIMARY KEY,
+        surfaced_state TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        review_id TEXT,
+        approval_id TEXT,
+        outbound_group_id TEXT,
+        assistant_action_id TEXT,
+        summary_snapshot TEXT NOT NULL,
+        command_snapshot TEXT,
+        surfaced_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        evidence_kind TEXT,
+        acted_at TEXT,
+        closed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_state_seen
+        ON review_approval_flow_outcomes(state, last_seen_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_target
+        ON review_approval_flow_outcomes(target_type, target_id, surfaced_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_review_approval_flow_outcomes_open_target
+        ON review_approval_flow_outcomes(target_type, target_id)
+        WHERE state = 'open';
+    `);
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -6988,6 +7236,27 @@ export class PersonalOpsDb {
       last_seen_at: String(row.last_seen_at),
       state: String(row.state) as SurfacedWorkOutcomeState,
       evidence_kind: row.evidence_kind ? (String(row.evidence_kind) as SurfacedWorkEvidenceKind) : undefined,
+      acted_at: row.acted_at ? String(row.acted_at) : undefined,
+      closed_at: row.closed_at ? String(row.closed_at) : undefined,
+    };
+  }
+
+  private mapReviewApprovalFlowOutcome(row: Record<string, unknown>): ReviewApprovalFlowOutcomeRecord {
+    return {
+      outcome_id: String(row.outcome_id),
+      surfaced_state: String(row.surfaced_state) as ReviewApprovalFlowOutcomeRecord["surfaced_state"],
+      target_type: String(row.target_type),
+      target_id: String(row.target_id),
+      review_id: row.review_id ? String(row.review_id) : undefined,
+      approval_id: row.approval_id ? String(row.approval_id) : undefined,
+      outbound_group_id: row.outbound_group_id ? String(row.outbound_group_id) : undefined,
+      assistant_action_id: row.assistant_action_id ? String(row.assistant_action_id) : undefined,
+      summary_snapshot: String(row.summary_snapshot),
+      command_snapshot: row.command_snapshot ? String(row.command_snapshot) : undefined,
+      surfaced_at: String(row.surfaced_at),
+      last_seen_at: String(row.last_seen_at),
+      state: String(row.state) as ReviewApprovalFlowOutcomeState,
+      evidence_kind: row.evidence_kind ? (String(row.evidence_kind) as ReviewApprovalFlowEvidenceKind) : undefined,
       acted_at: row.acted_at ? String(row.acted_at) : undefined,
       closed_at: row.closed_at ? String(row.closed_at) : undefined,
     };

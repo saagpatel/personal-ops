@@ -52,6 +52,12 @@ function reviewApprovalFlowSummary(report: ServiceStatusReport): string | null {
   if (flow.primary_command && flow.primary_command !== report.workspace_home.primary_command) {
     parts.push(`Next: \`${flow.primary_command}\`.`);
   }
+  if (flow.calibration?.eligible && flow.calibration.summary) {
+    parts.push(`Calibration: ${flow.calibration.summary}`);
+  }
+  if (flow.calibration?.eligible && flow.calibration.recommendation_summary) {
+    parts.push(flow.calibration.recommendation_summary);
+  }
   return parts.join(" ");
 }
 

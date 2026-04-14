@@ -2302,10 +2302,29 @@ test("phase 32 status formatter carries one compact review and approval handoff 
       outbound_group_id: "outbound-1",
       assistant_action_id: "assistant.review-top-attention",
       supporting_summary: "Open review only if the grouped handoff blocks.",
+      calibration: {
+        eligible: true,
+        status: "mixed" as const,
+        recommendation_kind: "consider_more_batching" as const,
+        summary: "Recent outcomes are mixed; this handoff sometimes moves forward and sometimes stalls or gets replaced.",
+        recommendation_summary:
+          "Recent stalls lean toward singleton handoffs, so grouping more review and approval work may be the next thing to test.",
+        sample_count_14d: 4,
+        helpful_count_14d: 2,
+        attempted_failed_count_14d: 0,
+        superseded_count_14d: 1,
+        expired_count_14d: 1,
+        helpful_rate_14d: 0.5,
+        review_needed_count_14d: 1,
+        approval_needed_count_14d: 2,
+        send_ready_count_14d: 1,
+        recovery_needed_count_14d: 0,
+      },
     },
   };
 
   const formatted = formatStatusReport(status as any);
   assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
   assert.equal((formatted.match(/This prepared work is ready for approval handoff\./gi) ?? []).length, 1);
+  assert.match(formatted, /Calibration: Recent outcomes are mixed; this handoff sometimes moves forward and sometimes stalls or gets replaced\./i);
 });

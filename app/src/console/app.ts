@@ -2116,6 +2116,17 @@ function renderReviewApprovalFlowNote(
   return `<p class="subtle subtle--body">This is the current review and approval focus.</p>`;
 }
 
+function renderReviewApprovalCalibrationNote(
+  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+): string {
+  const calibration = item.review_approval_flow?.calibration;
+  if (!calibration?.eligible || (!calibration.summary && !calibration.recommendation_summary)) {
+    return "";
+  }
+  const parts = [calibration.summary, calibration.recommendation_summary].filter((value): value is string => Boolean(value));
+  return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" "))}</p>` : "";
+}
+
 function surfacedNoiseSummary(
   item:
     | WorkflowBundleReport["sections"][number]["items"][number]
@@ -2143,6 +2154,7 @@ function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]
           : ""
       }
       ${renderSurfacedWorkHelpfulness(summary)}
+      ${renderReviewApprovalCalibrationNote(summary)}
       ${
         summary.secondary_summary
           ? `<p class="subtle subtle--body">${escapeHtml(`Next up: ${summary.secondary_summary}`)}</p>`
@@ -2596,6 +2608,7 @@ function renderAssistantActionCard(
       }
       ${renderSurfacedWorkHelpfulness(action)}
       ${renderReviewApprovalFlowNote(action)}
+      ${renderReviewApprovalCalibrationNote(action)}
       ${options.referential ? `<p class="subtle subtle--body">Repair owns the workspace right now, so this stays as next-up context.</p>` : ""}
       ${
         action.signals.length > 0

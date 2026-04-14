@@ -2149,6 +2149,63 @@ export interface SurfacedNoiseReductionSummary {
 
 export type ReviewApprovalFlowState = "recovery_needed" | "review_needed" | "approval_needed" | "send_ready" | "caught_up";
 
+export type ReviewApprovalFlowOutcomeState = "open" | "helpful" | "attempted_failed" | "superseded" | "expired";
+
+export type ReviewApprovalFlowEvidenceKind =
+  | "review_progressed"
+  | "approval_progressed"
+  | "send_completed"
+  | "recovery_progressed"
+  | "regressed_to_recovery"
+  | "superseded"
+  | "timed_out";
+
+export type ReviewApprovalFlowCalibrationStatus = "insufficient_evidence" | "working" | "mixed" | "attention_needed";
+
+export type ReviewApprovalFlowRecommendationKind =
+  | "keep_current_handoff"
+  | "consider_more_batching"
+  | "consider_review_tuning"
+  | "consider_decision_surface_adjustment"
+  | "insufficient_evidence";
+
+export interface ReviewApprovalFlowOutcomeRecord {
+  outcome_id: string;
+  surfaced_state: Exclude<ReviewApprovalFlowState, "caught_up">;
+  target_type: string;
+  target_id: string;
+  review_id?: string | undefined;
+  approval_id?: string | undefined;
+  outbound_group_id?: string | undefined;
+  assistant_action_id?: string | undefined;
+  summary_snapshot: string;
+  command_snapshot?: string | undefined;
+  surfaced_at: string;
+  last_seen_at: string;
+  state: ReviewApprovalFlowOutcomeState;
+  evidence_kind?: ReviewApprovalFlowEvidenceKind | undefined;
+  acted_at?: string | undefined;
+  closed_at?: string | undefined;
+}
+
+export interface ReviewApprovalFlowCalibrationSummary {
+  eligible: boolean;
+  status: ReviewApprovalFlowCalibrationStatus;
+  recommendation_kind: ReviewApprovalFlowRecommendationKind;
+  summary: string | null;
+  recommendation_summary: string | null;
+  sample_count_14d: number;
+  helpful_count_14d: number;
+  attempted_failed_count_14d: number;
+  superseded_count_14d: number;
+  expired_count_14d: number;
+  helpful_rate_14d: number;
+  review_needed_count_14d: number;
+  approval_needed_count_14d: number;
+  send_ready_count_14d: number;
+  recovery_needed_count_14d: number;
+}
+
 export interface ReviewApprovalFlowSummary {
   eligible: boolean;
   state: ReviewApprovalFlowState;
@@ -2162,6 +2219,7 @@ export interface ReviewApprovalFlowSummary {
   outbound_group_id: string | null;
   assistant_action_id: string | null;
   supporting_summary: string | null;
+  calibration?: ReviewApprovalFlowCalibrationSummary | undefined;
 }
 
 export interface WorkflowBundleSectionItem {
