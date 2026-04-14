@@ -45,6 +45,7 @@ test("hardening CI workflow runs the stable cross-platform checks from app", () 
   assert.match(workflow, /uses: actions\/setup-node@v5/);
   assert.match(workflow, /working-directory:\s+app/);
   assert.match(workflow, /npm ci/);
+  assert.match(workflow, /npx playwright install --with-deps chromium/);
   assert.match(workflow, /npm run typecheck/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run verify:smoke/);
