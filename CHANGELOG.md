@@ -2,7 +2,7 @@
 
 This changelog tracks operator-facing releases for the source-first `personal-ops` product.
 
-## [0.2.0] - Pending release
+## [0.2.0] - 2026-04-14
 
 - First official source-first release for `personal-ops`.
 - Adds explicit version visibility with `personal-ops version`, additive `service_version` in `status`, and console Overview version display.
