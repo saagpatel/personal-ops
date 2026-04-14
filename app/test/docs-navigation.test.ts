@@ -44,8 +44,13 @@ test("Phase 5 primary docs exist and README routes into the new docs layer", () 
     "RELEASING.md",
     "ARCHITECTURE.md",
     "CLIENTS.md",
+    "docs/ASSISTANT-LED-ROADMAP.md",
     "docs/NEW-MACHINE-SETUP.md",
+    "docs/PROGRAM-COMPLETE-SUMMARY.md",
   ]);
+
+  const readme = readRepoFile("README.md");
+  assert.match(readme, /Historical program summary/);
 });
 
 test("Phase 5 start-here doc links to the main role paths and history docs", () => {
@@ -55,6 +60,7 @@ test("Phase 5 start-here doc links to the main role paths and history docs", () 
     "RELEASING.md",
     "ARCHITECTURE.md",
     "CLIENTS.md",
+    "docs/ASSISTANT-LED-ROADMAP.md",
     "docs/NEW-MACHINE-SETUP.md",
     "docs/IMPROVEMENT-ROADMAP.md",
     "docs/PROGRAM-COMPLETE-SUMMARY.md",
@@ -66,6 +72,10 @@ test("Phase 5 start-here doc links to the main role paths and history docs", () 
   ];
 
   assertDocLinks("START-HERE.md", expectedLinks);
+
+  const startHere = readRepoFile("START-HERE.md");
+  assert.match(startHere, /current and future source of truth/i);
+  assert.match(startHere, /historical summary of the earlier Phase 1 to 33 program/i);
 
   for (const relativePath of expectedLinks) {
     assertRepoFileExists(relativePath);

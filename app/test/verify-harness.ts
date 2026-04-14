@@ -12,12 +12,17 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { chromium, type Page } from "playwright";
 import { createRequestJson } from "../src/cli/http-client.js";
-import { ensureRuntimeFiles, loadConfig } from "../src/config.js";
+import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
+import { createHttpServer } from "../src/http.js";
+import { Logger } from "../src/logger.js";
 import { readRecoveryRehearsalStamp, writeRecoveryRehearsalStamp } from "../src/recovery.js";
+import { PersonalOpsService } from "../src/service.js";
 import type {
   ClientIdentity,
   Config,
+  GmailClientConfig,
+  GmailMessageMetadata,
   InstallCheckReport,
   Paths,
   RestoreResult,
@@ -33,6 +38,9 @@ const MCP_CLIENT_INFO = {
   name: "personal-ops-verify",
   version: "0.1.0",
 };
+const VERIFY_MAILBOX = "machine@example.com";
+const PROOF_GATED_REVIEW_NOTE = "Review and approval: This prepared work is approved and ready to send.";
+const DEFAULT_REVIEW_NOTE = "Review and approval: This is the current review and approval focus.";
 const VERIFY_IDENTITY: ClientIdentity = {
   client_id: "phase3-verify",
   requested_by: "phase3-verify",
@@ -176,7 +184,20 @@ oauth_client_file = "${paths.oauthClientFile}"
   );
 }
 
-async function createVerificationEnvironment(name: string): Promise<VerificationEnvironment> {
+function buildMessage(messageId: string, accountEmail: string, overrides: Partial<GmailMessageMetadata> = {}): GmailMessageMetadata {
+  return {
+    message_id: messageId,
+    thread_id: overrides.thread_id ?? `thread-${messageId}`,
+    history_id: overrides.history_id ?? "2001",
+    internal_date: overrides.internal_date ?? String(Date.now()),
+    label_ids: overrides.label_ids ?? ["INBOX"],
+    from_header: overrides.from_header ?? "Sender <sender@example.com>",
+    to_header: overrides.to_header ?? accountEmail,
+    subject: overrides.subject ?? `Subject ${messageId}`,
+  };
+}
+
+async function createVerificationEnvironment(name: string, options: { mailbox?: string } = {}): Promise<VerificationEnvironment> {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), `personal-ops-verify-${name}-`));
   const homeDir = path.join(baseDir, "home");
   fs.mkdirSync(homeDir, { recursive: true });
@@ -193,9 +214,171 @@ async function createVerificationEnvironment(name: string): Promise<Verification
     PERSONAL_OPS_LAUNCH_AGENT_LABEL: launchAgentLabel,
   });
   const paths = withRuntimeEnv(env, () => ensureRuntimeFiles());
-  writeIsolatedConfig(paths, port);
+  writeIsolatedConfig(paths, port, options.mailbox ?? "");
   const config = loadConfig(paths);
   return { appDir, repoRoot, baseDir, homeDir, env, paths, config, port, launchAgentLabel };
+}
+
+function createVerificationService(env: VerificationEnvironment, mailbox: string): PersonalOpsService {
+  const policy = withRuntimeEnv(env.env, () => loadPolicy(env.paths));
+  const logger = new Logger(env.paths);
+  const clientConfig: GmailClientConfig = {
+    client_id: "client-id",
+    client_secret: "client-secret",
+    auth_uri: "https://accounts.google.com/o/oauth2/auth",
+    token_uri: "https://oauth2.googleapis.com/token",
+    redirect_uris: ["http://127.0.0.1"],
+  };
+  let providerDraftCounter = 1;
+  const service = new PersonalOpsService(env.paths, env.config, policy, logger, {
+    loadStoredGmailTokens: async () => ({
+      email: mailbox,
+      clientConfig,
+      tokensJson: JSON.stringify({ refresh_token: "refresh-token" }),
+    }),
+    verifyGoogleCalendarWriteAccess: async () => {},
+    createGmailDraft: async () => `provider-draft-${providerDraftCounter++}`,
+    updateGmailDraft: async (_tokensJson, _clientConfig, _email, providerDraftId) => providerDraftId,
+    openExternalUrl: () => {},
+  });
+  service.db.upsertMailAccount(mailbox, env.config.keychainService, JSON.stringify({ emailAddress: mailbox }));
+  return service;
+}
+
+function seedInboxAutopilotFixture(db: PersonalOpsDb, mailbox: string): void {
+  db.upsertMailAccount(mailbox, "personal-ops.gmail.verify", JSON.stringify({ emailAddress: mailbox }));
+  db.upsertMailSyncState(mailbox, "gmail", {
+    status: "ready",
+    last_history_id: "verify-console-autopilot",
+    last_synced_at: new Date().toISOString(),
+    last_seeded_at: new Date().toISOString(),
+    last_sync_refreshed_count: 1,
+    last_sync_deleted_count: 0,
+  });
+  const now = Date.now();
+  db.upsertMailMessage(
+    mailbox,
+    buildMessage("reply-verify-console", mailbox, {
+      thread_id: "thread-verify-console-reply",
+      history_id: "reply-verify-console-1",
+      internal_date: String(now - 2 * 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Console verification reply needed",
+    }),
+    new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+  );
+}
+
+async function seedReviewApprovalProofFixture(env: VerificationEnvironment, mailbox: string): Promise<void> {
+  const service = createVerificationService(env, mailbox);
+  try {
+    seedInboxAutopilotFixture(service.db, mailbox);
+
+    const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+    const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+    assert.ok(replyGroup, "console verification should find a reply-ready inbox autopilot group.");
+
+    const prepared = await service.prepareInboxAutopilotGroup(VERIFY_IDENTITY, replyGroup.group_id);
+    const draftId = prepared.drafts[0]?.artifact_id;
+    assert.ok(draftId, "console verification should stage a draft.");
+
+    const review = service.db.getLatestReviewItemForArtifact(draftId);
+    assert.ok(review, "console verification should create a review item.");
+    service.openReview(VERIFY_IDENTITY, review.review_id);
+    service.resolveReview(VERIFY_IDENTITY, review.review_id, "Reviewed for console verification proof.");
+
+    const secondaryDraft = await service.createDraft(VERIFY_IDENTITY, {
+      to: ["secondary@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Console verification secondary approval",
+      body_text: "Secondary approval handoff.",
+    });
+    const secondaryReview = service.db.getLatestReviewItemForArtifact(secondaryDraft.artifact_id);
+    assert.ok(secondaryReview, "console verification should create a secondary review item.");
+    service.openReview(VERIFY_IDENTITY, secondaryReview.review_id);
+    service.resolveReview(VERIFY_IDENTITY, secondaryReview.review_id, "Reviewed for secondary approval proof.");
+    const secondaryApproval = service.requestApproval(
+      VERIFY_IDENTITY,
+      secondaryDraft.artifact_id,
+      "Secondary approval handoff",
+    );
+    const secondaryApprovalConfirmation = service.confirmApprovalAction(
+      VERIFY_IDENTITY,
+      secondaryApproval.approval_id,
+      "approve",
+    );
+    service.approveRequest(
+      VERIFY_IDENTITY,
+      secondaryApproval.approval_id,
+      "Approve secondary support handoff",
+      secondaryApprovalConfirmation.confirmation_token,
+    );
+    service.enableSendWindow(VERIFY_IDENTITY, 15, "Allow secondary send-ready support");
+
+    const flowReport = await service.getStatusReport({ httpReachable: true });
+    const flow = flowReport.review_approval_flow;
+    assert.ok(flow?.eligible, "console verification should produce a review/approval handoff.");
+    assert.equal(flow?.supporting_summary, "This prepared work is approved and ready to send.");
+
+    const baseRecord = (
+      suffix: string,
+      overrides: Record<string, unknown> = {},
+    ): Record<string, unknown> => ({
+      outcome_id: `verify-console-phase35-${suffix}`,
+      surfaced_state: "approval_needed",
+      target_type: flow.target_type,
+      target_id: flow.target_id,
+      review_id: flow.review_id,
+      approval_id: flow.approval_id,
+      outbound_group_id: flow.outbound_group_id,
+      assistant_action_id: flow.assistant_action_id,
+      summary_snapshot: flow.summary,
+      command_snapshot: flow.primary_command,
+      surfaced_at: "2026-04-14T10:00:00.000Z",
+      last_seen_at: "2026-04-14T10:05:00.000Z",
+      state: "helpful",
+      evidence_kind: "approval_progressed",
+      acted_at: "2026-04-14T10:05:00.000Z",
+      closed_at: "2026-04-14T10:05:00.000Z",
+      ...overrides,
+    });
+
+    for (const entry of [
+      baseRecord("helpful"),
+      baseRecord("expired", {
+        state: "expired",
+        evidence_kind: "timed_out",
+        acted_at: undefined,
+        closed_at: "2026-04-14T11:05:00.000Z",
+      }),
+      baseRecord("superseded", {
+        state: "superseded",
+        evidence_kind: "superseded",
+        surfaced_state: "send_ready",
+        acted_at: undefined,
+        closed_at: "2026-04-14T12:05:00.000Z",
+      }),
+      baseRecord("recovery", {
+        state: "attempted_failed",
+        evidence_kind: "regressed_to_recovery",
+        acted_at: undefined,
+        closed_at: "2026-04-14T13:05:00.000Z",
+      }),
+    ]) {
+      service.db.upsertReviewApprovalFlowOutcome(entry as any);
+    }
+
+    const calibrated = await service.getStatusReport({ httpReachable: true });
+    assert.equal(calibrated.review_approval_flow?.calibration?.status, "attention_needed");
+    assert.equal(
+      calibrated.review_approval_flow?.calibration?.recommendation_kind,
+      "consider_decision_surface_adjustment",
+    );
+  } finally {
+    service.db.close();
+  }
 }
 
 function wrapperPaths(env: VerificationEnvironment) {
@@ -836,7 +1019,7 @@ export async function runFullVerification(): Promise<void> {
 }
 
 export async function runConsoleVerification(): Promise<void> {
-  const env = await createVerificationEnvironment("console");
+  const env = await createVerificationEnvironment("console", { mailbox: VERIFY_MAILBOX });
   let daemon: DaemonHandle | null = null;
   try {
     await runBootstrap(env);
@@ -845,6 +1028,7 @@ export async function runConsoleVerification(): Promise<void> {
       await verifyLaunchAgentLoaded(env);
       await stopLaunchAgentIfPresent(env);
     }
+    await seedReviewApprovalProofFixture(env, VERIFY_MAILBOX);
     daemon = await startDaemonProcess(env, wrapperPaths(env).daemon, [], "console daemon wrapper");
     const requestJson = createHttpClient(env.config);
     await requestJson("POST", "/v1/tasks", {
@@ -886,6 +1070,14 @@ export async function runConsoleVerification(): Promise<void> {
         const bodyText = document.body.textContent ?? "";
         return bodyText.includes("Local control plane looks healthy.") || bodyText.includes("Local control plane needs attention.");
       });
+      await waitForFunctionLabeled(snapshotPage, "proof-gated review and approval note", (note) => {
+        const bodyText = document.body.textContent ?? "";
+        return bodyText.includes(String(note));
+      }, PROOF_GATED_REVIEW_NOTE);
+      await waitForFunctionLabeled(snapshotPage, "generic review note removed when stronger proof exists", (note) => {
+        const bodyText = document.body.textContent ?? "";
+        return !bodyText.includes(String(note));
+      }, DEFAULT_REVIEW_NOTE);
       await snapshotPage.getByRole("button", { name: "Open related detail", exact: true }).first().click();
       await waitForFunctionLabeled(snapshotPage, "worklist section title", () => document.querySelector("#section-title")?.textContent === "Worklist");
       await snapshotPage.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();

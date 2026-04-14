@@ -1,11 +1,20 @@
 # personal-ops Program Complete Summary
 
 Date: 2026-03-25
-Status: Complete through Phase 33
+Status: Historical snapshot through Phase 33
+
+Current source of truth: `docs/ASSISTANT-LED-ROADMAP.md`
 
 ## Purpose of This Document
 
-This document is the end-of-program summary for the full `personal-ops` delivery track through Phase 33.
+This document is the historical end-of-program summary for the full `personal-ops` delivery track through Phase 33.
+
+It is **not** the current roadmap or current-state record anymore.
+
+Use:
+
+- `docs/ASSISTANT-LED-ROADMAP.md` for the live assistant-led roadmap and current phase status
+- the current assistant-led phase plan and rollout docs for implementation truth and shipped closeout details
 
 It is meant to answer five questions in one place:
 
@@ -18,6 +27,7 @@ It is meant to answer five questions in one place:
 This summary complements, rather than replaces:
 
 - `README.md` for the current product shape
+- `docs/ASSISTANT-LED-ROADMAP.md` for the current and future roadmap truth
 - `CLIENTS.md` for the shared client contract
 - `docs/2026-03-24-system-audit.md` for the full system audit and live verification record
 - the individual `PHASE-*-PLAN.md` and `PHASE-*-ROLLOUT.md` files for implementation history
