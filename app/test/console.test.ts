@@ -7,6 +7,9 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { chromium } from "playwright";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
 import { createHttpServer } from "../src/http.js";
@@ -225,10 +228,20 @@ async function createConsoleFixture(options: { mailbox?: string } = {}) {
   return {
     baseDir,
     config,
+    env,
     paths,
     service,
     server,
   };
+}
+
+function parseMcpJson(
+  result: { content?: Array<{ type: string; text?: string }>; toolResult?: unknown },
+  label: string,
+): any {
+  const textPayload = result.content?.find((item) => item.type === "text")?.text;
+  assert.ok(textPayload, `${label} should return text content.`);
+  return JSON.parse(textPayload);
 }
 
 function seedInboxAutopilotFixture(paths: Paths, mailbox: string): void {
@@ -1505,6 +1518,233 @@ test("assistant-led Phase 2 console sessions can prepare inbox autopilot drafts,
   }
 });
 
+test("phase 34 console replaces the generic review focus note when the proof gate is met", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+
+    const inboxReport = await fixture.service.getInboxAutopilotReport({ httpReachable: true });
+    const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+    assert.ok(replyGroup);
+
+    const prepared = await fixture.service.prepareInboxAutopilotGroup(TEST_IDENTITY, replyGroup!.group_id);
+    const draftId = prepared.drafts[0]?.artifact_id;
+    assert.ok(draftId);
+    const review = fixture.service.db.getLatestReviewItemForArtifact(draftId!);
+    assert.ok(review);
+
+    fixture.service.openReview(TEST_IDENTITY, review!.review_id);
+    fixture.service.resolveReview(TEST_IDENTITY, review!.review_id, "Reviewed for phase 34 console proof");
+
+    let providerDraftCounter = 2;
+    (fixture.service as any).dependencies.createGmailDraft = async () => `provider-draft-${providerDraftCounter++}`;
+    const secondaryDraft = await fixture.service.createDraft(TEST_IDENTITY, {
+      to: ["secondary@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Phase 34 secondary approval",
+      body_text: "Secondary approval handoff.",
+    });
+    const secondaryReview = fixture.service.db.getLatestReviewItemForArtifact(secondaryDraft.artifact_id);
+    assert.ok(secondaryReview);
+    fixture.service.openReview(TEST_IDENTITY, secondaryReview!.review_id);
+    fixture.service.resolveReview(TEST_IDENTITY, secondaryReview!.review_id, "Reviewed for secondary approval proof");
+    const secondaryApproval = fixture.service.requestApproval(
+      TEST_IDENTITY,
+      secondaryDraft.artifact_id,
+      "Secondary approval handoff",
+    );
+    const secondaryApprovalConfirmation = fixture.service.confirmApprovalAction(
+      TEST_IDENTITY,
+      secondaryApproval.approval_id,
+      "approve",
+    );
+    fixture.service.approveRequest(
+      TEST_IDENTITY,
+      secondaryApproval.approval_id,
+      "Approve secondary support handoff",
+      secondaryApprovalConfirmation.confirmation_token,
+    );
+    fixture.service.enableSendWindow(TEST_IDENTITY, 15, "Allow secondary send-ready support");
+
+    const approvalNeeded = await fixture.service.getStatusReport({ httpReachable: true });
+    const flow = (approvalNeeded as any).review_approval_flow;
+    assert.equal(flow?.state, "approval_needed");
+    assert.ok(flow?.target_type);
+    assert.ok(flow?.target_id);
+    assert.equal(flow?.supporting_summary, "This prepared work is approved and ready to send.");
+
+    const record = (
+      suffix: string,
+      overrides: Record<string, unknown> = {},
+    ): Record<string, unknown> => ({
+      outcome_id: `phase34-console-${suffix}`,
+      surfaced_state: "approval_needed",
+      target_type: flow.target_type,
+      target_id: flow.target_id,
+      review_id: flow.review_id,
+      approval_id: flow.approval_id,
+      outbound_group_id: flow.outbound_group_id,
+      assistant_action_id: flow.assistant_action_id,
+      summary_snapshot: flow.summary,
+      command_snapshot: flow.primary_command,
+      surfaced_at: "2026-04-13T10:00:00.000Z",
+      last_seen_at: "2026-04-13T10:05:00.000Z",
+      state: "helpful",
+      evidence_kind: "approval_progressed",
+      acted_at: "2026-04-13T10:05:00.000Z",
+      closed_at: "2026-04-13T10:05:00.000Z",
+      ...overrides,
+    });
+
+    for (const entry of [
+      record("helpful"),
+      record("expired", {
+        state: "expired",
+        evidence_kind: "timed_out",
+        surfaced_state: "approval_needed",
+        acted_at: undefined,
+        closed_at: "2026-04-13T11:05:00.000Z",
+      }),
+      record("superseded", {
+        state: "superseded",
+        evidence_kind: "superseded",
+        surfaced_state: "send_ready",
+        acted_at: undefined,
+        closed_at: "2026-04-13T12:05:00.000Z",
+      }),
+      record("recovery", {
+        state: "attempted_failed",
+        evidence_kind: "regressed_to_recovery",
+        surfaced_state: "approval_needed",
+        acted_at: undefined,
+        closed_at: "2026-04-13T13:05:00.000Z",
+      }),
+    ]) {
+      fixture.service.db.upsertReviewApprovalFlowOutcome(entry as any);
+    }
+
+    const calibrated = await fixture.service.getStatusReport({ httpReachable: true });
+    assert.equal((calibrated as any).review_approval_flow?.calibration?.status, "attention_needed");
+    assert.equal(
+      (calibrated as any).review_approval_flow?.calibration?.recommendation_kind,
+      "consider_decision_surface_adjustment",
+    );
+
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-test",
+      },
+    });
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      await page.goto(grantPayload.console_session.launch_url, { waitUntil: "commit" });
+      await page.waitForFunction(() => document.documentElement.dataset.consoleReady === "1");
+      await page.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();
+      await page.waitForFunction(() => {
+        const bodyText = document.body.textContent ?? "";
+        return bodyText.includes("Review and approval: This prepared work is approved and ready to send.");
+      });
+      const bodyText = (await page.locator("body").textContent()) ?? "";
+      assert.match(bodyText, /Review and approval: This prepared work is approved and ready to send\./);
+    } finally {
+      await browser.close();
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
+test("phase 34 mcp approval tools execute the real confirmation-token seam", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    (fixture.service as any).dependencies.sendGmailDraft = async (
+      _tokensJson: string,
+      _clientConfig: unknown,
+      providerDraftId: string,
+    ) => ({
+      provider_message_id: `sent-${providerDraftId}`,
+      provider_thread_id: `thread-${providerDraftId}`,
+    });
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+
+    const inboxReport = await fixture.service.getInboxAutopilotReport({ httpReachable: true });
+    const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+    assert.ok(replyGroup);
+    const prepared = await fixture.service.prepareInboxAutopilotGroup(TEST_IDENTITY, replyGroup!.group_id);
+    const draftId = prepared.drafts[0]?.artifact_id;
+    assert.ok(draftId);
+    const review = fixture.service.db.getLatestReviewItemForArtifact(draftId!);
+    assert.ok(review);
+
+    fixture.service.openReview(TEST_IDENTITY, review!.review_id);
+    fixture.service.resolveReview(TEST_IDENTITY, review!.review_id, "Reviewed for phase 34 MCP proof");
+    const approval = fixture.service.requestApproval(TEST_IDENTITY, draftId!, "Ready for MCP approval");
+    const approveConfirmation = fixture.service.confirmApprovalAction(TEST_IDENTITY, approval.approval_id, "approve");
+
+    const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const transport = new StdioClientTransport({
+      command: "node",
+      args: [path.join(appDir, "dist", "src", "mcp-server.js")],
+      cwd: appDir,
+      env: fixture.env,
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "phase34-mcp-test", version: "0.0.0" }, { capabilities: {} });
+    try {
+      await client.connect(transport);
+
+      const pending = parseMcpJson(await client.callTool({ name: "approval_queue_pending", arguments: {} }), "approval_queue_pending");
+      assert.equal(
+        pending.approval_requests.some((item: { approval_id: string }) => item.approval_id === approval.approval_id),
+        true,
+      );
+
+      const approveResult = parseMcpJson(
+        await client.callTool({
+          name: "approval_request_approve",
+          arguments: {
+            approval_id: approval.approval_id,
+            note: "Approve via MCP seam test",
+            confirmation_token: approveConfirmation.confirmation_token,
+          },
+        }),
+        "approval_request_approve",
+      );
+      assert.equal(approveResult.approval.approval_request.state, "approved");
+
+      fixture.service.enableSendWindow(TEST_IDENTITY, 15, "Allow MCP grouped send");
+      const sendConfirmation = fixture.service.confirmApprovalAction(TEST_IDENTITY, approval.approval_id, "send");
+      const sendResult = parseMcpJson(
+        await client.callTool({
+          name: "approval_request_send",
+          arguments: {
+            approval_id: approval.approval_id,
+            note: "Send via MCP seam test",
+            confirmation_token: sendConfirmation.confirmation_token,
+          },
+        }),
+        "approval_request_send",
+      );
+      assert.equal(sendResult.approval.approval_request.state, "sent");
+    } finally {
+      await transport.close();
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("assistant-led Phase 3 console sessions can prepare a meeting packet through the browser-safe route", async () => {
   const mailbox = "machine@example.com";
   const fixture = await createConsoleFixture({ mailbox });
@@ -1961,6 +2201,14 @@ test("Phase 2 console shell and static assets are served from the daemon", async
     assert.match(scriptText, /This approval belongs to the current grouped handoff\./);
     assert.match(scriptText, /This grouped handoff owns the forward path for review, approval, and send across the drafts below\./);
     assert.match(scriptText, /Review packages and tuning stay secondary here/i);
+
+    const siblingModuleResponse = await fetch(`${baseUrl}/console/review-approval-presentation.js`);
+    assert.equal(siblingModuleResponse.status, 200);
+    assert.match(siblingModuleResponse.headers.get("content-type") ?? "", /text\/javascript/);
+    assert.match(
+      await siblingModuleResponse.text(),
+      /consider_decision_surface_adjustment/,
+    );
 
     const faviconResponse = await fetch(`${baseUrl}/favicon.ico`);
     assert.equal(faviconResponse.status, 204);

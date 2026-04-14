@@ -7,6 +7,7 @@ import { resolvePaths } from "./paths.js";
 export const CONSOLE_SESSION_COOKIE = "personal_ops_console_session";
 const GRANT_TTL_MS = 2 * 60 * 1000;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const ROOT_CONSOLE_JS_ASSETS = new Set(["review-approval-presentation.js"]);
 
 interface SessionGrantRecord {
   grant: string;
@@ -182,14 +183,28 @@ export function resolveConsoleAsset(assetPath: string): { filePath: string; cont
     return null;
   }
   if (normalized.endsWith(".js")) {
-    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "src", "console", normalized)));
+    const consoleAssetPath = normalized.startsWith("assets/") ? normalized.slice("assets/".length) : null;
+    if (consoleAssetPath) {
+      const filePath = firstExistingPath(
+        candidateAppDirs().map((appDir) => path.join(appDir, "dist", "src", "console", consoleAssetPath)),
+      );
+      return {
+        filePath,
+        contentType: "text/javascript; charset=utf-8",
+      };
+    }
+    if (!ROOT_CONSOLE_JS_ASSETS.has(normalized)) {
+      return null;
+    }
+    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "src", normalized)));
     return {
       filePath,
       contentType: "text/javascript; charset=utf-8",
     };
   }
   if (normalized.endsWith(".css")) {
-    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "console", normalized)));
+    const cssAssetPath = normalized.startsWith("assets/") ? normalized.slice("assets/".length) : normalized;
+    const filePath = firstExistingPath(candidateAppDirs().map((appDir) => path.join(appDir, "dist", "console", cssAssetPath)));
     return {
       filePath,
       contentType: "text/css; charset=utf-8",

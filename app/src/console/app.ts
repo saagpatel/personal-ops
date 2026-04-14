@@ -42,6 +42,12 @@ import type {
   WorkflowBundleReport,
   WorklistReport,
 } from "../types.js";
+import {
+  buildReviewApprovalPresentation,
+  reviewApprovalCalibrationNoteText,
+  reviewApprovalConsoleFlowNoteText,
+  reviewApprovalSupportingNoteText,
+} from "../review-approval-presentation.js";
 
 type SectionId = "overview" | "review" | "worklist" | "approvals" | "drafts" | "planning" | "audit" | "backups";
 type BannerTone = "good" | "warn" | "critical";
@@ -2110,21 +2116,22 @@ function renderSurfacedWorkHelpfulness(
 function renderReviewApprovalFlowNote(
   item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
 ): string {
-  if (!item.review_approval_flow?.eligible) {
-    return "";
-  }
-  return `<p class="subtle subtle--body">This is the current review and approval focus.</p>`;
+  const note = reviewApprovalConsoleFlowNoteText(item.review_approval_flow);
+  return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
 }
 
 function renderReviewApprovalCalibrationNote(
   item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
 ): string {
-  const calibration = item.review_approval_flow?.calibration;
-  if (!calibration?.eligible || (!calibration.summary && !calibration.recommendation_summary)) {
-    return "";
-  }
-  const parts = [calibration.summary, calibration.recommendation_summary].filter((value): value is string => Boolean(value));
-  return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" "))}</p>` : "";
+  const note = reviewApprovalCalibrationNoteText(item.review_approval_flow);
+  return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
+}
+
+function renderReviewApprovalSupportingNote(
+  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+): string {
+  const note = reviewApprovalSupportingNoteText(item.review_approval_flow);
+  return note ? `<p class="subtle subtle--body">${escapeHtml(`Review and approval: ${note}`)}</p>` : "";
 }
 
 function surfacedNoiseSummary(
@@ -2154,6 +2161,7 @@ function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]
           : ""
       }
       ${renderSurfacedWorkHelpfulness(summary)}
+      ${renderReviewApprovalSupportingNote(summary)}
       ${renderReviewApprovalCalibrationNote(summary)}
       ${
         summary.secondary_summary

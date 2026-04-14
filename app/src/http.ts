@@ -339,7 +339,17 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
       }
 
       if (request.method === "GET" && url.pathname.startsWith("/console/assets/")) {
-        const asset = readConsoleAsset(url.pathname.slice("/console/assets/".length));
+        const asset = readConsoleAsset(url.pathname.slice("/console/".length));
+        if (!asset) {
+          sendJson(response, 404, { error: "Not found." });
+          return;
+        }
+        sendBuffer(response, 200, asset.body, asset.contentType);
+        return;
+      }
+
+      if (request.method === "GET" && /^\/console\/[^/]+\.js$/.test(url.pathname)) {
+        const asset = readConsoleAsset(url.pathname.slice("/console/".length));
         if (!asset) {
           sendJson(response, 404, { error: "Not found." });
           return;
