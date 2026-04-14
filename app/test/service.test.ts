@@ -9368,6 +9368,69 @@ test("phase 31 keeps weak surfaced work visible when no stronger workspace focus
   assert.equal(reduced.now_next_workflow?.actions[0]?.surfaced_noise_reduction?.show_helpfulness, true);
 });
 
+test("phase 32 derives grouped outbound handoff states across review, approval, recovery, send, and caught up", async () => {
+  const accountEmail = "machine@example.com";
+  const { service } = createFixture({
+    accountEmail,
+    sendImpl: async (providerDraftId) => ({
+      provider_message_id: `sent-${providerDraftId}`,
+      provider_thread_id: `thread-${providerDraftId}`,
+    }),
+  });
+  seedMailboxReadyState(service, accountEmail, "phase32-review-approval-flow");
+  const now = Date.now();
+
+  service.db.upsertMailMessage(
+    accountEmail,
+    buildMessage("phase32-review-approval-flow", accountEmail, {
+      thread_id: "thread-phase32-review-approval-flow",
+      history_id: "phase32-review-approval-flow",
+      internal_date: String(now - 60 * 60 * 1000),
+      label_ids: ["INBOX", "UNREAD"],
+      from_header: "Client <client@example.com>",
+      subject: "Phase 32 review and approval flow",
+    }),
+    new Date(now - 60 * 60 * 1000).toISOString(),
+  );
+
+  const inboxReport = await service.getInboxAutopilotReport({ httpReachable: true });
+  const replyGroup = inboxReport.groups.find((group) => group.kind === "needs_reply");
+  assert.ok(replyGroup);
+
+  const prepared = await service.prepareInboxAutopilotGroup(cliIdentity, replyGroup!.group_id);
+  const review = service.db.getLatestReviewItemForArtifact(prepared.drafts[0]!.artifact_id);
+  assert.ok(review);
+
+  const reviewNeeded = await service.getStatusReport({ httpReachable: true });
+  assert.equal((reviewNeeded as any).review_approval_flow?.state, "review_needed");
+  assert.equal((reviewNeeded as any).review_approval_flow?.target_type, "outbound_autopilot_group");
+  assert.equal((reviewNeeded as any).review_approval_flow?.outbound_group_id, replyGroup!.group_id);
+
+  service.openReview(cliIdentity, review!.review_id);
+  service.resolveReview(cliIdentity, review!.review_id, "Reviewed for grouped phase 32 handoff");
+
+  const approvalNeeded = await service.getStatusReport({ httpReachable: true });
+  assert.equal((approvalNeeded as any).review_approval_flow?.state, "approval_needed");
+  assert.equal((approvalNeeded as any).review_approval_flow?.outbound_group_id, replyGroup!.group_id);
+
+  await service.requestApprovalForOutboundGroup(cliIdentity, replyGroup!.group_id, "Request grouped approval");
+  await service.approveOutboundGroup(cliIdentity, replyGroup!.group_id, "Approve grouped phase 32 work", true);
+
+  const recoveryNeeded = await service.getStatusReport({ httpReachable: true });
+  assert.equal((recoveryNeeded as any).review_approval_flow?.state, "recovery_needed");
+  assert.equal((recoveryNeeded as any).review_approval_flow?.outbound_group_id, replyGroup!.group_id);
+
+  service.enableSendWindow(cliIdentity, 15, "Phase 32 grouped send");
+  const sendReady = await service.getStatusReport({ httpReachable: true });
+  assert.equal((sendReady as any).review_approval_flow?.state, "send_ready");
+  assert.equal((sendReady as any).review_approval_flow?.outbound_group_id, replyGroup!.group_id);
+
+  await service.sendOutboundGroup(cliIdentity, replyGroup!.group_id, "Send grouped phase 32 work", true);
+
+  const caughtUp = await service.getStatusReport({ httpReachable: true });
+  assert.equal((caughtUp as any).review_approval_flow?.state, "caught_up");
+});
+
 test("phase 27 suppresses workflow personalization when workflow readiness is not ready", async () => {
   const taskRecommendation = buildWorkflowRecommendation("task-pending", {
     kind: "schedule_task_block",

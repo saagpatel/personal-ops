@@ -1281,6 +1281,7 @@ export interface AssistantActionItem {
   workflow_personalization?: WorkflowPersonalizationSummary | undefined;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
+  review_approval_flow?: ReviewApprovalFlowSummary | undefined;
   blocking_reason?: string | undefined;
   latest_run?: AssistantActionRunReport | undefined;
 }
@@ -1294,6 +1295,7 @@ export interface AssistantActionQueueReport {
   actions: AssistantActionItem[];
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
+  review_approval_flow?: ReviewApprovalFlowSummary | undefined;
 }
 
 export interface AssistantActionRunResult {
@@ -2145,6 +2147,23 @@ export interface SurfacedNoiseReductionSummary {
   show_personalization: boolean;
 }
 
+export type ReviewApprovalFlowState = "recovery_needed" | "review_needed" | "approval_needed" | "send_ready" | "caught_up";
+
+export interface ReviewApprovalFlowSummary {
+  eligible: boolean;
+  state: ReviewApprovalFlowState;
+  summary: string | null;
+  why_now: string | null;
+  primary_command: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  review_id: string | null;
+  approval_id: string | null;
+  outbound_group_id: string | null;
+  assistant_action_id: string | null;
+  supporting_summary: string | null;
+}
+
 export interface WorkflowBundleSectionItem {
   label: string;
   summary: string;
@@ -2624,6 +2643,7 @@ export interface WorkspaceHomeSummary {
   maintenance_state: MaintenanceRepairConvergenceState | MaintenanceDecisionState | null;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
+  review_approval_flow?: ReviewApprovalFlowSummary | undefined;
 }
 
 export interface MaintenanceDeferMemorySummary {
@@ -2945,6 +2965,7 @@ export interface ServiceStatusReport {
   workspace_home: WorkspaceHomeSummary;
   surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
   surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
+  review_approval_flow?: ReviewApprovalFlowSummary | undefined;
   repair_plan: RepairPlan;
   maintenance_window: MaintenanceWindowSummary;
   maintenance_follow_through: MaintenanceFollowThroughSummary;

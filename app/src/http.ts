@@ -1,6 +1,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import { PersonalOpsService } from "./service.js";
+import { applyReviewApprovalFlowPayloads } from "./service/review-approval-flow.js";
 import { applySurfacedNoiseReduction } from "./surfaced-work.js";
 import {
   ApprovalAction,
@@ -456,10 +457,14 @@ export function createHttpServer(service: PersonalOpsService, config: Config, po
           service.getStatusReport({ httpReachable: true }),
           service.getAssistantActionQueueReport({ httpReachable: true }),
         ]);
+        const withNoiseReduction = applySurfacedNoiseReduction({
+          status,
+          assistant_queue,
+        });
         sendJson(response, 200, {
-          assistant_queue: applySurfacedNoiseReduction({
-            status,
-            assistant_queue,
+          assistant_queue: applyReviewApprovalFlowPayloads({
+            status: withNoiseReduction.status,
+            assistant_queue: withNoiseReduction.assistant_queue,
           }).assistant_queue,
         });
         return;

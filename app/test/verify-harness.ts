@@ -967,7 +967,8 @@ export async function runConsoleVerification(): Promise<void> {
           (bodyText.includes("This section is intentionally read-only.") && bodyText.includes("personal-ops approval approve")) ||
           bodyText.includes("Approvals, approval decisions, and send stay in the CLI.") ||
           bodyText.includes("Use grouped approve and send from Drafts when available.") ||
-          bodyText.includes("Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.")
+          bodyText.includes("Choose an approval to inspect it. Recovery actions stay here, while grouped approve/send now flows through outbound autopilot.") ||
+          bodyText.includes("Choose an approval to inspect it. Recovery and inspection stay here, while grouped review, approval, and send stay in Drafts and Outbound Finish-Work.")
         );
       });
       await planningContext.close();

@@ -1262,6 +1262,137 @@ test("phase 31 console endpoints carry duplicate suppression and balanced quieti
   }
 });
 
+test("phase 32 console status payload keeps grouped outbound as the primary review and approval handoff", async () => {
+  const mailbox = "machine@example.com";
+  const fixture = await createConsoleFixture({ mailbox });
+  try {
+    seedInboxAutopilotFixture(fixture.paths, mailbox);
+    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
+    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.config.apiToken}`,
+        "x-personal-ops-client": "console-phase32-test",
+      },
+    });
+    assert.equal(grantResponse.status, 200);
+    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
+    const consumeResponse = await fetch(grantPayload.console_session.launch_url, { redirect: "manual" });
+    const cookie = cookieValue(consumeResponse.headers.get("set-cookie"));
+
+    const inboxResponse = await fetch(`${baseUrl}/v1/inbox/autopilot`, { headers: { cookie } });
+    const inboxPayload = (await inboxResponse.json()) as {
+      inbox_autopilot: { groups: Array<{ group_id: string }> };
+    };
+    const inboxGroupId = inboxPayload.inbox_autopilot.groups[0]?.group_id;
+    assert.ok(inboxGroupId);
+
+    const prepareResponse = await fetch(
+      `${baseUrl}/v1/inbox/autopilot/groups/${encodeURIComponent(inboxGroupId!)}/prepare`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(prepareResponse.status, 200);
+
+    const reviewNeededResponse = await fetch(`${baseUrl}/v1/status`, { headers: { cookie } });
+    assert.equal(reviewNeededResponse.status, 200);
+    const reviewNeededPayload = (await reviewNeededResponse.json()) as { status: Record<string, unknown> };
+    assert.equal((reviewNeededPayload.status as any).review_approval_flow?.state, "review_needed");
+
+    const draftsResponse = await fetch(`${baseUrl}/v1/mail/drafts`, { headers: { cookie } });
+    const draftsPayload = (await draftsResponse.json()) as { drafts: Array<{ artifact_id: string }> };
+    const draftId = draftsPayload.drafts[0]?.artifact_id;
+    assert.ok(draftId);
+
+    const reviewsResponse = await fetch(`${baseUrl}/v1/review-queue`, { headers: { cookie } });
+    const reviewsPayload = (await reviewsResponse.json()) as {
+      review_items: Array<{ review_id: string; artifact_id: string }>;
+    };
+    const reviewId = reviewsPayload.review_items.find((review) => review.artifact_id === draftId)?.review_id;
+    assert.ok(reviewId);
+
+    await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/open`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    await fetch(`${baseUrl}/v1/review-queue/${encodeURIComponent(reviewId!)}/resolve`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "Reviewed for phase 32 console flow" }),
+    });
+
+    const outboundResponse = await fetch(`${baseUrl}/v1/outbound/autopilot`, { headers: { cookie } });
+    assert.equal(outboundResponse.status, 200);
+    const outboundPayload = (await outboundResponse.json()) as {
+      outbound_autopilot: { groups: Array<{ group_id: string }> };
+    };
+    const outboundGroupId = outboundPayload.outbound_autopilot.groups[0]?.group_id;
+    assert.ok(outboundGroupId);
+
+    const approvalNeededResponse = await fetch(`${baseUrl}/v1/status`, { headers: { cookie } });
+    assert.equal(approvalNeededResponse.status, 200);
+    const approvalNeededPayload = (await approvalNeededResponse.json()) as { status: Record<string, unknown> };
+    assert.equal((approvalNeededPayload.status as any).review_approval_flow?.state, "approval_needed");
+    assert.equal((approvalNeededPayload.status as any).review_approval_flow?.outbound_group_id, outboundGroupId);
+
+    const requestApprovalResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/request-approval`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Ready for grouped approval" }),
+      },
+    );
+    assert.equal(requestApprovalResponse.status, 200);
+
+    const approveResponse = await fetch(
+      `${baseUrl}/v1/outbound/autopilot/groups/${encodeURIComponent(outboundGroupId!)}/approve`,
+      {
+        method: "POST",
+        headers: {
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ note: "Approve grouped outbound work", confirmed: true }),
+      },
+    );
+    assert.equal(approveResponse.status, 200);
+
+    const recoveryResponse = await fetch(`${baseUrl}/v1/status`, { headers: { cookie } });
+    assert.equal(recoveryResponse.status, 200);
+    const recoveryPayload = (await recoveryResponse.json()) as { status: Record<string, unknown> };
+    assert.equal((recoveryPayload.status as any).review_approval_flow?.state, "recovery_needed");
+    assert.equal((recoveryPayload.status as any).review_approval_flow?.outbound_group_id, outboundGroupId);
+
+    fixture.service.enableSendWindow(TEST_IDENTITY, 15, "Console phase 32 grouped send");
+
+    const sendReadyResponse = await fetch(`${baseUrl}/v1/status`, { headers: { cookie } });
+    assert.equal(sendReadyResponse.status, 200);
+    const sendReadyPayload = (await sendReadyResponse.json()) as { status: Record<string, unknown> };
+    assert.equal((sendReadyPayload.status as any).review_approval_flow?.state, "send_ready");
+    assert.equal((sendReadyPayload.status as any).review_approval_flow?.outbound_group_id, outboundGroupId);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
+
 test("assistant-led Phase 2 console sessions can prepare inbox autopilot drafts, review them, and request approval", async () => {
   const mailbox = "machine@example.com";
   const fixture = await createConsoleFixture({ mailbox });
@@ -1826,6 +1957,10 @@ test("Phase 2 console shell and static assets are served from the daemon", async
     const scriptResponse = await fetch(`${baseUrl}/console/assets/app.js`);
     assert.equal(scriptResponse.status, 200);
     assert.match(scriptResponse.headers.get("content-type") ?? "", /text\/javascript/);
+    const scriptText = await scriptResponse.text();
+    assert.match(scriptText, /This approval belongs to the current grouped handoff\./);
+    assert.match(scriptText, /This grouped handoff owns the forward path for review, approval, and send across the drafts below\./);
+    assert.match(scriptText, /Review packages and tuning stay secondary here/i);
 
     const faviconResponse = await fetch(`${baseUrl}/favicon.ico`);
     assert.equal(faviconResponse.status, 204);

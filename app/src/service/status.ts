@@ -80,6 +80,7 @@ function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
     assistant_action_id: null,
     workflow: null,
     maintenance_state: null,
+    review_approval_flow: undefined,
   };
 }
 

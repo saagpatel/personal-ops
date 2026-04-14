@@ -40,6 +40,21 @@ function workspaceHomeSurfaceProof(report: ServiceStatusReport): string | null {
   return helpfulness.summary;
 }
 
+function reviewApprovalFlowSummary(report: ServiceStatusReport): string | null {
+  const flow = report.review_approval_flow;
+  if (!flow?.eligible || !flow.summary) {
+    return null;
+  }
+  const parts = [flow.summary];
+  if (flow.why_now && flow.why_now !== report.workspace_home.why_now) {
+    parts.push(flow.why_now);
+  }
+  if (flow.primary_command && flow.primary_command !== report.workspace_home.primary_command) {
+    parts.push(`Next: \`${flow.primary_command}\`.`);
+  }
+  return parts.join(" ");
+}
+
 function maintenanceSignalLabel(value: string | null | undefined): string {
   return value ? value.replaceAll("_", " ") : "none";
 }
@@ -477,6 +492,10 @@ export function formatStatusReport(report: ServiceStatusReport): string {
   const workspaceSurfaceProof = workspaceHomeSurfaceProof(report);
   if (workspaceSurfaceProof) {
     lines.push(line("Surface proof", workspaceSurfaceProof));
+  }
+  const handoffSummary = reviewApprovalFlowSummary(report);
+  if (handoffSummary && handoffSummary !== workspaceSurfaceProof) {
+    lines.push(line("Review/approval handoff", handoffSummary));
   }
   lines.push(line("Next attention", topSummary(report.worklist_summary.top_item_summary, "nothing urgent right now")));
   lines.push(line("First repair step", report.first_repair_step ?? "none"));
