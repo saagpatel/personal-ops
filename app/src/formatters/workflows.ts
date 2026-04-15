@@ -498,3 +498,110 @@ export function formatMeetingContactBrief(b: MeetingContactBrief): string {
 	lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 	return lines.join("\n");
 }
+
+type EndOfDayDigest = {
+	date: string;
+	calendar: {
+		meetings_today: number;
+		meeting_minutes: number;
+		events: Array<{
+			event_id: string;
+			summary: string;
+			start_at: string;
+			end_at: string;
+			is_all_day: boolean;
+			attendee_count: number;
+		}>;
+	};
+	inbox: {
+		inbound_today: number;
+		outbound_today: number;
+		needs_reply_count: number;
+	};
+	tasks: {
+		completed_today: Array<{
+			task_id: string;
+			title: string;
+			completed_at: string;
+		}>;
+		overdue_open_count: number;
+	};
+	approvals: {
+		pending_count: number;
+	};
+	ai_cost: {
+		briefing_line: string;
+	};
+};
+
+export function formatEndOfDayDigest(d: EndOfDayDigest): string {
+	const lines: string[] = [];
+	lines.push(`━━ End-of-Day Digest · ${d.date} ━━`);
+	lines.push("");
+
+	// Section 1: Calendar
+	lines.push("📅 MEETINGS TODAY");
+	if (d.calendar.meetings_today === 0) {
+		lines.push("  No meetings today.");
+	} else {
+		const hrs = Math.floor(d.calendar.meeting_minutes / 60);
+		const mins = d.calendar.meeting_minutes % 60;
+		const timeStr =
+			hrs > 0 ? `${hrs}h ${mins}m` : `${d.calendar.meeting_minutes}m`;
+		lines.push(
+			`  ${d.calendar.meetings_today} meeting${d.calendar.meetings_today !== 1 ? "s" : ""} · ${timeStr} in meetings`,
+		);
+		for (const ev of d.calendar.events.slice(0, 5)) {
+			const time = ev.is_all_day ? "all-day" : fmtTime(ev.start_at);
+			const attendees = ev.attendee_count > 1 ? ` (${ev.attendee_count})` : "";
+			lines.push(`  ${time}  ${ev.summary}${attendees}`);
+		}
+	}
+	lines.push("");
+
+	// Section 2: Inbox
+	lines.push("📬 INBOX");
+	lines.push(
+		`  ${d.inbox.inbound_today} received · ${d.inbox.outbound_today} sent`,
+	);
+	if (d.inbox.needs_reply_count > 0) {
+		lines.push(`  ⚠ ${d.inbox.needs_reply_count} threads still need a reply`);
+	} else {
+		lines.push("  Inbox clear — no threads awaiting your reply.");
+	}
+	lines.push("");
+
+	// Section 3: Tasks
+	lines.push("✅ TASKS");
+	if (d.tasks.completed_today.length === 0) {
+		lines.push("  No tasks completed today.");
+	} else {
+		lines.push(`  ${d.tasks.completed_today.length} completed today:`);
+		for (const t of d.tasks.completed_today) {
+			lines.push(`  ✓ ${t.title}`);
+		}
+	}
+	if (d.tasks.overdue_open_count > 0) {
+		lines.push(
+			`  ⚠ ${d.tasks.overdue_open_count} overdue task${d.tasks.overdue_open_count !== 1 ? "s" : ""} still open`,
+		);
+	}
+	lines.push("");
+
+	// Section 4: Approvals (only if pending)
+	if (d.approvals.pending_count > 0) {
+		lines.push("📋 APPROVALS");
+		lines.push(
+			`  ${d.approvals.pending_count} approval${d.approvals.pending_count !== 1 ? "s" : ""} pending — run: personal-ops approval list`,
+		);
+		lines.push("");
+	}
+
+	// Section 5: AI cost
+	lines.push("🤖 AI ACTIVITY");
+	lines.push(`  ${d.ai_cost.briefing_line}`);
+	lines.push("");
+
+	lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+	return lines.join("\n");
+}

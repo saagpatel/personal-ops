@@ -3161,6 +3161,40 @@ export class PersonalOpsDb {
 		return Number(row.count ?? 0);
 	}
 
+	getMailActivityToday(
+		mailbox: string,
+		sinceMs: number,
+	): { inbound_count: number; outbound_count: number } {
+		const row = this.db
+			.prepare(
+				`SELECT
+           SUM(CASE WHEN is_sent = 0 AND is_inbox = 1 THEN 1 ELSE 0 END) AS inbound_count,
+           SUM(CASE WHEN is_sent = 1 THEN 1 ELSE 0 END) AS outbound_count
+         FROM mail_messages
+         WHERE mailbox = ? AND CAST(internal_date AS INTEGER) >= ?`,
+			)
+			.get(mailbox, sinceMs) as {
+			inbound_count: number | null;
+			outbound_count: number | null;
+		};
+		return {
+			inbound_count: Number(row.inbound_count ?? 0),
+			outbound_count: Number(row.outbound_count ?? 0),
+		};
+	}
+
+	listTasksCompletedSince(since: string, limit: number): TaskItem[] {
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM tasks
+         WHERE state = 'completed' AND completed_at >= ?
+         ORDER BY completed_at DESC
+         LIMIT ?`,
+			)
+			.all(since, Math.max(1, Math.floor(limit))) as Record<string, unknown>[];
+		return rows.map((row) => this.mapTask(row));
+	}
+
 	clearMailboxIndex(mailbox: string): void {
 		this.db.prepare(`DELETE FROM mail_messages WHERE mailbox = ?`).run(mailbox);
 		this.db.prepare(`DELETE FROM mail_threads WHERE mailbox = ?`).run(mailbox);

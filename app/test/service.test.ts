@@ -15791,3 +15791,74 @@ test("Tier 1.3 formatMeetingContactBrief renders brief", async () => {
 	assert.match(output, /Zoom/);
 	assert.match(output, /prep notes/);
 });
+
+test("Tier 1.4 end_of_day_digest mcp tool is wired", () => {
+	const schemaBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf-8",
+	);
+	assert.match(schemaBody, /end_of_day_digest/);
+});
+
+test("Tier 1.4 GET /v1/workflows/end-of-day route is wired", () => {
+	const httpBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf-8",
+	);
+	assert.match(httpBody, /\/v1\/workflows\/end-of-day/);
+	assert.match(httpBody, /getEndOfDayDigest/);
+});
+
+test("Tier 1.4 getEndOfDayDigest is wired in service", () => {
+	const serviceBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf-8",
+	);
+	assert.match(serviceBody, /getEndOfDayDigest/);
+	assert.match(serviceBody, /listTasksCompletedSince/);
+	assert.match(serviceBody, /getMailActivityToday/);
+});
+
+test("Tier 1.4 formatEndOfDayDigest renders all sections", async () => {
+	const { formatEndOfDayDigest } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatEndOfDayDigest: (d: unknown) => string };
+	const now = new Date().toISOString();
+	const output = formatEndOfDayDigest({
+		date: "2026-04-14",
+		calendar: {
+			meetings_today: 2,
+			meeting_minutes: 90,
+			events: [
+				{
+					event_id: "e1",
+					summary: "Standup",
+					start_at: now,
+					end_at: now,
+					is_all_day: false,
+					attendee_count: 4,
+				},
+			],
+		},
+		inbox: {
+			inbound_today: 12,
+			outbound_today: 5,
+			needs_reply_count: 3,
+		},
+		tasks: {
+			completed_today: [
+				{ task_id: "t1", title: "Ship the PR", completed_at: now },
+			],
+			overdue_open_count: 1,
+		},
+		approvals: { pending_count: 2 },
+		ai_cost: { briefing_line: "$4.20 today across 3 sessions" },
+	});
+	assert.match(output, /End-of-Day Digest/);
+	assert.match(output, /2026-04-14/);
+	assert.match(output, /Standup/);
+	assert.match(output, /12 received/);
+	assert.match(output, /Ship the PR/);
+	assert.match(output, /2 approval/);
+	assert.match(output, /\$4\.20/);
+});

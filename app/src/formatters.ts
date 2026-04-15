@@ -104,6 +104,7 @@ export {
 	formatTaskSuggestions,
 } from "./formatters/tasks.js";
 export {
+	formatEndOfDayDigest,
 	formatMeetingContactBrief,
 	formatMeetingPrepPacket,
 	formatMorningBriefing,

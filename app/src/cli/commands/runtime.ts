@@ -15,6 +15,7 @@ import {
 	formatDriveFiles,
 	formatDriveSheet,
 	formatDriveStatus,
+	formatEndOfDayDigest,
 	formatGithubPullDetail,
 	formatGithubPullRequests,
 	formatGithubStatus,
@@ -1213,6 +1214,28 @@ export function registerRuntimeCommands(
 			context.printOutput(
 				response,
 				(value) => formatMeetingContactBrief(value.brief!),
+				options.json,
+			);
+		});
+
+	workflow
+		.command("end-of-day")
+		.description(
+			"Print the end-of-day digest: meetings, inbox activity, tasks completed, " +
+				"overdue open tasks, pending approvals, and AI cost.",
+		)
+		.option("--json", "Print raw JSON")
+		.action(async (options) => {
+			type DigestResponse = {
+				end_of_day_digest: Parameters<typeof formatEndOfDayDigest>[0];
+			};
+			const response = await context.requestJson<DigestResponse>(
+				"GET",
+				"/v1/workflows/end-of-day",
+			);
+			context.printOutput(
+				response,
+				(value) => formatEndOfDayDigest(value.end_of_day_digest),
 				options.json,
 			);
 		});

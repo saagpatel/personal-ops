@@ -712,6 +712,17 @@ export function createHttpServer(
 
 			if (
 				request.method === "GET" &&
+				url.pathname === "/v1/workflows/end-of-day"
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, {
+					end_of_day_digest: service.getEndOfDayDigest(),
+				});
+				return;
+			}
+
+			if (
+				request.method === "GET" &&
 				url.pathname === "/v1/workflows/prep-day"
 			) {
 				sendJson(response, 200, {

@@ -1716,6 +1716,107 @@ export class PersonalOpsService {
 		};
 	}
 
+	getEndOfDayDigest() {
+		const now = new Date();
+		const todayStart = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			0,
+			0,
+			0,
+			0,
+		);
+		const todayStartIso = todayStart.toISOString();
+		const todayStartMs = todayStart.getTime();
+		const account =
+			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??
+			null;
+
+		// Calendar: meetings that already started today and are not cancelled
+		const todayEvents = account
+			? this.db
+					.listCalendarEvents({
+						account,
+						ends_after: todayStartIso,
+						starts_before: now.toISOString(),
+					})
+					.filter(
+						(e) => e.status !== "cancelled" && e.start_at >= todayStartIso,
+					)
+			: [];
+		const meetingMinutes = todayEvents
+			.filter((e) => !e.is_all_day)
+			.reduce((sum, e) => {
+				const mins = Math.round(
+					(new Date(e.end_at).getTime() - new Date(e.start_at).getTime()) /
+						60_000,
+				);
+				return sum + Math.max(0, mins);
+			}, 0);
+
+		// Mail activity today
+		const mailbox = account ?? "";
+		const mailActivity =
+			account && mailbox
+				? this.db.getMailActivityToday(mailbox, todayStartMs)
+				: { inbound_count: 0, outbound_count: 0 };
+
+		// Inbox: threads still needing a reply (heuristic only — no Ollama)
+		const needsReply = this.listNeedsReplyThreads(50).length;
+
+		// Tasks completed today
+		const completedToday = this.db.listTasksCompletedSince(todayStartIso, 10);
+
+		// Tasks still open and overdue
+		const overdueOpen = [
+			...this.db.listTasks({ state: "pending" }),
+			...this.db.listTasks({ state: "in_progress" }),
+		].filter((t) => t.due_at != null && t.due_at < now.toISOString());
+
+		// Pending approvals
+		const approvalStates = this.db.countApprovalStates();
+		const pendingApprovals = approvalStates["pending"] ?? 0;
+
+		// AI cost today from bridge-db
+		const aiActivity = this.bridgeDb.getActivitySummary(1);
+
+		return {
+			date: now.toISOString().slice(0, 10),
+			calendar: {
+				meetings_today: todayEvents.length,
+				meeting_minutes: meetingMinutes,
+				events: todayEvents.map((e) => ({
+					event_id: e.event_id,
+					summary: e.summary ?? "(no title)",
+					start_at: e.start_at,
+					end_at: e.end_at,
+					is_all_day: e.is_all_day,
+					attendee_count: e.attendee_count,
+				})),
+			},
+			inbox: {
+				inbound_today: mailActivity.inbound_count,
+				outbound_today: mailActivity.outbound_count,
+				needs_reply_count: needsReply,
+			},
+			tasks: {
+				completed_today: completedToday.map((t) => ({
+					task_id: t.task_id,
+					title: t.title,
+					completed_at: t.completed_at ?? now.toISOString(),
+				})),
+				overdue_open_count: overdueOpen.length,
+			},
+			approvals: {
+				pending_count: pendingApprovals,
+			},
+			ai_cost: {
+				briefing_line: aiActivity.briefing_line,
+			},
+		};
+	}
+
 	getCalendarStatusReport(): CalendarStatusReport {
 		const account =
 			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??

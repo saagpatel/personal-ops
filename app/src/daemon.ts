@@ -180,6 +180,36 @@ const preMeetingCheck = setInterval(() => {
 }, 60_000);
 preMeetingCheck.unref();
 
+// End-of-day digest: fire once at 5pm local time (checked every 5 minutes)
+let endOfDayFiredDate = "";
+const endOfDayCheck = setInterval(() => {
+	try {
+		const now = new Date();
+		const hour = now.getHours();
+		const todayStr = now.toISOString().slice(0, 10);
+		if (hour < 17 || hour >= 18) return; // only fire in the 5pm hour
+		if (endOfDayFiredDate === todayStr) return; // already fired today
+		endOfDayFiredDate = todayStr;
+		const digest = service.getEndOfDayDigest();
+		hub.post({
+			source: "personal-ops",
+			level: "info",
+			title: `End of Day · ${digest.date}`,
+			body:
+				`${digest.calendar.meetings_today} meetings · ` +
+				`${digest.inbox.inbound_today} received · ` +
+				`${digest.tasks.completed_today.length} tasks done — ` +
+				`run: personal-ops workflow end-of-day`,
+			project: "personal-ops",
+		});
+	} catch (error) {
+		logger.error("end_of_day_check_failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}, 5 * 60_000);
+endOfDayCheck.unref();
+
 server.listen(config.servicePort, config.serviceHost, () => {
 	logger.info("daemon_started", {
 		host: config.serviceHost,

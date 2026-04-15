@@ -481,6 +481,16 @@ const tools = [
 		},
 	},
 	{
+		name: "end_of_day_digest",
+		description:
+			"Get the end-of-day digest: today's meetings, inbox activity (inbound/outbound count), tasks completed, overdue open tasks, pending approvals, and AI cost. Use at day's end to review and close out.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "inbox_status",
 		description:
 			"Show the current mailbox metadata sync status and inbox counts.",
@@ -1171,6 +1181,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 					type: "text",
 					text: formatMeetingContactBrief(
 						brief as Parameters<typeof formatMeetingContactBrief>[0],
+					),
+				},
+			],
+		};
+	}
+	if (name === "end_of_day_digest") {
+		assertAllowedToolArgs(args, [], "end_of_day_digest");
+		const response = await requestJson("GET", "/v1/workflows/end-of-day");
+		const { formatEndOfDayDigest } = await import("./formatters.js");
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatEndOfDayDigest(
+						(
+							response as {
+								end_of_day_digest: Parameters<typeof formatEndOfDayDigest>[0];
+							}
+						).end_of_day_digest,
 					),
 				},
 			],
