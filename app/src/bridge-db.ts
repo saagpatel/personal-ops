@@ -10,7 +10,7 @@ const BRIDGE_DB_PATH = path.join(
 
 export interface BridgeActivityEntry {
 	id: number;
-	source: "cc" | "codex" | "claude_ai";
+	source: "cc" | "codex" | "claude_ai" | "personal_ops";
 	timestamp: string;
 	project_name: string;
 	summary: string;
@@ -279,6 +279,51 @@ export class BridgeDbClient {
 			}>;
 		} finally {
 			db.close();
+		}
+	}
+
+	/**
+	 * Fire-and-forget: log a personal-ops activity entry to bridge-db.
+	 * Never throws — errors are written to stderr only.
+	 * Auto-prunes to 50 entries for source='personal_ops' after insert.
+	 */
+	logActivity(
+		projectName: string,
+		summary: string,
+		tags: string[],
+		branch: string | null = null,
+	): void {
+		if (!this.isAvailable()) return;
+		try {
+			const db = new DatabaseSync(this.dbPath, { open: true });
+			try {
+				const timestamp = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+				db.prepare(
+					"INSERT INTO activity_log (source, timestamp, project_name, summary, branch, tags) VALUES (?, ?, ?, ?, ?, ?)",
+				).run(
+					"personal_ops",
+					timestamp,
+					projectName,
+					summary,
+					branch,
+					JSON.stringify(tags),
+				);
+				// Prune to 50 entries for personal_ops
+				db.prepare(
+					`DELETE FROM activity_log
+					 WHERE source = 'personal_ops'
+					   AND id NOT IN (
+					     SELECT id FROM activity_log
+					     WHERE source = 'personal_ops'
+					     ORDER BY id DESC
+					     LIMIT 50
+					   )`,
+				).run();
+			} finally {
+				db.close();
+			}
+		} catch (err) {
+			console.error("[bridge-db] logActivity failed:", err);
 		}
 	}
 

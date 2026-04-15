@@ -3697,6 +3697,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			task.title || taskId,
+			`Task completed: ${note.trim()}`,
+			["TASK_DONE"],
+		);
 		this.updateRecommendationOutcomeFromTask(
 			updated!,
 			"completed",
@@ -4744,6 +4749,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			recommendation.proposed_title || recommendationId,
+			`Planning applied: ${note.trim()}`,
+			["PLANNING_APPLIED"],
+		);
 		this.refreshPlanningRecommendationsInternal(identity);
 		return this.getPlanningRecommendationDetail(recommendationId);
 	}
@@ -5570,6 +5580,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			"personal-ops",
+			`Review resolved: ${note.trim()}`,
+			["REVIEW_CLOSED"],
+		);
 		return {
 			review_item: resolved,
 			artifact_id: review.artifact_id,
@@ -6024,6 +6039,11 @@ export class PersonalOpsService {
 					provider_thread_id: sendResult.provider_thread_id ?? null,
 				},
 			});
+			this.bridgeDb.logActivity(
+				"personal-ops",
+				`Draft sent: ${context.draft.subject || approvalId}`,
+				["APPROVAL_SENT"],
+			);
 			sendMacNotification(
 				this.db,
 				this.logger,
