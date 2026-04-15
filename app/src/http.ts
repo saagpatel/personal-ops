@@ -682,7 +682,15 @@ export function createHttpServer(
 			) {
 				if (!auth) throw new HttpError(401, "Authentication required.");
 				sendJson(response, 200, {
-					morning_briefing: service.getMorningBriefing(),
+					morning_briefing: await service.getMorningBriefing(),
+				});
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/inbox/classified") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, {
+					classified_inbox: await service.getClassifiedInbox(),
 				});
 				return;
 			}

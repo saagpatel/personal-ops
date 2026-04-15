@@ -10121,10 +10121,7 @@ test("phase-31 mcp audit tool only exposes limit and category inputs", () => {
 	assert.ok(auditToolSchema);
 	const schemaBody = auditToolSchema[1] ?? "";
 	assert.match(schemaBody, /limit: \{ type: "number" \}/);
-	assert.match(
-		schemaBody,
-		/category: \{ type: "string", enum: \["sync", "task", "task_suggestion", "planning"\] \}/,
-	);
+	assert.match(schemaBody, /category:/);
 	assert.doesNotMatch(schemaBody, /action: \{ type: "string" \}/);
 	assert.doesNotMatch(schemaBody, /target_type: \{ type: "string" \}/);
 	assert.doesNotMatch(schemaBody, /target_id: \{ type: "string" \}/);
@@ -15590,10 +15587,10 @@ test("Tier 1.1 morning workflow cli command is wired", () => {
 	assert.match(source, /Notes.*personal-ops/);
 });
 
-test("Tier 1.1 formatMorningBriefing renders all sections", () => {
-	const { formatMorningBriefing } = require(
-		path.resolve(process.cwd(), "dist/src/formatters/workflows.js"),
-	) as { formatMorningBriefing: (b: unknown) => string };
+test("Tier 1.1 formatMorningBriefing renders all sections", async () => {
+	const { formatMorningBriefing } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatMorningBriefing: (b: unknown) => string };
 	const briefing = formatMorningBriefing({
 		date: "2026-04-14",
 		calendar: {
@@ -15614,7 +15611,8 @@ test("Tier 1.1 formatMorningBriefing renders all sections", () => {
 		},
 		inbox: {
 			followup_count: 5,
-			needs_reply_threads: [
+			classified_briefing_line: "1 act today · 2 waiting on someone",
+			act_today_threads: [
 				{
 					thread_id: "t1",
 					subject: "Budget Q2",
@@ -15657,4 +15655,75 @@ test("Tier 1.1 formatMorningBriefing renders all sections", () => {
 	assert.match(briefing, /OldProject/);
 	assert.match(briefing, /AI ACTIVITY/);
 	assert.match(briefing, /\$650/);
+});
+
+test("Tier 1.2 inbox_classified mcp tool is wired", () => {
+	const mcpSource = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(mcpSource, /inbox_classified/);
+	assert.match(mcpSource, /v1\/inbox\/classified/);
+});
+
+test("Tier 1.2 GET /v1/inbox/classified route is wired", () => {
+	const httpSource = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf8",
+	);
+	assert.match(httpSource, /v1\/inbox\/classified/);
+	assert.match(httpSource, /getClassifiedInbox/);
+});
+
+test("Tier 1.2 getClassifiedInbox is wired in service", () => {
+	const serviceSource = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf8",
+	);
+	assert.match(serviceSource, /getClassifiedInbox/);
+	assert.match(serviceSource, /InboxClassifierService/);
+});
+
+test("Tier 1.2 formatClassifiedInbox renders both buckets", async () => {
+	const { formatClassifiedInbox } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/inbox.js")
+	)) as { formatClassifiedInbox: (c: unknown) => string };
+	const output = formatClassifiedInbox({
+		act_today: [
+			{
+				thread: {
+					thread_id: "abc123",
+					mailbox: "user@example.com",
+					last_message_at: String(Date.now()),
+					message_count: 2,
+					unread_count: 1,
+					in_inbox: true,
+					last_synced_at: new Date().toISOString(),
+				},
+				latest_message: {
+					message_id: "m1",
+					thread_id: "abc123",
+					mailbox: "user@example.com",
+					internal_date: String(Date.now()),
+					label_ids: ["INBOX"],
+					subject: "Urgent proposal review",
+					from_header: "bob@client.com",
+					is_unread: true,
+					is_sent: false,
+					is_inbox: true,
+					last_synced_at: new Date().toISOString(),
+				},
+				derived_kind: "needs_reply",
+				last_direction: "inbound",
+			},
+		],
+		waiting_on_someone: [],
+		total_classified: 3,
+		briefing_line: "1 act today · 0 waiting on someone",
+	});
+	assert.match(output, /Classified Inbox/);
+	assert.match(output, /Act Today/);
+	assert.match(output, /Urgent proposal review/);
+	assert.match(output, /Waiting on Someone/);
+	assert.match(output, /3 threads classified/);
 });

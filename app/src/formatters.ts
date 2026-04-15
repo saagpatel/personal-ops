@@ -35,6 +35,7 @@ export {
 	formatReviewResolveResult,
 } from "./formatters/governance.js";
 export {
+	formatClassifiedInbox,
 	formatInboxAutopilot,
 	formatInboxStatus,
 	formatInboxThreadDetail,
