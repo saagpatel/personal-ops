@@ -86,7 +86,6 @@ import {
 } from "./meeting-contact-brief.js";
 import { NotificationHubClient } from "./notification-hub.js";
 import { sendMacNotification } from "./notifications.js";
-import { NotionSnapshotReader } from "./notion-snapshot-reader.js";
 import { PortfolioReader } from "./portfolio-reader.js";
 import {
 	getLatestSnapshotSummary as getLatestSnapshotSummaryFromPaths,
@@ -920,7 +919,6 @@ export class PersonalOpsService {
 	private readonly hub: NotificationHubClient;
 	private readonly bridgeDb: BridgeDbClient;
 	private readonly portfolioReader: PortfolioReader;
-	private readonly notionSnapshot: NotionSnapshotReader;
 	private readonly warehouseReader: WarehouseReader;
 	private readonly evalsReader: EvalsReader;
 	private readonly mcpAuditClient: McpAuditClient;
@@ -941,7 +939,6 @@ export class PersonalOpsService {
 		this.hub = new NotificationHubClient(logger);
 		this.bridgeDb = new BridgeDbClient();
 		this.portfolioReader = new PortfolioReader();
-		this.notionSnapshot = new NotionSnapshotReader();
 		this.warehouseReader = new WarehouseReader();
 		this.evalsReader = new EvalsReader();
 		this.mcpAuditClient = new McpAuditClient();
@@ -1593,10 +1590,6 @@ export class PersonalOpsService {
 		return this.portfolioReader.getPortfolioHealth();
 	}
 
-	getNotionProjectSnapshot() {
-		return this.notionSnapshot.getSnapshot();
-	}
-
 	getAgentPerformanceSummary() {
 		return this.evalsReader.getAgentPerformanceSummary();
 	}
@@ -1673,9 +1666,6 @@ export class PersonalOpsService {
 			2,
 		);
 
-		// Notion project state
-		const notionSummary = this.notionSnapshot.getSummary();
-
 		// Context sections from bridge-db
 		const contextSections = this.bridgeDb.getContextSections();
 
@@ -1741,13 +1731,6 @@ export class PersonalOpsService {
 				available: warehouseHotspots.length > 0 || worstMaintenance.length > 0,
 				hotspots: warehouseHotspots,
 				worst_maintenance: worstMaintenance,
-			},
-			notion_projects: {
-				available: notionSummary.available,
-				briefing_line: notionSummary.briefing_line,
-				overdue_count: notionSummary.overdue_count,
-				needs_review_count: notionSummary.needs_review_count,
-				overdue_projects: notionSummary.overdue_projects,
 			},
 			context_sections: contextSections
 				.filter((s) =>
