@@ -21,6 +21,7 @@ import {
 	formatHealthCheckReport,
 	formatMaintenanceSessionPlan,
 	formatMaintenanceSessionRunResult,
+	formatMeetingContactBrief,
 	formatMeetingPrepPacket,
 	formatMorningBriefing,
 	formatNowReport,
@@ -1186,6 +1187,32 @@ export function registerRuntimeCommands(
 			context.printOutput(
 				response,
 				(value) => formatWorkflowBundleReport(value.workflow),
+				options.json,
+			);
+		});
+
+	workflow
+		.command("meeting-brief")
+		.description(
+			"Show a pre-meeting contact brief for the next meeting starting within 30 minutes, " +
+				"including attendees and recent email history with each person.",
+		)
+		.option("--event <eventId>", "Use a specific calendar event ID")
+		.option("--json", "Print raw JSON")
+		.action(async (options) => {
+			const qs = options.event
+				? `?event_id=${encodeURIComponent(options.event)}`
+				: "";
+			const response = await context.requestJson<{
+				brief: Parameters<typeof formatMeetingContactBrief>[0] | null;
+			}>("GET", `/v1/workflows/meeting-brief${qs}`);
+			if (!response.brief) {
+				process.stdout.write("No upcoming meeting within 30 minutes found.\n");
+				return;
+			}
+			context.printOutput(
+				response,
+				(value) => formatMeetingContactBrief(value.brief!),
 				options.json,
 			);
 		});

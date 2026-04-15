@@ -697,6 +697,21 @@ export function createHttpServer(
 
 			if (
 				request.method === "GET" &&
+				url.pathname === "/v1/workflows/meeting-brief"
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const eventId = url.searchParams.get("event_id") ?? undefined;
+				const brief = service.getMeetingContactBrief(eventId);
+				if (!brief) {
+					sendJson(response, 200, { brief: null });
+					return;
+				}
+				sendJson(response, 200, { brief });
+				return;
+			}
+
+			if (
+				request.method === "GET" &&
 				url.pathname === "/v1/workflows/prep-day"
 			) {
 				sendJson(response, 200, {

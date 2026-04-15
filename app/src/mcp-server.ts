@@ -465,6 +465,22 @@ const tools = [
 		},
 	},
 	{
+		name: "meeting_contact_brief",
+		description:
+			"Get a pre-meeting contact brief for the next upcoming calendar event within 30 minutes (or a specific event by ID). Shows attendees and recent email history with each person so you can walk in prepared.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				event_id: {
+					type: "string",
+					description:
+						"Optional calendar event ID. If omitted, finds the next meeting within 30 minutes.",
+				},
+			},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "inbox_status",
 		description:
 			"Show the current mailbox metadata sync status and inbox counts.",
@@ -1126,6 +1142,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const response = await requestJson("GET", "/v1/inbox/classified");
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "meeting_contact_brief") {
+		assertAllowedToolArgs(args, ["event_id"], "meeting_contact_brief");
+		const qs = args.event_id
+			? `?event_id=${encodeURIComponent(String(args.event_id))}`
+			: "";
+		const response = await requestJson(
+			"GET",
+			`/v1/workflows/meeting-brief${qs}`,
+		);
+		const { formatMeetingContactBrief } = await import("./formatters.js");
+		const brief = (response as { brief: unknown }).brief;
+		if (!brief) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: "No upcoming meeting within 30 minutes found.",
+					},
+				],
+			};
+		}
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatMeetingContactBrief(
+						brief as Parameters<typeof formatMeetingContactBrief>[0],
+					),
+				},
+			],
 		};
 	}
 	if (name === "inbox_status") {

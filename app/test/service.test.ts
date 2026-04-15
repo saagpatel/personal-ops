@@ -15727,3 +15727,67 @@ test("Tier 1.2 formatClassifiedInbox renders both buckets", async () => {
 	assert.match(output, /Waiting on Someone/);
 	assert.match(output, /3 threads classified/);
 });
+
+test("Tier 1.3 meeting_contact_brief mcp tool is wired", () => {
+	const schemaBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf-8",
+	);
+	assert.match(schemaBody, /meeting_contact_brief/);
+	assert.match(schemaBody, /event_id/);
+});
+
+test("Tier 1.3 GET /v1/workflows/meeting-brief route is wired", () => {
+	const httpBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf-8",
+	);
+	assert.match(httpBody, /\/v1\/workflows\/meeting-brief/);
+	assert.match(httpBody, /getMeetingContactBrief/);
+});
+
+test("Tier 1.3 getMeetingContactBrief is wired in service", () => {
+	const serviceBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf-8",
+	);
+	assert.match(serviceBody, /getMeetingContactBrief/);
+	assert.match(serviceBody, /buildMeetingContactBrief/);
+});
+
+test("Tier 1.3 formatMeetingContactBrief renders brief", async () => {
+	const { formatMeetingContactBrief } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatMeetingContactBrief: (b: unknown) => string };
+	const now = new Date().toISOString();
+	const endAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+	const output = formatMeetingContactBrief({
+		event_id: "evt-001",
+		title: "Q2 Planning",
+		start_at: now,
+		end_at: endAt,
+		location: "Zoom",
+		attendee_contexts: [
+			{
+				email: "alice@example.com",
+				display_name: "Alice",
+				response_status: "accepted",
+				recent_messages: [
+					{
+						subject: "Re: prep notes",
+						date: now,
+						direction: "inbound",
+					},
+				],
+				message_count: 1,
+			},
+		],
+		minutes_until: 25,
+		generated_at: now,
+	});
+	assert.match(output, /Meeting Brief/);
+	assert.match(output, /Q2 Planning/);
+	assert.match(output, /Alice/);
+	assert.match(output, /Zoom/);
+	assert.match(output, /prep notes/);
+});

@@ -1,3 +1,4 @@
+import type { MeetingContactBrief } from "../meeting-contact-brief.js";
 import type { MeetingPrepPacket, WorkflowBundleReport } from "../types.js";
 import { formatStateLabel } from "./shared.js";
 
@@ -451,6 +452,47 @@ export function formatMorningBriefing(b: MorningBriefing): string {
 			lines.push(`  [${ev.source}] ${ev.title}: ${ev.body}`);
 		}
 		lines.push("");
+	}
+
+	lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+	return lines.join("\n");
+}
+
+export function formatMeetingContactBrief(b: MeetingContactBrief): string {
+	const lines: string[] = [];
+	const eta =
+		b.minutes_until <= 0
+			? "now"
+			: b.minutes_until === 1
+				? "1 min"
+				: `${b.minutes_until} min`;
+	lines.push(`━━ Meeting Brief · ${b.title} · starts in ${eta} ━━`);
+	lines.push(`   ${fmtTime(b.start_at)} – ${fmtTime(b.end_at)}`);
+	if (b.location) lines.push(`   📍 ${b.location}`);
+	lines.push("");
+
+	if (b.attendee_contexts.length === 0) {
+		lines.push("  No external attendees found.");
+	} else {
+		for (const ctx of b.attendee_contexts) {
+			const name = ctx.display_name ?? ctx.email;
+			const status = ctx.response_status ? ` [${ctx.response_status}]` : "";
+			lines.push(`  👤 ${name}${status}`);
+			if (ctx.email !== ctx.display_name) {
+				lines.push(`     ${ctx.email}`);
+			}
+			if (ctx.recent_messages.length === 0) {
+				lines.push("     No recent email history.");
+			} else {
+				for (const msg of ctx.recent_messages) {
+					const dir = msg.direction === "outbound" ? "→" : "←";
+					const date = msg.date.slice(0, 10);
+					const subject = msg.subject ?? "(no subject)";
+					lines.push(`     ${dir} ${date}  ${subject}`);
+				}
+			}
+			lines.push("");
+		}
 	}
 
 	lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

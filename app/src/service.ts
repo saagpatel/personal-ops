@@ -71,6 +71,10 @@ import {
 	readRestoreProvenance,
 } from "./machine.js";
 import { McpAuditClient } from "./mcp-audit-client.js";
+import {
+	buildMeetingContactBrief,
+	type MeetingContactBrief,
+} from "./meeting-contact-brief.js";
 import { NotificationHubClient } from "./notification-hub.js";
 import { sendMacNotification } from "./notifications.js";
 import { PortfolioReader } from "./portfolio-reader.js";
@@ -1584,6 +1588,31 @@ export class PersonalOpsService {
 	async getClassifiedInbox(): Promise<ClassifiedInbox> {
 		const all = this.listInboxThreadSummaries(200);
 		return this.inboxClassifier.classifyThreads(all);
+	}
+
+	getMeetingContactBrief(eventId?: string): MeetingContactBrief | null {
+		const myEmail =
+			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??
+			null;
+		if (!myEmail) return null;
+
+		let event = eventId ? this.db.getCalendarEvent(eventId) : null;
+
+		if (!event) {
+			// Find the next upcoming meeting within 30 minutes that has attendees
+			const upcoming = this.listUpcomingCalendarEvents(1, 20);
+			const now = Date.now();
+			const windowMs = 30 * 60 * 1000;
+			event =
+				upcoming.find((e) => {
+					if (e.attendee_count === 0) return false;
+					const startMs = new Date(e.start_at).getTime();
+					return startMs - now <= windowMs && startMs > now - 60_000;
+				}) ?? null;
+		}
+
+		if (!event) return null;
+		return buildMeetingContactBrief(event, this.db, myEmail);
 	}
 
 	async getMorningBriefing() {

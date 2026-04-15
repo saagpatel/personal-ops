@@ -154,6 +154,32 @@ const glassLayerTick = setInterval(() => {
 }, 5 * 60_000);
 glassLayerTick.unref();
 
+// Pre-meeting brief: check every minute for an upcoming event within 30 min
+const preMeetingAlertedIds = new Set<string>();
+const preMeetingCheck = setInterval(() => {
+	try {
+		const brief = service.getMeetingContactBrief();
+		if (!brief) return;
+		if (preMeetingAlertedIds.has(brief.event_id)) return;
+		preMeetingAlertedIds.add(brief.event_id);
+		hub.post({
+			source: "personal-ops",
+			level: "info",
+			title: `Meeting in ${brief.minutes_until}m: ${brief.title}`,
+			body:
+				brief.attendee_contexts.length > 0
+					? `${brief.attendee_contexts.length} attendee(s) — run: personal-ops workflow meeting-brief`
+					: "No external attendees.",
+			project: "personal-ops",
+		});
+	} catch (error) {
+		logger.error("pre_meeting_check_failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}, 60_000);
+preMeetingCheck.unref();
+
 server.listen(config.servicePort, config.serviceHost, () => {
 	logger.info("daemon_started", {
 		host: config.serviceHost,
