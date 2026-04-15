@@ -327,6 +327,43 @@ export class BridgeDbClient {
 		}
 	}
 
+	/**
+	 * Read all rows from context_sections (long-lived context written by other agents).
+	 * Returns empty array if unavailable or the table doesn't exist.
+	 */
+	getContextSections(): Array<{
+		section_name: string;
+		owner: string;
+		content: string;
+		updated_at: string;
+	}> {
+		if (!this.isAvailable()) return [];
+		const db = new DatabaseSync(this.dbPath, { open: true });
+		try {
+			const rows = db
+				.prepare(
+					"SELECT section_name, owner, content, updated_at FROM context_sections ORDER BY updated_at DESC",
+				)
+				.all() as Array<{
+				section_name: string;
+				owner: string;
+				content: string;
+				updated_at: string;
+			}>;
+			return rows.map((r) => ({
+				section_name: r.section_name,
+				owner: r.owner,
+				content: r.content,
+				updated_at: r.updated_at,
+			}));
+		} catch (err) {
+			console.error("[bridge-db] getContextSections failed:", err);
+			return [];
+		} finally {
+			db.close();
+		}
+	}
+
 	private buildBriefingLine(
 		costs: Array<{ system: string; month: string; amount_usd: number }>,
 		activity: BridgeActivityEntry[],

@@ -328,6 +328,7 @@ import {
 	type WorkspaceHomeSummary,
 } from "./types.js";
 import { readServiceVersion } from "./version.js";
+import { WarehouseReader } from "./warehouse-reader.js";
 
 interface DoctorOptions {
 	deep: boolean;
@@ -918,6 +919,7 @@ export class PersonalOpsService {
 	private readonly hub: NotificationHubClient;
 	private readonly bridgeDb: BridgeDbClient;
 	private readonly portfolioReader: PortfolioReader;
+	private readonly warehouseReader: WarehouseReader;
 	private readonly evalsReader: EvalsReader;
 	private readonly mcpAuditClient: McpAuditClient;
 	private readonly inboxClassifier: InboxClassifierService;
@@ -937,6 +939,7 @@ export class PersonalOpsService {
 		this.hub = new NotificationHubClient(logger);
 		this.bridgeDb = new BridgeDbClient();
 		this.portfolioReader = new PortfolioReader();
+		this.warehouseReader = new WarehouseReader();
 		this.evalsReader = new EvalsReader();
 		this.mcpAuditClient = new McpAuditClient();
 		this.inboxClassifier = new InboxClassifierService(paths.stateDir);
@@ -1656,6 +1659,16 @@ export class PersonalOpsService {
 		// AI cost (yesterday = last 1 day)
 		const aiActivity = this.bridgeDb.getActivitySummary(1);
 
+		// Portfolio hotspots from warehouse.db
+		const warehouseHotspots = this.warehouseReader.getHotspots(2);
+		const worstMaintenance = this.warehouseReader.getWorstLensScores(
+			"maintenance_risk",
+			2,
+		);
+
+		// Context sections from bridge-db
+		const contextSections = this.bridgeDb.getContextSections();
+
 		// Alerts — urgent notification-hub events from the last 12 hours
 		const hub = this.hub;
 		const hubEvents = hub.readRecentEvents(50).filter((e) => {
@@ -1714,6 +1727,20 @@ export class PersonalOpsService {
 			ai_cost: {
 				briefing_line: aiActivity.briefing_line,
 			},
+			portfolio_hotspots: {
+				available: warehouseHotspots.length > 0 || worstMaintenance.length > 0,
+				hotspots: warehouseHotspots,
+				worst_maintenance: worstMaintenance,
+			},
+			context_sections: contextSections
+				.filter((s) =>
+					["career", "speaking", "research"].includes(s.section_name),
+				)
+				.map((s) => ({
+					section_name: s.section_name,
+					snippet: s.content.slice(0, 200),
+					updated_at: s.updated_at,
+				})),
 			alerts: {
 				urgent_count: hubEvents.length,
 				events: hubEvents.slice(0, 5).map((e) => ({
