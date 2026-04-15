@@ -678,6 +678,17 @@ export function createHttpServer(
 
 			if (
 				request.method === "GET" &&
+				url.pathname === "/v1/workflows/morning"
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, {
+					morning_briefing: service.getMorningBriefing(),
+				});
+				return;
+			}
+
+			if (
+				request.method === "GET" &&
 				url.pathname === "/v1/workflows/prep-day"
 			) {
 				sendJson(response, 200, {

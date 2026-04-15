@@ -1575,6 +1575,103 @@ export class PersonalOpsService {
 		return this.mcpAuditClient.scan();
 	}
 
+	getMorningBriefing() {
+		const today = new Date().toISOString().slice(0, 10);
+
+		// Calendar section
+		const calendarDay = this.getCalendarDayView(today);
+		const calendarStatus = this.getCalendarStatusReport();
+
+		// Inbox section — top 3 threads needing a reply
+		const needsReply = this.listNeedsReplyThreads(3);
+
+		// Tasks section — open tasks with a due date in the past
+		const now = new Date().toISOString();
+		const openTasks = [
+			...this.listTasks({ state: "pending" }),
+			...this.listTasks({ state: "in_progress" }),
+		];
+		const overdueTasks = openTasks
+			.filter((t) => t.due_at != null && t.due_at < now)
+			.sort((a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? ""))
+			.slice(0, 3);
+
+		// Portfolio pulse
+		const portfolio = this.portfolioReader.getPortfolioHealth();
+		const portfolioPulse = portfolio.stalest_projects[0] ?? null;
+
+		// AI cost (yesterday = last 1 day)
+		const aiActivity = this.bridgeDb.getActivitySummary(1);
+
+		// Alerts — urgent notification-hub events from the last 12 hours
+		const hub = this.hub;
+		const hubEvents = hub.readRecentEvents(50).filter((e) => {
+			if (e.level !== "urgent") return false;
+			const age = Date.now() - new Date(e.received_at).getTime();
+			return age < 12 * 60 * 60 * 1000;
+		});
+
+		return {
+			date: today,
+			calendar: {
+				event_count: calendarDay.events.length,
+				events: calendarDay.events.map((e) => ({
+					event_id: e.event_id,
+					summary: e.summary ?? "(no title)",
+					start_at: e.start_at,
+					end_at: e.end_at,
+					is_all_day: e.is_all_day,
+					attendee_count: e.attendee_count,
+				})),
+				next_event_summary: calendarStatus.next_upcoming_event?.summary ?? null,
+				next_event_start_at:
+					calendarStatus.next_upcoming_event?.start_at ?? null,
+				conflict_count: calendarDay.conflicts.length,
+			},
+			inbox: {
+				followup_count: this.getInboxStatusReport().followup_thread_count,
+				needs_reply_threads: needsReply.map((t) => ({
+					thread_id: t.thread.thread_id,
+					subject: t.latest_message?.subject ?? "(no subject)",
+					from: t.latest_message?.from_header ?? null,
+					last_message_at: t.thread.last_message_at,
+				})),
+			},
+			tasks: {
+				overdue_count: overdueTasks.length,
+				overdue: overdueTasks.map((t) => ({
+					task_id: t.task_id,
+					title: t.title,
+					due_at: t.due_at ?? null,
+					priority: t.priority,
+				})),
+			},
+			portfolio_pulse: {
+				available: portfolio.briefing_line !== "portfolio data not available",
+				briefing_line: portfolio.briefing_line,
+				stalest: portfolioPulse
+					? {
+							display_name: portfolioPulse.display_name,
+							last_activity_at: portfolioPulse.last_activity_at,
+							context_quality: portfolioPulse.context_quality,
+						}
+					: null,
+			},
+			ai_cost: {
+				briefing_line: aiActivity.briefing_line,
+			},
+			alerts: {
+				urgent_count: hubEvents.length,
+				events: hubEvents.slice(0, 5).map((e) => ({
+					title: e.title,
+					body: e.body,
+					source: e.source,
+					received_at: e.received_at,
+				})),
+			},
+		};
+	}
+
 	getCalendarStatusReport(): CalendarStatusReport {
 		const account =
 			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??

@@ -1,100 +1,109 @@
 export {
-  formatAutopilotStatusReport,
-  formatStatusReport,
-  formatDoctorReport,
-  formatHealthCheckReport,
-  formatRepairPlanReport,
-  formatSendWindowStatus,
-  formatRepairExecutionResult,
-  formatWorklistReport,
-  formatVersionReport,
-  formatNowReport,
-  formatMaintenanceSessionPlan,
-  formatMaintenanceSessionRunResult,
-} from "./formatters/status.js";
-export {
-  formatReviewItems,
-  formatReviewDetail,
-  formatReviewResolveResult,
-  formatAuditEvents,
-  formatReviewOpenResult,
-  formatApprovalItems,
-  formatApprovalDetail,
-  formatApprovalConfirmation,
-} from "./formatters/governance.js";
-export {
-  formatReviewCalibrationReport,
-  formatReviewCalibrationTargetsReport,
-  formatReviewImpactReport,
-  formatReviewPackage,
-  formatReviewPackageReport,
-  formatReviewReport,
-  formatReviewTrendsReport,
-  formatReviewTuningReport,
-  formatReviewWeeklyReport,
-} from "./formatters/review.js";
-export {
-  formatSnapshotManifest,
-  formatSnapshotList,
-  formatSnapshotInspection,
-  formatSnapshotPruneResult,
-  formatInstallManifest,
-  formatInstallCheckReport,
-  formatDesktopStatus,
-  formatInstallPermissionsFixResult,
-  formatRestoreResult,
-} from "./formatters/install.js";
-export { formatInboxStatus, formatInboxThreads, formatInboxThreadDetail, formatInboxAutopilot } from "./formatters/inbox.js";
-export {
-  formatCalendarStatus,
-  formatCalendarSources,
-  formatOwnedCalendars,
-  formatCalendarUpcoming,
-  formatCalendarConflicts,
-  formatFreeTimeWindows,
-  formatCalendarDayView,
-  formatCalendarEvent,
-  formatCalendarTaskScheduleResult,
-} from "./formatters/calendar.js";
-export {
-  formatTaskItems,
-  formatTaskDetail,
-  formatTaskSuggestions,
-  formatTaskSuggestionDetail,
-} from "./formatters/tasks.js";
-export {
-  formatGithubPullDetail,
-  formatGithubPullRequests,
-  formatGithubStatus,
-} from "./formatters/github.js";
-export {
-  formatDriveDoc,
-  formatDriveFiles,
-  formatDriveSheet,
-  formatDriveStatus,
-} from "./formatters/drive.js";
-export {
-  formatAssistantQueueReport,
-  formatAssistantActionRunResult,
+	formatAssistantActionRunResult,
+	formatAssistantQueueReport,
 } from "./formatters/assistant.js";
 export {
-  formatOutboundAutopilotActionResult,
-  formatOutboundAutopilotGroup,
-  formatOutboundAutopilotReport,
+	formatCalendarConflicts,
+	formatCalendarDayView,
+	formatCalendarEvent,
+	formatCalendarSources,
+	formatCalendarStatus,
+	formatCalendarTaskScheduleResult,
+	formatCalendarUpcoming,
+	formatFreeTimeWindows,
+	formatOwnedCalendars,
+} from "./formatters/calendar.js";
+export {
+	formatDriveDoc,
+	formatDriveFiles,
+	formatDriveSheet,
+	formatDriveStatus,
+} from "./formatters/drive.js";
+export {
+	formatGithubPullDetail,
+	formatGithubPullRequests,
+	formatGithubStatus,
+} from "./formatters/github.js";
+export {
+	formatApprovalConfirmation,
+	formatApprovalDetail,
+	formatApprovalItems,
+	formatAuditEvents,
+	formatReviewDetail,
+	formatReviewItems,
+	formatReviewOpenResult,
+	formatReviewResolveResult,
+} from "./formatters/governance.js";
+export {
+	formatInboxAutopilot,
+	formatInboxStatus,
+	formatInboxThreadDetail,
+	formatInboxThreads,
+} from "./formatters/inbox.js";
+export {
+	formatDesktopStatus,
+	formatInstallCheckReport,
+	formatInstallManifest,
+	formatInstallPermissionsFixResult,
+	formatRestoreResult,
+	formatSnapshotInspection,
+	formatSnapshotList,
+	formatSnapshotManifest,
+	formatSnapshotPruneResult,
+} from "./formatters/install.js";
+export {
+	formatOutboundAutopilotActionResult,
+	formatOutboundAutopilotGroup,
+	formatOutboundAutopilotReport,
 } from "./formatters/outbound.js";
 export {
-  formatPlanningAutopilotReport,
-  formatPlanningAutopilotBundle,
-  formatPlanningRecommendations,
-  formatPlanningRecommendationGroups,
-  formatPlanningRecommendationGroupDetail,
-  formatPlanningRecommendationSummaryReport,
-  formatPlanningRecommendationBacklogReport,
-  formatPlanningRecommendationClosureReport,
-  formatPlanningRecommendationHygieneReport,
-  formatPlanningRecommendationTuningReport,
-  formatPlanningRecommendationPolicyReport,
-  formatPlanningRecommendationPolicyPruneResult,
-  formatPlanningRecommendationDetail,
+	formatPlanningAutopilotBundle,
+	formatPlanningAutopilotReport,
+	formatPlanningRecommendationBacklogReport,
+	formatPlanningRecommendationClosureReport,
+	formatPlanningRecommendationDetail,
+	formatPlanningRecommendationGroupDetail,
+	formatPlanningRecommendationGroups,
+	formatPlanningRecommendationHygieneReport,
+	formatPlanningRecommendationPolicyPruneResult,
+	formatPlanningRecommendationPolicyReport,
+	formatPlanningRecommendationSummaryReport,
+	formatPlanningRecommendations,
+	formatPlanningRecommendationTuningReport,
 } from "./formatters/planning.js";
-export { formatMeetingPrepPacket, formatWorkflowBundleReport } from "./formatters/workflows.js";
+export {
+	formatReviewCalibrationReport,
+	formatReviewCalibrationTargetsReport,
+	formatReviewImpactReport,
+	formatReviewPackage,
+	formatReviewPackageReport,
+	formatReviewReport,
+	formatReviewTrendsReport,
+	formatReviewTuningReport,
+	formatReviewWeeklyReport,
+} from "./formatters/review.js";
+export {
+	formatAutopilotStatusReport,
+	formatDoctorReport,
+	formatHealthCheckReport,
+	formatMaintenanceSessionPlan,
+	formatMaintenanceSessionRunResult,
+	formatNowReport,
+	formatRepairExecutionResult,
+	formatRepairPlanReport,
+	formatSendWindowStatus,
+	formatStatusReport,
+	formatVersionReport,
+	formatWorklistReport,
+} from "./formatters/status.js";
+export {
+	formatTaskDetail,
+	formatTaskItems,
+	formatTaskSuggestionDetail,
+	formatTaskSuggestions,
+} from "./formatters/tasks.js";
+export {
+	formatMeetingPrepPacket,
+	formatMorningBriefing,
+	formatWorkflowBundleReport,
+} from "./formatters/workflows.js";
