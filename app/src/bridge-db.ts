@@ -506,7 +506,7 @@ export class BridgeDbClient {
 	/**
 	 * Fire-and-forget: record a monthly cost entry.
 	 */
-	recordCost(system: string, month: string, amount: number): void {
+	recordCost(_system: string, month: string, amount: number): void {
 		this.ensureConnected()
 			.then((client) =>
 				client.callTool({
