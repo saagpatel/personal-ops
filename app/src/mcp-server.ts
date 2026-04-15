@@ -309,6 +309,22 @@ const tools = [
 		},
 	},
 	{
+		name: "ai_activity_summary",
+		description:
+			"Read AI session activity and cost data from bridge-db. Shows monthly spend, " +
+			"recent sessions across projects, and open handoffs between Claude Code/Codex/Claude.ai.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				days: {
+					type: "number",
+					description: "Days of activity history to include (1-90, default 7).",
+				},
+			},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "github_status",
 		description:
 			"Show GitHub PR and review integration readiness for personal-ops.",
@@ -962,6 +978,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 				? Math.min(Math.max(1, args.limit), 500)
 				: 50;
 		const response = await requestJson("GET", `/v1/hub/feed?limit=${limit}`);
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "ai_activity_summary") {
+		assertAllowedToolArgs(args, ["days"], "ai_activity_summary");
+		const days =
+			typeof args.days === "number" ? Math.min(Math.max(1, args.days), 90) : 7;
+		const response = await requestJson(
+			"GET",
+			`/v1/bridge/summary?days=${days}`,
+		);
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
 		};
