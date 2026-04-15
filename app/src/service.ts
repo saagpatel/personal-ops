@@ -33,6 +33,7 @@ import {
 	verifyGoogleDriveAccess,
 	verifyGoogleDriveScopes,
 } from "./drive.js";
+import { EvalsReader } from "./evals-reader.js";
 import { syncGithubPullRequests, verifyGithubToken } from "./github.js";
 import {
 	createGmailDraft,
@@ -65,8 +66,10 @@ import {
 	readMachineIdentity,
 	readRestoreProvenance,
 } from "./machine.js";
+import { McpAuditClient } from "./mcp-audit-client.js";
 import { NotificationHubClient } from "./notification-hub.js";
 import { sendMacNotification } from "./notifications.js";
+import { PortfolioReader } from "./portfolio-reader.js";
 import {
 	getLatestSnapshotSummary as getLatestSnapshotSummaryFromPaths,
 	pruneSnapshots,
@@ -896,6 +899,9 @@ export class PersonalOpsService {
 	private reviewReadModelRefreshDepth = 0;
 	private readonly hub: NotificationHubClient;
 	private readonly bridgeDb: BridgeDbClient;
+	private readonly portfolioReader: PortfolioReader;
+	private readonly evalsReader: EvalsReader;
+	private readonly mcpAuditClient: McpAuditClient;
 
 	constructor(
 		private readonly paths: Paths,
@@ -911,6 +917,9 @@ export class PersonalOpsService {
 		};
 		this.hub = new NotificationHubClient(logger);
 		this.bridgeDb = new BridgeDbClient();
+		this.portfolioReader = new PortfolioReader();
+		this.evalsReader = new EvalsReader();
+		this.mcpAuditClient = new McpAuditClient();
 		fs.mkdirSync(this.paths.snapshotsDir, { recursive: true });
 	}
 
@@ -1552,6 +1561,18 @@ export class PersonalOpsService {
 
 	getAiActivitySummary(activityDays = 7) {
 		return this.bridgeDb.getActivitySummary(activityDays);
+	}
+
+	getPortfolioHealth() {
+		return this.portfolioReader.getPortfolioHealth();
+	}
+
+	getAgentPerformanceSummary() {
+		return this.evalsReader.getAgentPerformanceSummary();
+	}
+
+	getMcpSecurityPosture() {
+		return this.mcpAuditClient.scan();
 	}
 
 	getCalendarStatusReport(): CalendarStatusReport {

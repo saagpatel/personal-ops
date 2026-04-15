@@ -1231,6 +1231,24 @@ export function createHttpServer(
 				return;
 			}
 
+			if (request.method === "GET" && url.pathname === "/v1/portfolio/health") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getPortfolioHealth());
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/evals/summary") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getAgentPerformanceSummary());
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/security/posture") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getMcpSecurityPosture());
+				return;
+			}
+
 			if (
 				request.method === "POST" &&
 				url.pathname === "/v1/auth/gmail/start"

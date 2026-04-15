@@ -15543,3 +15543,30 @@ test("F3 ai_activity_summary mcp tool is wired", () => {
 	assert.match(source, /name: "ai_activity_summary"/);
 	assert.match(source, /v1\/bridge\/summary/);
 });
+
+test("F4 portfolio_health mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "portfolio_health"/);
+	assert.match(source, /v1\/portfolio\/health/);
+});
+
+test("F6 agent_performance_summary mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "agent_performance_summary"/);
+	assert.match(source, /v1\/evals\/summary/);
+});
+
+test("F5 mcp_security_posture mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "mcp_security_posture"/);
+	assert.match(source, /v1\/security\/posture/);
+});
