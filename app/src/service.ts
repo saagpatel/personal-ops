@@ -1778,8 +1778,16 @@ export class PersonalOpsService {
 		const approvalStates = this.db.countApprovalStates();
 		const pendingApprovals = approvalStates["pending"] ?? 0;
 
+		// Stale follow-ups: sent, no reply, > 4h
+		const staleFollowups = this.listFollowupThreads(50).filter(
+			(s) => s.derived_kind === "stale_followup",
+		).length;
+
 		// AI cost today from bridge-db
 		const aiActivity = this.bridgeDb.getActivitySummary(1);
+
+		// Git commits today: scan ~/Projects/
+		const gitCommits = this.scanGitCommitsToday();
 
 		return {
 			date: now.toISOString().slice(0, 10),
@@ -1799,6 +1807,7 @@ export class PersonalOpsService {
 				inbound_today: mailActivity.inbound_count,
 				outbound_today: mailActivity.outbound_count,
 				needs_reply_count: needsReply,
+				stale_followup_count: staleFollowups,
 			},
 			tasks: {
 				completed_today: completedToday.map((t) => ({
@@ -1814,6 +1823,61 @@ export class PersonalOpsService {
 			ai_cost: {
 				briefing_line: aiActivity.briefing_line,
 			},
+			git_commits: gitCommits,
+		};
+	}
+
+	private scanGitCommitsToday(): {
+		repos_with_commits: number;
+		total_commits: number;
+		items: Array<{ repo: string; count: number; subjects: string[] }>;
+	} {
+		const home = os.homedir();
+		const projectsDir = path.join(home, "Projects");
+		const items: Array<{ repo: string; count: number; subjects: string[] }> =
+			[];
+
+		let entries: string[] = [];
+		try {
+			entries = fs.readdirSync(projectsDir);
+		} catch {
+			return { repos_with_commits: 0, total_commits: 0, items: [] };
+		}
+
+		for (const entry of entries) {
+			const repoPath = path.join(projectsDir, entry);
+			const gitDir = path.join(repoPath, ".git");
+			try {
+				if (!fs.statSync(gitDir).isDirectory()) continue;
+			} catch {
+				continue;
+			}
+
+			try {
+				const out = execFileSync(
+					"git",
+					[
+						"-C",
+						repoPath,
+						"log",
+						"--since=midnight",
+						"--format=%s",
+						"--no-merges",
+					],
+					{ encoding: "utf8", timeout: 5000 },
+				).trim();
+				if (!out) continue;
+				const subjects = out.split("\n").filter(Boolean);
+				items.push({ repo: entry, count: subjects.length, subjects });
+			} catch {
+				// repo exists but git log failed — skip
+			}
+		}
+
+		return {
+			repos_with_commits: items.length,
+			total_commits: items.reduce((sum, r) => sum + r.count, 0),
+			items,
 		};
 	}
 

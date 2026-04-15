@@ -15780,6 +15780,8 @@ test("Tier 1.3 formatMeetingContactBrief renders brief", async () => {
 					},
 				],
 				message_count: 1,
+				open_thread_count: 3,
+				meeting_count_together: 5,
 			},
 		],
 		minutes_until: 25,
@@ -15790,6 +15792,7 @@ test("Tier 1.3 formatMeetingContactBrief renders brief", async () => {
 	assert.match(output, /Alice/);
 	assert.match(output, /Zoom/);
 	assert.match(output, /prep notes/);
+	assert.match(output, /5 meetings together/);
 });
 
 test("Tier 1.4 end_of_day_digest mcp tool is wired", () => {
@@ -15844,6 +15847,7 @@ test("Tier 1.4 formatEndOfDayDigest renders all sections", async () => {
 			inbound_today: 12,
 			outbound_today: 5,
 			needs_reply_count: 3,
+			stale_followup_count: 2,
 		},
 		tasks: {
 			completed_today: [
@@ -15853,6 +15857,22 @@ test("Tier 1.4 formatEndOfDayDigest renders all sections", async () => {
 		},
 		approvals: { pending_count: 2 },
 		ai_cost: { briefing_line: "$4.20 today across 3 sessions" },
+		git_commits: {
+			repos_with_commits: 2,
+			total_commits: 5,
+			items: [
+				{
+					repo: "personal-ops",
+					count: 3,
+					subjects: ["feat: add git scan", "fix: archive eod", "test: 1.4"],
+				},
+				{
+					repo: "GithubRepoAuditor",
+					count: 2,
+					subjects: ["feat: risk overlay", "fix: null handle"],
+				},
+			],
+		},
 	});
 	assert.match(output, /End-of-Day Digest/);
 	assert.match(output, /2026-04-14/);
@@ -15861,4 +15881,8 @@ test("Tier 1.4 formatEndOfDayDigest renders all sections", async () => {
 	assert.match(output, /Ship the PR/);
 	assert.match(output, /2 approval/);
 	assert.match(output, /\$4\.20/);
+	assert.match(output, /2 sent threads with no reply/);
+	assert.match(output, /SHIPPED TODAY/);
+	assert.match(output, /personal-ops/);
+	assert.match(output, /feat: add git scan/);
 });

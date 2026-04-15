@@ -11,6 +11,8 @@ export interface AttendeeContext {
 		direction: "inbound" | "outbound";
 	}>;
 	message_count: number;
+	open_thread_count: number;
+	meeting_count_together: number;
 }
 
 export interface MeetingContactBrief {
@@ -56,6 +58,8 @@ function buildAttendeeContext(
 		response_status: attendee.response_status,
 		recent_messages: recentMessages,
 		message_count: messages.length,
+		open_thread_count: db.countOpenThreadsByParticipant(attendee.email),
+		meeting_count_together: db.countMeetingsWithAttendee(attendee.email),
 	};
 }
 

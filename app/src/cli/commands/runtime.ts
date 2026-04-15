@@ -1233,11 +1233,26 @@ export function registerRuntimeCommands(
 				"GET",
 				"/v1/workflows/end-of-day",
 			);
-			context.printOutput(
-				response,
-				(value) => formatEndOfDayDigest(value.end_of_day_digest),
-				options.json,
-			);
+			if (options.json) {
+				context.printOutput(response, () => "", true);
+			} else {
+				const formatted = formatEndOfDayDigest(response.end_of_day_digest);
+				process.stdout.write(formatted + "\n");
+				// Archive to daily note
+				try {
+					const home = process.env["HOME"] ?? os.homedir();
+					const notesDir = path.join(home, "Notes", "personal-ops");
+					fs.mkdirSync(notesDir, { recursive: true });
+					const dateStr = response.end_of_day_digest.date;
+					const notePath = path.join(notesDir, `${dateStr}.md`);
+					fs.appendFileSync(
+						notePath,
+						`\n## End-of-Day Digest\n\n${formatted}\n`,
+					);
+				} catch {
+					// Archive failure is non-fatal — digest already printed
+				}
+			}
 		});
 
 	program

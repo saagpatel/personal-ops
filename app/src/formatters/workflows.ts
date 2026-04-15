@@ -481,6 +481,18 @@ export function formatMeetingContactBrief(b: MeetingContactBrief): string {
 			if (ctx.email !== ctx.display_name) {
 				lines.push(`     ${ctx.email}`);
 			}
+			if (ctx.open_thread_count > 0 || ctx.meeting_count_together > 0) {
+				const parts: string[] = [];
+				if (ctx.open_thread_count > 0)
+					parts.push(
+						`${ctx.open_thread_count} thread${ctx.open_thread_count !== 1 ? "s" : ""}`,
+					);
+				if (ctx.meeting_count_together > 0)
+					parts.push(
+						`${ctx.meeting_count_together} meeting${ctx.meeting_count_together !== 1 ? "s" : ""} together`,
+					);
+				lines.push(`     ${parts.join(" · ")}`);
+			}
 			if (ctx.recent_messages.length === 0) {
 				lines.push("     No recent email history.");
 			} else {
@@ -517,6 +529,7 @@ type EndOfDayDigest = {
 		inbound_today: number;
 		outbound_today: number;
 		needs_reply_count: number;
+		stale_followup_count: number;
 	};
 	tasks: {
 		completed_today: Array<{
@@ -531,6 +544,11 @@ type EndOfDayDigest = {
 	};
 	ai_cost: {
 		briefing_line: string;
+	};
+	git_commits: {
+		repos_with_commits: number;
+		total_commits: number;
+		items: Array<{ repo: string; count: number; subjects: string[] }>;
 	};
 };
 
@@ -569,6 +587,11 @@ export function formatEndOfDayDigest(d: EndOfDayDigest): string {
 	} else {
 		lines.push("  Inbox clear — no threads awaiting your reply.");
 	}
+	if (d.inbox.stale_followup_count > 0) {
+		lines.push(
+			`  ⏳ ${d.inbox.stale_followup_count} sent thread${d.inbox.stale_followup_count !== 1 ? "s" : ""} with no reply yet`,
+		);
+	}
 	lines.push("");
 
 	// Section 3: Tasks
@@ -597,7 +620,22 @@ export function formatEndOfDayDigest(d: EndOfDayDigest): string {
 		lines.push("");
 	}
 
-	// Section 5: AI cost
+	// Section 5: Shipped today (git commits)
+	if (d.git_commits.total_commits > 0) {
+		lines.push("📦 SHIPPED TODAY");
+		lines.push(
+			`  ${d.git_commits.total_commits} commit${d.git_commits.total_commits !== 1 ? "s" : ""} across ${d.git_commits.repos_with_commits} repo${d.git_commits.repos_with_commits !== 1 ? "s" : ""}`,
+		);
+		for (const r of d.git_commits.items.slice(0, 8)) {
+			lines.push(`  ${r.repo} (${r.count})`);
+			for (const subject of r.subjects.slice(0, 3)) {
+				lines.push(`    · ${subject}`);
+			}
+		}
+		lines.push("");
+	}
+
+	// Section 6: AI cost
 	lines.push("🤖 AI ACTIVITY");
 	lines.push(`  ${d.ai_cost.briefing_line}`);
 	lines.push("");

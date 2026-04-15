@@ -3154,6 +3154,30 @@ export class PersonalOpsDb {
 		return rows.map((row) => this.mapMailMessage(row));
 	}
 
+	countOpenThreadsByParticipant(email: string): number {
+		const pattern = `%${email}%`;
+		const row = this.db
+			.prepare(
+				`SELECT COUNT(DISTINCT m.thread_id) AS count
+         FROM mail_messages m
+         WHERE (m.from_header LIKE ? OR m.to_header LIKE ?)
+           AND m.is_inbox = 1`,
+			)
+			.get(pattern, pattern) as { count: number };
+		return Number(row.count ?? 0);
+	}
+
+	countMeetingsWithAttendee(email: string): number {
+		const pattern = `%${email}%`;
+		const row = this.db
+			.prepare(
+				`SELECT COUNT(*) AS count FROM calendar_events
+         WHERE attendees_json LIKE ? AND status != 'cancelled'`,
+			)
+			.get(pattern) as { count: number };
+		return Number(row.count ?? 0);
+	}
+
 	countMailThreads(): number {
 		const row = this.db
 			.prepare(`SELECT COUNT(*) AS count FROM mail_threads`)
