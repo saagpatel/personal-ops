@@ -678,6 +678,17 @@ export function createHttpServer(
 
 			if (
 				request.method === "GET" &&
+				url.pathname === "/v1/workflows/morning"
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, {
+					morning_briefing: service.getMorningBriefing(),
+				});
+				return;
+			}
+
+			if (
+				request.method === "GET" &&
 				url.pathname === "/v1/workflows/prep-day"
 			) {
 				sendJson(response, 200, {
@@ -1228,6 +1239,24 @@ export function createHttpServer(
 					? Math.min(Math.max(1, parseInt(rawDays, 10) || 7), 90)
 					: 7;
 				sendJson(response, 200, service.getAiActivitySummary(days));
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/portfolio/health") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getPortfolioHealth());
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/evals/summary") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getAgentPerformanceSummary());
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/security/posture") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				sendJson(response, 200, service.getMcpSecurityPosture());
 				return;
 			}
 

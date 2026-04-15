@@ -325,6 +325,39 @@ const tools = [
 		},
 	},
 	{
+		name: "portfolio_health",
+		description:
+			"Read GithubRepoAuditor portfolio health: stalest repos, weakest context quality, " +
+			"registry status counts. Sourced from ~/Projects/GithubRepoAuditor/output/portfolio-truth-latest.json.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "agent_performance_summary",
+		description:
+			"Read eval harness results comparing Claude Code vs Codex performance by task category. " +
+			"Shows pass rates, retry counts, and which agent leads on each task type.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "mcp_security_posture",
+		description:
+			"Run mcp-audit scan (skip-connect mode) and return security posture of all configured MCP servers. " +
+			"Returns risk scores, flags, and permission surface per server.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "github_status",
 		description:
 			"Show GitHub PR and review integration readiness for personal-ops.",
@@ -990,6 +1023,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 			"GET",
 			`/v1/bridge/summary?days=${days}`,
 		);
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "portfolio_health") {
+		assertAllowedToolArgs(args, [], "portfolio_health");
+		const response = await requestJson("GET", "/v1/portfolio/health");
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "agent_performance_summary") {
+		assertAllowedToolArgs(args, [], "agent_performance_summary");
+		const response = await requestJson("GET", "/v1/evals/summary");
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "mcp_security_posture") {
+		assertAllowedToolArgs(args, [], "mcp_security_posture");
+		const response = await requestJson("GET", "/v1/security/posture");
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
 		};

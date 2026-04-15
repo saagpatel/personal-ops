@@ -15543,3 +15543,118 @@ test("F3 ai_activity_summary mcp tool is wired", () => {
 	assert.match(source, /name: "ai_activity_summary"/);
 	assert.match(source, /v1\/bridge\/summary/);
 });
+
+test("F4 portfolio_health mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "portfolio_health"/);
+	assert.match(source, /v1\/portfolio\/health/);
+});
+
+test("F6 agent_performance_summary mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "agent_performance_summary"/);
+	assert.match(source, /v1\/evals\/summary/);
+});
+
+test("F5 mcp_security_posture mcp tool is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.match(source, /name: "mcp_security_posture"/);
+	assert.match(source, /v1\/security\/posture/);
+});
+
+test("Tier 1.1 morning briefing http route is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf8",
+	);
+	assert.match(source, /v1\/workflows\/morning/);
+	assert.match(source, /getMorningBriefing/);
+});
+
+test("Tier 1.1 morning workflow cli command is wired", () => {
+	const source = fs.readFileSync(
+		path.resolve(process.cwd(), "src/cli/commands/runtime.ts"),
+		"utf8",
+	);
+	assert.match(source, /command\("morning"\)/);
+	assert.match(source, /formatMorningBriefing/);
+	assert.match(source, /Notes.*personal-ops/);
+});
+
+test("Tier 1.1 formatMorningBriefing renders all sections", () => {
+	const { formatMorningBriefing } = require(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js"),
+	) as { formatMorningBriefing: (b: unknown) => string };
+	const briefing = formatMorningBriefing({
+		date: "2026-04-14",
+		calendar: {
+			event_count: 2,
+			events: [
+				{
+					event_id: "e1",
+					summary: "Standup",
+					start_at: new Date(Date.now() + 3600_000).toISOString(),
+					end_at: new Date(Date.now() + 5400_000).toISOString(),
+					is_all_day: false,
+					attendee_count: 3,
+				},
+			],
+			next_event_summary: "Standup",
+			next_event_start_at: new Date(Date.now() + 3600_000).toISOString(),
+			conflict_count: 0,
+		},
+		inbox: {
+			followup_count: 5,
+			needs_reply_threads: [
+				{
+					thread_id: "t1",
+					subject: "Budget Q2",
+					from: "alice@example.com",
+					last_message_at: new Date().toISOString(),
+				},
+			],
+		},
+		tasks: {
+			overdue_count: 1,
+			overdue: [
+				{
+					task_id: "tk1",
+					title: "Write proposal",
+					due_at: "2026-04-12",
+					priority: "high",
+				},
+			],
+		},
+		portfolio_pulse: {
+			available: true,
+			briefing_line: "114 repos · 21 parked",
+			stalest: {
+				display_name: "OldProject",
+				last_activity_at: "2026-02-01T00:00:00Z",
+				context_quality: "boilerplate",
+			},
+		},
+		ai_cost: { briefing_line: "AI 2026-04: $650 · 3 sessions" },
+		alerts: { urgent_count: 0, events: [] },
+	});
+	assert.match(briefing, /Morning Briefing/);
+	assert.match(briefing, /CALENDAR/);
+	assert.match(briefing, /Standup/);
+	assert.match(briefing, /INBOX/);
+	assert.match(briefing, /Budget Q2/);
+	assert.match(briefing, /TASKS/);
+	assert.match(briefing, /Write proposal/);
+	assert.match(briefing, /PORTFOLIO/);
+	assert.match(briefing, /OldProject/);
+	assert.match(briefing, /AI ACTIVITY/);
+	assert.match(briefing, /\$650/);
+});

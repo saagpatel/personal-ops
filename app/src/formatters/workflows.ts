@@ -243,3 +243,141 @@ export function formatMeetingPrepPacket(packet: MeetingPrepPacket): string {
   );
   return lines.join("\n").trimEnd();
 }
+
+type MorningBriefing = {
+  date: string;
+  calendar: {
+    event_count: number;
+    events: Array<{
+      event_id: string;
+      summary: string;
+      start_at: string;
+      end_at: string;
+      is_all_day: boolean;
+      attendee_count: number;
+    }>;
+    next_event_summary: string | null;
+    next_event_start_at: string | null;
+    conflict_count: number;
+  };
+  inbox: {
+    followup_count: number;
+    needs_reply_threads: Array<{
+      thread_id: string;
+      subject: string;
+      from: string | null;
+      last_message_at: string;
+    }>;
+  };
+  tasks: {
+    overdue_count: number;
+    overdue: Array<{
+      task_id: string;
+      title: string;
+      due_at: string | null;
+      priority: string;
+    }>;
+  };
+  portfolio_pulse: {
+    available: boolean;
+    briefing_line: string;
+    stalest: { display_name: string; last_activity_at: string | null; context_quality: string } | null;
+  };
+  ai_cost: { briefing_line: string };
+  alerts: {
+    urgent_count: number;
+    events: Array<{ title: string; body: string; source: string; received_at: string }>;
+  };
+};
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
+}
+
+export function formatMorningBriefing(b: MorningBriefing): string {
+  const lines: string[] = [];
+  lines.push(`━━ Morning Briefing · ${b.date} ━━`);
+  lines.push("");
+
+  // Section 1: Calendar
+  lines.push("📅 CALENDAR");
+  if (b.calendar.event_count === 0) {
+    lines.push("  No events today.");
+  } else {
+    for (const ev of b.calendar.events) {
+      const time = ev.is_all_day ? "all-day" : fmtTime(ev.start_at);
+      const attendees = ev.attendee_count > 1 ? ` (${ev.attendee_count})` : "";
+      lines.push(`  ${time}  ${ev.summary}${attendees}`);
+    }
+    if (b.calendar.conflict_count > 0) {
+      lines.push(`  ⚠ ${b.calendar.conflict_count} conflict${b.calendar.conflict_count > 1 ? "s" : ""} detected`);
+    }
+  }
+  lines.push("");
+
+  // Section 2: Inbox
+  lines.push("📬 INBOX");
+  if (b.inbox.needs_reply_threads.length === 0) {
+    lines.push(`  No threads need a reply · ${b.inbox.followup_count} follow-ups`);
+  } else {
+    for (const t of b.inbox.needs_reply_threads) {
+      const from = t.from ? ` · ${t.from}` : "";
+      lines.push(`  ${t.subject}${from}`);
+    }
+    if (b.inbox.followup_count > b.inbox.needs_reply_threads.length) {
+      lines.push(`  + ${b.inbox.followup_count - b.inbox.needs_reply_threads.length} more follow-ups`);
+    }
+  }
+  lines.push("");
+
+  // Section 3: Tasks
+  lines.push("✅ TASKS");
+  if (b.tasks.overdue_count === 0) {
+    lines.push("  No overdue tasks.");
+  } else {
+    for (const t of b.tasks.overdue) {
+      const due = t.due_at ? ` (due ${t.due_at.slice(0, 10)})` : "";
+      lines.push(`  [${t.priority}] ${t.title}${due}`);
+    }
+    if (b.tasks.overdue_count > 3) {
+      lines.push(`  + ${b.tasks.overdue_count - 3} more overdue`);
+    }
+  }
+  lines.push("");
+
+  // Section 4: Portfolio pulse
+  lines.push("📊 PORTFOLIO");
+  if (!b.portfolio_pulse.available) {
+    lines.push("  Portfolio data not available.");
+  } else if (b.portfolio_pulse.stalest) {
+    const s = b.portfolio_pulse.stalest;
+    const since = s.last_activity_at ? s.last_activity_at.slice(0, 10) : "unknown";
+    lines.push(`  Stalest: ${s.display_name} · last active ${since} · context: ${s.context_quality}`);
+  } else {
+    lines.push(`  ${b.portfolio_pulse.briefing_line}`);
+  }
+  lines.push("");
+
+  // Section 5: AI cost
+  lines.push("🤖 AI ACTIVITY");
+  lines.push(`  ${b.ai_cost.briefing_line}`);
+  lines.push("");
+
+  // Section 6: Alerts
+  if (b.alerts.urgent_count > 0) {
+    lines.push("🚨 ALERTS");
+    for (const ev of b.alerts.events) {
+      lines.push(`  [${ev.source}] ${ev.title}: ${ev.body}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  return lines.join("\n");
+}
