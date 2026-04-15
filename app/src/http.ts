@@ -1294,6 +1294,92 @@ export function createHttpServer(
 				return;
 			}
 
+			if (request.method === "GET" && url.pathname === "/v1/contacts") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const rawLimit = url.searchParams.get("limit");
+				const limit = rawLimit
+					? Math.min(Math.max(1, parseInt(rawLimit, 10) || 20), 200)
+					: 20;
+				sendJson(response, 200, {
+					contacts: service.getContactGraph(limit),
+				});
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/contacts/search") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const q = url.searchParams.get("q") ?? "";
+				const rawLimit = url.searchParams.get("limit");
+				const limit = rawLimit
+					? Math.min(Math.max(1, parseInt(rawLimit, 10) || 20), 200)
+					: 20;
+				sendJson(response, 200, {
+					contacts: service.searchContacts(q, limit),
+					query: q,
+				});
+				return;
+			}
+
+			if (
+				request.method === "POST" &&
+				url.pathname === "/v1/contacts/rebuild"
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const contacts = service.rebuildContactGraph();
+				sendJson(response, 200, {
+					contacts_rebuilt: contacts.length,
+				});
+				return;
+			}
+
+			if (
+				request.method === "GET" &&
+				url.pathname.startsWith("/v1/contacts/") &&
+				!url.pathname.includes("/", "/v1/contacts/".length)
+			) {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const email = decodeURIComponent(
+					url.pathname.slice("/v1/contacts/".length),
+				);
+				const contact = service.getContactDetail(email);
+				if (!contact) throw new HttpError(404, "Contact not found.");
+				sendJson(response, 200, { contact });
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/inbox/search") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const q = url.searchParams.get("q") ?? "";
+				const from = url.searchParams.get("from") ?? undefined;
+				const rawLimit = url.searchParams.get("limit");
+				const limit = rawLimit
+					? Math.min(Math.max(1, parseInt(rawLimit, 10) || 20), 100)
+					: 20;
+				sendJson(response, 200, {
+					results: service.searchEmailKb(q, from, limit),
+					query: q,
+				});
+				return;
+			}
+
+			if (request.method === "GET" && url.pathname === "/v1/ai/memory") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const q = url.searchParams.get("q") ?? undefined;
+				const project = url.searchParams.get("project") ?? undefined;
+				const rawDays = url.searchParams.get("days");
+				const days = rawDays
+					? Math.min(Math.max(1, parseInt(rawDays, 10) || 30), 365)
+					: 30;
+				const memOpts: Parameters<typeof service.searchAiMemory>[0] = { days };
+				if (q !== undefined) memOpts.query = q;
+				if (project !== undefined) memOpts.project = project;
+				sendJson(response, 200, {
+					results: service.searchAiMemory(memOpts),
+					query_options: { q, project, days },
+				});
+				return;
+			}
+
 			if (
 				request.method === "POST" &&
 				url.pathname === "/v1/auth/gmail/start"

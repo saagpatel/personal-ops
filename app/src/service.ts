@@ -5,6 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import {
+	type AiMemoryEntry,
+	type AiMemorySearchOptions,
+	searchAiMemory as searchAiMemoryImpl,
+} from "./ai-memory.js";
+import {
 	completeGmailAuth,
 	completeGoogleAuth,
 	loadStoredGmailTokens,
@@ -33,6 +38,10 @@ import {
 	verifyGoogleDriveAccess,
 	verifyGoogleDriveScopes,
 } from "./drive.js";
+import {
+	type EmailSearchResult,
+	searchEmailKb as searchEmailKbImpl,
+} from "./email-kb.js";
 import { EvalsReader } from "./evals-reader.js";
 import { syncGithubPullRequests, verifyGithubToken } from "./github.js";
 import {
@@ -89,6 +98,7 @@ import {
 	SNAPSHOT_WARN_HOURS,
 	snapshotAgeHours,
 } from "./recovery.js";
+import { buildContactGraph, type ContactNode } from "./relationship-graph.js";
 import {
 	buildMaintenanceConfidenceSummary,
 	buildMaintenanceDecisionExplanationSummary,
@@ -1879,6 +1889,45 @@ export class PersonalOpsService {
 			total_commits: items.reduce((sum, r) => sum + r.count, 0),
 			items,
 		};
+	}
+
+	// ── Tier 2.1: Relationship Graph ──────────────────────────────────────────
+
+	getContactGraph(limit = 20): ContactNode[] {
+		return this.db.getTopContacts(limit);
+	}
+
+	getContactDetail(email: string): ContactNode | null {
+		return this.db.getContactDetail(email);
+	}
+
+	searchContacts(query: string, limit = 20): ContactNode[] {
+		return this.db.searchContacts(query, limit);
+	}
+
+	rebuildContactGraph(): ContactNode[] {
+		const myEmail =
+			this.config.gmailAccountEmail ?? this.db.getMailAccount()?.email ?? "";
+		return buildContactGraph(this.db, myEmail);
+	}
+
+	// ── Tier 2.2: AI Session Memory ───────────────────────────────────────────
+
+	searchAiMemory(options: AiMemorySearchOptions): AiMemoryEntry[] {
+		return searchAiMemoryImpl(this.bridgeDb, options);
+	}
+
+	// ── Tier 2.3: Email Knowledge Base ────────────────────────────────────────
+
+	searchEmailKb(
+		query: string,
+		from?: string,
+		limit?: number,
+	): EmailSearchResult[] {
+		const opts: Parameters<typeof searchEmailKbImpl>[1] = { query };
+		if (from !== undefined) opts.from = from;
+		if (limit !== undefined) opts.limit = limit;
+		return searchEmailKbImpl(this.db, opts);
 	}
 
 	getCalendarStatusReport(): CalendarStatusReport {

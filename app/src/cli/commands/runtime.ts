@@ -6,15 +6,18 @@ import type { Command } from "commander";
 import { PersonalOpsDb } from "../../db.js";
 import { getDesktopStatusReport, openDesktopApp } from "../../desktop.js";
 import {
+	formatAiMemory,
 	formatAssistantActionRunResult,
 	formatAssistantQueueReport,
 	formatAutopilotStatusReport,
+	formatContactGraph,
 	formatDesktopStatus,
 	formatDoctorReport,
 	formatDriveDoc,
 	formatDriveFiles,
 	formatDriveSheet,
 	formatDriveStatus,
+	formatEmailSearch,
 	formatEndOfDayDigest,
 	formatGithubPullDetail,
 	formatGithubPullRequests,
@@ -1253,6 +1256,157 @@ export function registerRuntimeCommands(
 					// Archive failure is non-fatal — digest already printed
 				}
 			}
+		});
+
+	// ── Contacts (Tier 2.1) ─────────────────────────────────────────────────
+
+	const contacts = program
+		.command("contacts")
+		.description("Relationship graph — view and search your contacts.");
+
+	contacts
+		.command("list", { isDefault: true })
+		.description("Show top contacts ranked by warmth (recency × frequency).")
+		.option("--limit <n>", "Number of contacts to return", "20")
+		.option("--json", "Print raw JSON")
+		.action(async (options) => {
+			const limit = Math.min(
+				Math.max(1, parseInt(options.limit, 10) || 20),
+				200,
+			);
+			const response = await context.requestJson<{
+				contacts: Parameters<typeof formatContactGraph>[0];
+			}>("GET", `/v1/contacts?limit=${limit}`);
+			context.printOutput(
+				response,
+				(r) => formatContactGraph(r.contacts),
+				options.json,
+			);
+		});
+
+	contacts
+		.command("show <email>")
+		.description("Show details for a single contact by email address.")
+		.option("--json", "Print raw JSON")
+		.action(async (email, options) => {
+			const response = await context.requestJson<{
+				contact: Parameters<typeof formatContactGraph>[0][number] | null;
+			}>("GET", `/v1/contacts/${encodeURIComponent(email)}`);
+			if (!response.contact) {
+				context.printOutput(
+					{ error: "Contact not found." },
+					() => `Contact not found: ${email}`,
+					options.json,
+				);
+			} else {
+				context.printOutput(
+					response,
+					(r) => formatContactGraph(r.contact ? [r.contact] : []),
+					options.json,
+				);
+			}
+		});
+
+	contacts
+		.command("search <query>")
+		.description("Search contacts by email or name.")
+		.option("--limit <n>", "Number of results", "20")
+		.option("--json", "Print raw JSON")
+		.action(async (query, options) => {
+			const limit = Math.min(
+				Math.max(1, parseInt(options.limit, 10) || 20),
+				200,
+			);
+			const response = await context.requestJson<{
+				contacts: Parameters<typeof formatContactGraph>[0];
+			}>(
+				"GET",
+				`/v1/contacts/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+			);
+			context.printOutput(
+				response,
+				(r) => formatContactGraph(r.contacts),
+				options.json,
+			);
+		});
+
+	contacts
+		.command("rebuild")
+		.description(
+			"Rebuild the contact graph from mail + calendar history (full rescan).",
+		)
+		.action(async () => {
+			const response = await context.requestJson<{ contacts_rebuilt: number }>(
+				"POST",
+				"/v1/contacts/rebuild",
+			);
+			process.stdout.write(
+				`Contact graph rebuilt — ${response.contacts_rebuilt} contacts.\n`,
+			);
+		});
+
+	// ── AI Memory (Tier 2.2) ─────────────────────────────────────────────────
+
+	const ai = program
+		.command("ai")
+		.description("AI session memory — search bridge-db activity log.");
+
+	ai.command("memory [query]")
+		.description("Search AI session history across projects.")
+		.option("--project <name>", "Filter by project name")
+		.option("--days <n>", "Look back N days", "30")
+		.option("--limit <n>", "Number of results", "50")
+		.option("--json", "Print raw JSON")
+		.action(async (query, options) => {
+			const days = Math.min(Math.max(1, parseInt(options.days, 10) || 30), 365);
+			const limit = Math.min(
+				Math.max(1, parseInt(options.limit, 10) || 50),
+				200,
+			);
+			const params = new URLSearchParams({
+				days: String(days),
+				limit: String(limit),
+			});
+			if (query) params.set("q", query);
+			if (options.project) params.set("project", options.project);
+			const response = await context.requestJson<{
+				results: Parameters<typeof formatAiMemory>[0];
+			}>("GET", `/v1/ai/memory?${params.toString()}`);
+			context.printOutput(
+				response,
+				(r) => formatAiMemory(r.results),
+				options.json,
+			);
+		});
+
+	// ── Inbox Search (Tier 2.3) ─────────────────────────────────────────────
+
+	const inboxCmd = program
+		.command("inbox")
+		.description("Inbox commands — search and view email.");
+
+	inboxCmd
+		.command("search <query>")
+		.description("Full-text search over email (subject + sender).")
+		.option("--from <email>", "Filter to a specific sender")
+		.option("--limit <n>", "Number of results", "20")
+		.option("--json", "Print raw JSON")
+		.action(async (query, options) => {
+			const limit = Math.min(
+				Math.max(1, parseInt(options.limit, 10) || 20),
+				100,
+			);
+			const params = new URLSearchParams({ q: query, limit: String(limit) });
+			if (options.from) params.set("from", options.from);
+			const response = await context.requestJson<{
+				results: Parameters<typeof formatEmailSearch>[0];
+				query: string;
+			}>("GET", `/v1/inbox/search?${params.toString()}`);
+			context.printOutput(
+				response,
+				(r) => formatEmailSearch(r.results, r.query),
+				options.json,
+			);
 		});
 
 	program

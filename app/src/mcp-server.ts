@@ -859,6 +859,66 @@ const tools = [
 			additionalProperties: false,
 		},
 	},
+	{
+		name: "contact_graph",
+		description:
+			"Return the top contacts ranked by relationship warmth (recency × frequency). " +
+			"Warmth combines last-contact recency (30-day half-life) with total message + meeting count. " +
+			"Use to identify who to reconnect with or to get a quick relationship overview.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				limit: { type: "number" },
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "contact_search",
+		description:
+			"Search contacts by email or display name substring. Returns matching contacts ranked by warmth.",
+		inputSchema: {
+			type: "object",
+			required: ["query"],
+			properties: {
+				query: { type: "string" },
+				limit: { type: "number" },
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "ai_context_recall",
+		description:
+			"Search AI session memory from bridge-db. Find what Claude was working on across projects. " +
+			"Accepts optional keyword query, project name filter, and time window (days).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				query: { type: "string" },
+				project: { type: "string" },
+				days: { type: "number" },
+				limit: { type: "number" },
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "email_search",
+		description:
+			"Full-text search over email messages (subject + sender). Returns results grouped by thread. " +
+			"Supports optional sender filter via `from` parameter.",
+		inputSchema: {
+			type: "object",
+			required: ["query"],
+			properties: {
+				query: { type: "string" },
+				from: { type: "string" },
+				limit: { type: "number" },
+			},
+			additionalProperties: false,
+		},
+	},
 ];
 
 const server = new Server(
@@ -1503,6 +1563,101 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		);
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+
+	if (name === "contact_graph") {
+		assertAllowedToolArgs(args, ["limit"], "contact_graph");
+		const limit =
+			typeof args.limit === "number" ? Math.min(args.limit, 200) : 20;
+		const response = await requestJson("GET", `/v1/contacts?limit=${limit}`);
+		const { formatContactGraph } = await import("./formatters.js");
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatContactGraph(
+						(response as { contacts: Parameters<typeof formatContactGraph>[0] })
+							.contacts,
+					),
+				},
+			],
+		};
+	}
+	if (name === "contact_search") {
+		assertAllowedToolArgs(args, ["query", "limit"], "contact_search");
+		const q = encodeURIComponent(String(args.query ?? ""));
+		const limit =
+			typeof args.limit === "number" ? Math.min(args.limit, 200) : 20;
+		const response = await requestJson(
+			"GET",
+			`/v1/contacts/search?q=${q}&limit=${limit}`,
+		);
+		const { formatContactGraph } = await import("./formatters.js");
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatContactGraph(
+						(response as { contacts: Parameters<typeof formatContactGraph>[0] })
+							.contacts,
+					),
+				},
+			],
+		};
+	}
+	if (name === "ai_context_recall") {
+		assertAllowedToolArgs(
+			args,
+			["query", "project", "days", "limit"],
+			"ai_context_recall",
+		);
+		const params = new URLSearchParams();
+		if (args.query) params.set("q", String(args.query));
+		if (args.project) params.set("project", String(args.project));
+		if (args.days) params.set("days", String(args.days));
+		if (args.limit) params.set("limit", String(args.limit));
+		const qs = params.size > 0 ? `?${params.toString()}` : "";
+		const response = await requestJson("GET", `/v1/ai/memory${qs}`);
+		const { formatAiMemory } = await import("./formatters.js");
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatAiMemory(
+						(response as { results: Parameters<typeof formatAiMemory>[0] })
+							.results,
+					),
+				},
+			],
+		};
+	}
+	if (name === "email_search") {
+		assertAllowedToolArgs(args, ["query", "from", "limit"], "email_search");
+		const params = new URLSearchParams();
+		params.set("q", String(args.query ?? ""));
+		if (args.from) params.set("from", String(args.from));
+		if (args.limit) params.set("limit", String(args.limit));
+		const response = await requestJson(
+			"GET",
+			`/v1/inbox/search?${params.toString()}`,
+		);
+		const { formatEmailSearch } = await import("./formatters.js");
+		return {
+			content: [
+				{
+					type: "text",
+					text: formatEmailSearch(
+						(
+							response as {
+								results: Parameters<typeof formatEmailSearch>[0];
+								query: string;
+							}
+						).results,
+						(response as { query: string }).query,
+					),
+				},
+			],
 		};
 	}
 

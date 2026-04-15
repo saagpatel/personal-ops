@@ -643,3 +643,139 @@ export function formatEndOfDayDigest(d: EndOfDayDigest): string {
 	lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 	return lines.join("\n");
 }
+
+// ── Tier 2.1: Contact Graph ───────────────────────────────────────────────
+
+type ContactNode = {
+	email: string;
+	display_name: string | null;
+	last_contact_at: string;
+	message_count: number;
+	meeting_count: number;
+	open_thread_count: number;
+	warmth_score: number;
+};
+
+function warmthBar(score: number): string {
+	const filled = Math.round(score * 5);
+	return "█".repeat(filled) + "░".repeat(5 - filled);
+}
+
+function fmtRelativeDate(iso: string): string {
+	const diff = Date.now() - new Date(iso).getTime();
+	const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+	if (days === 0) return "today";
+	if (days === 1) return "yesterday";
+	if (days < 7) return `${days}d ago`;
+	if (days < 30) return `${Math.floor(days / 7)}w ago`;
+	if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+	return `${Math.floor(days / 365)}y ago`;
+}
+
+export function formatContactGraph(contacts: ContactNode[]): string {
+	if (contacts.length === 0)
+		return "No contacts found. Run: personal-ops contacts rebuild";
+
+	const hot = contacts.filter((c) => c.warmth_score >= 0.7);
+	const warm = contacts.filter(
+		(c) => c.warmth_score >= 0.3 && c.warmth_score < 0.7,
+	);
+	const cold = contacts.filter((c) => c.warmth_score < 0.3);
+
+	const lines: string[] = ["RELATIONSHIP GRAPH", ""];
+
+	function renderGroup(label: string, group: ContactNode[]) {
+		if (group.length === 0) return;
+		lines.push(label);
+		for (const c of group) {
+			const name = c.display_name ?? c.email;
+			const bar = warmthBar(c.warmth_score);
+			const last = fmtRelativeDate(c.last_contact_at);
+			const threads =
+				c.open_thread_count > 0 ? ` · ${c.open_thread_count} open` : "";
+			lines.push(
+				`  [${bar}] ${name}  —  ${c.message_count}msg${c.meeting_count > 0 ? ` · ${c.meeting_count}mtg` : ""}${threads}  (${last})`,
+			);
+		}
+		lines.push("");
+	}
+
+	renderGroup("🔥 HOT (warmth ≥ 0.7)", hot);
+	renderGroup("🌤 WARM (0.3 – 0.7)", warm);
+	renderGroup("❄ COLD (< 0.3)", cold);
+
+	return lines.join("\n").trimEnd();
+}
+
+// ── Tier 2.2: AI Session Memory ───────────────────────────────────────────
+
+type AiMemoryEntry = {
+	id: number;
+	source: string;
+	timestamp: string;
+	project_name: string;
+	summary: string;
+	branch: string | null;
+	tags: string[];
+};
+
+export function formatAiMemory(entries: AiMemoryEntry[]): string {
+	if (entries.length === 0) return "No AI sessions found matching the query.";
+
+	// Group by project
+	const byProject = new Map<string, AiMemoryEntry[]>();
+	for (const e of entries) {
+		const list = byProject.get(e.project_name) ?? [];
+		list.push(e);
+		byProject.set(e.project_name, list);
+	}
+
+	const lines: string[] = ["AI SESSION MEMORY", ""];
+	const sourceIcon: Record<string, string> = {
+		cc: "CC",
+		codex: "CX",
+		claude_ai: "AI",
+	};
+
+	for (const [project, sessions] of byProject) {
+		lines.push(`▸ ${project}`);
+		for (const s of sessions) {
+			const icon = sourceIcon[s.source] ?? s.source.toUpperCase();
+			const date = new Date(s.timestamp).toLocaleDateString();
+			const branch = s.branch ? ` [${s.branch}]` : "";
+			lines.push(`  [${icon}] ${date}${branch}  ${s.summary}`);
+		}
+		lines.push("");
+	}
+
+	return lines.join("\n").trimEnd();
+}
+
+// ── Tier 2.3: Email Knowledge Base ────────────────────────────────────────
+
+type EmailSearchResult = {
+	message_id: string;
+	thread_id: string;
+	subject: string | null;
+	from_header: string | null;
+	relevance_rank: number;
+};
+
+export function formatEmailSearch(
+	results: EmailSearchResult[],
+	query: string,
+): string {
+	const header = `EMAIL SEARCH: "${query}"  (${results.length} thread${results.length !== 1 ? "s" : ""})`;
+	if (results.length === 0) return `${header}\n\nNo results found.`;
+
+	const lines: string[] = [header, ""];
+	for (const r of results) {
+		const subject = r.subject ?? "(no subject)";
+		const from = r.from_header ?? "(unknown sender)";
+		lines.push(`  ${subject}`);
+		lines.push(`    From: ${from}  [thread: ${r.thread_id.slice(0, 12)}]`);
+		lines.push("");
+	}
+
+	return lines.join("\n").trimEnd();
+}
