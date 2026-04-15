@@ -5,6 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import {
+	type AiMemoryEntry,
+	type AiMemorySearchOptions,
+	searchAiMemory as searchAiMemoryImpl,
+} from "./ai-memory.js";
+import {
 	completeGmailAuth,
 	completeGoogleAuth,
 	loadStoredGmailTokens,
@@ -33,6 +38,10 @@ import {
 	verifyGoogleDriveAccess,
 	verifyGoogleDriveScopes,
 } from "./drive.js";
+import {
+	type EmailSearchResult,
+	searchEmailKb as searchEmailKbImpl,
+} from "./email-kb.js";
 import { EvalsReader } from "./evals-reader.js";
 import { syncGithubPullRequests, verifyGithubToken } from "./github.js";
 import {
@@ -71,6 +80,10 @@ import {
 	readRestoreProvenance,
 } from "./machine.js";
 import { McpAuditClient } from "./mcp-audit-client.js";
+import {
+	buildMeetingContactBrief,
+	type MeetingContactBrief,
+} from "./meeting-contact-brief.js";
 import { NotificationHubClient } from "./notification-hub.js";
 import { sendMacNotification } from "./notifications.js";
 import { PortfolioReader } from "./portfolio-reader.js";
@@ -85,6 +98,7 @@ import {
 	SNAPSHOT_WARN_HOURS,
 	snapshotAgeHours,
 } from "./recovery.js";
+import { buildContactGraph, type ContactNode } from "./relationship-graph.js";
 import {
 	buildMaintenanceConfidenceSummary,
 	buildMaintenanceDecisionExplanationSummary,
@@ -1586,6 +1600,31 @@ export class PersonalOpsService {
 		return this.inboxClassifier.classifyThreads(all);
 	}
 
+	getMeetingContactBrief(eventId?: string): MeetingContactBrief | null {
+		const myEmail =
+			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??
+			null;
+		if (!myEmail) return null;
+
+		let event = eventId ? this.db.getCalendarEvent(eventId) : null;
+
+		if (!event) {
+			// Find the next upcoming meeting within 30 minutes that has attendees
+			const upcoming = this.listUpcomingCalendarEvents(1, 20);
+			const now = Date.now();
+			const windowMs = 30 * 60 * 1000;
+			event =
+				upcoming.find((e) => {
+					if (e.attendee_count === 0) return false;
+					const startMs = new Date(e.start_at).getTime();
+					return startMs - now <= windowMs && startMs > now - 60_000;
+				}) ?? null;
+		}
+
+		if (!event) return null;
+		return buildMeetingContactBrief(event, this.db, myEmail);
+	}
+
 	async getMorningBriefing() {
 		const today = new Date().toISOString().slice(0, 10);
 
@@ -1685,6 +1724,210 @@ export class PersonalOpsService {
 				})),
 			},
 		};
+	}
+
+	getEndOfDayDigest() {
+		const now = new Date();
+		const todayStart = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			0,
+			0,
+			0,
+			0,
+		);
+		const todayStartIso = todayStart.toISOString();
+		const todayStartMs = todayStart.getTime();
+		const account =
+			(this.config.gmailAccountEmail || this.db.getMailAccount()?.email) ??
+			null;
+
+		// Calendar: meetings that already started today and are not cancelled
+		const todayEvents = account
+			? this.db
+					.listCalendarEvents({
+						account,
+						ends_after: todayStartIso,
+						starts_before: now.toISOString(),
+					})
+					.filter(
+						(e) => e.status !== "cancelled" && e.start_at >= todayStartIso,
+					)
+			: [];
+		const meetingMinutes = todayEvents
+			.filter((e) => !e.is_all_day)
+			.reduce((sum, e) => {
+				const mins = Math.round(
+					(new Date(e.end_at).getTime() - new Date(e.start_at).getTime()) /
+						60_000,
+				);
+				return sum + Math.max(0, mins);
+			}, 0);
+
+		// Mail activity today
+		const mailbox = account ?? "";
+		const mailActivity =
+			account && mailbox
+				? this.db.getMailActivityToday(mailbox, todayStartMs)
+				: { inbound_count: 0, outbound_count: 0 };
+
+		// Inbox: threads still needing a reply (heuristic only — no Ollama)
+		const needsReply = this.listNeedsReplyThreads(50).length;
+
+		// Tasks completed today
+		const completedToday = this.db.listTasksCompletedSince(todayStartIso, 10);
+
+		// Tasks still open and overdue
+		const overdueOpen = [
+			...this.db.listTasks({ state: "pending" }),
+			...this.db.listTasks({ state: "in_progress" }),
+		].filter((t) => t.due_at != null && t.due_at < now.toISOString());
+
+		// Pending approvals
+		const approvalStates = this.db.countApprovalStates();
+		const pendingApprovals = approvalStates["pending"] ?? 0;
+
+		// Stale follow-ups: sent, no reply, > 4h
+		const staleFollowups = this.listFollowupThreads(50).filter(
+			(s) => s.derived_kind === "stale_followup",
+		).length;
+
+		// AI cost today from bridge-db
+		const aiActivity = this.bridgeDb.getActivitySummary(1);
+
+		// Git commits today: scan ~/Projects/
+		const gitCommits = this.scanGitCommitsToday();
+
+		return {
+			date: now.toISOString().slice(0, 10),
+			calendar: {
+				meetings_today: todayEvents.length,
+				meeting_minutes: meetingMinutes,
+				events: todayEvents.map((e) => ({
+					event_id: e.event_id,
+					summary: e.summary ?? "(no title)",
+					start_at: e.start_at,
+					end_at: e.end_at,
+					is_all_day: e.is_all_day,
+					attendee_count: e.attendee_count,
+				})),
+			},
+			inbox: {
+				inbound_today: mailActivity.inbound_count,
+				outbound_today: mailActivity.outbound_count,
+				needs_reply_count: needsReply,
+				stale_followup_count: staleFollowups,
+			},
+			tasks: {
+				completed_today: completedToday.map((t) => ({
+					task_id: t.task_id,
+					title: t.title,
+					completed_at: t.completed_at ?? now.toISOString(),
+				})),
+				overdue_open_count: overdueOpen.length,
+			},
+			approvals: {
+				pending_count: pendingApprovals,
+			},
+			ai_cost: {
+				briefing_line: aiActivity.briefing_line,
+			},
+			git_commits: gitCommits,
+		};
+	}
+
+	private scanGitCommitsToday(): {
+		repos_with_commits: number;
+		total_commits: number;
+		items: Array<{ repo: string; count: number; subjects: string[] }>;
+	} {
+		const home = os.homedir();
+		const projectsDir = path.join(home, "Projects");
+		const items: Array<{ repo: string; count: number; subjects: string[] }> =
+			[];
+
+		let entries: string[] = [];
+		try {
+			entries = fs.readdirSync(projectsDir);
+		} catch {
+			return { repos_with_commits: 0, total_commits: 0, items: [] };
+		}
+
+		for (const entry of entries) {
+			const repoPath = path.join(projectsDir, entry);
+			const gitDir = path.join(repoPath, ".git");
+			try {
+				if (!fs.statSync(gitDir).isDirectory()) continue;
+			} catch {
+				continue;
+			}
+
+			try {
+				const out = execFileSync(
+					"git",
+					[
+						"-C",
+						repoPath,
+						"log",
+						"--since=midnight",
+						"--format=%s",
+						"--no-merges",
+					],
+					{ encoding: "utf8", timeout: 5000 },
+				).trim();
+				if (!out) continue;
+				const subjects = out.split("\n").filter(Boolean);
+				items.push({ repo: entry, count: subjects.length, subjects });
+			} catch {
+				// repo exists but git log failed — skip
+			}
+		}
+
+		return {
+			repos_with_commits: items.length,
+			total_commits: items.reduce((sum, r) => sum + r.count, 0),
+			items,
+		};
+	}
+
+	// ── Tier 2.1: Relationship Graph ──────────────────────────────────────────
+
+	getContactGraph(limit = 20): ContactNode[] {
+		return this.db.getTopContacts(limit);
+	}
+
+	getContactDetail(email: string): ContactNode | null {
+		return this.db.getContactDetail(email);
+	}
+
+	searchContacts(query: string, limit = 20): ContactNode[] {
+		return this.db.searchContacts(query, limit);
+	}
+
+	rebuildContactGraph(): ContactNode[] {
+		const myEmail =
+			this.config.gmailAccountEmail ?? this.db.getMailAccount()?.email ?? "";
+		return buildContactGraph(this.db, myEmail);
+	}
+
+	// ── Tier 2.2: AI Session Memory ───────────────────────────────────────────
+
+	searchAiMemory(options: AiMemorySearchOptions): AiMemoryEntry[] {
+		return searchAiMemoryImpl(this.bridgeDb, options);
+	}
+
+	// ── Tier 2.3: Email Knowledge Base ────────────────────────────────────────
+
+	searchEmailKb(
+		query: string,
+		from?: string,
+		limit?: number,
+	): EmailSearchResult[] {
+		const opts: Parameters<typeof searchEmailKbImpl>[1] = { query };
+		if (from !== undefined) opts.from = from;
+		if (limit !== undefined) opts.limit = limit;
+		return searchEmailKbImpl(this.db, opts);
 	}
 
 	getCalendarStatusReport(): CalendarStatusReport {

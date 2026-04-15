@@ -15727,3 +15727,414 @@ test("Tier 1.2 formatClassifiedInbox renders both buckets", async () => {
 	assert.match(output, /Waiting on Someone/);
 	assert.match(output, /3 threads classified/);
 });
+
+test("Tier 1.3 meeting_contact_brief mcp tool is wired", () => {
+	const schemaBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf-8",
+	);
+	assert.match(schemaBody, /meeting_contact_brief/);
+	assert.match(schemaBody, /event_id/);
+});
+
+test("Tier 1.3 GET /v1/workflows/meeting-brief route is wired", () => {
+	const httpBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf-8",
+	);
+	assert.match(httpBody, /\/v1\/workflows\/meeting-brief/);
+	assert.match(httpBody, /getMeetingContactBrief/);
+});
+
+test("Tier 1.3 getMeetingContactBrief is wired in service", () => {
+	const serviceBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf-8",
+	);
+	assert.match(serviceBody, /getMeetingContactBrief/);
+	assert.match(serviceBody, /buildMeetingContactBrief/);
+});
+
+test("Tier 1.3 formatMeetingContactBrief renders brief", async () => {
+	const { formatMeetingContactBrief } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatMeetingContactBrief: (b: unknown) => string };
+	const now = new Date().toISOString();
+	const endAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+	const output = formatMeetingContactBrief({
+		event_id: "evt-001",
+		title: "Q2 Planning",
+		start_at: now,
+		end_at: endAt,
+		location: "Zoom",
+		attendee_contexts: [
+			{
+				email: "alice@example.com",
+				display_name: "Alice",
+				response_status: "accepted",
+				recent_messages: [
+					{
+						subject: "Re: prep notes",
+						date: now,
+						direction: "inbound",
+					},
+				],
+				message_count: 1,
+				open_thread_count: 3,
+				meeting_count_together: 5,
+			},
+		],
+		minutes_until: 25,
+		generated_at: now,
+	});
+	assert.match(output, /Meeting Brief/);
+	assert.match(output, /Q2 Planning/);
+	assert.match(output, /Alice/);
+	assert.match(output, /Zoom/);
+	assert.match(output, /prep notes/);
+	assert.match(output, /5 meetings together/);
+});
+
+test("Tier 1.4 end_of_day_digest mcp tool is wired", () => {
+	const schemaBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf-8",
+	);
+	assert.match(schemaBody, /end_of_day_digest/);
+});
+
+test("Tier 1.4 GET /v1/workflows/end-of-day route is wired", () => {
+	const httpBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf-8",
+	);
+	assert.match(httpBody, /\/v1\/workflows\/end-of-day/);
+	assert.match(httpBody, /getEndOfDayDigest/);
+});
+
+test("Tier 1.4 getEndOfDayDigest is wired in service", () => {
+	const serviceBody = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf-8",
+	);
+	assert.match(serviceBody, /getEndOfDayDigest/);
+	assert.match(serviceBody, /listTasksCompletedSince/);
+	assert.match(serviceBody, /getMailActivityToday/);
+});
+
+test("Tier 1.4 formatEndOfDayDigest renders all sections", async () => {
+	const { formatEndOfDayDigest } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatEndOfDayDigest: (d: unknown) => string };
+	const now = new Date().toISOString();
+	const output = formatEndOfDayDigest({
+		date: "2026-04-14",
+		calendar: {
+			meetings_today: 2,
+			meeting_minutes: 90,
+			events: [
+				{
+					event_id: "e1",
+					summary: "Standup",
+					start_at: now,
+					end_at: now,
+					is_all_day: false,
+					attendee_count: 4,
+				},
+			],
+		},
+		inbox: {
+			inbound_today: 12,
+			outbound_today: 5,
+			needs_reply_count: 3,
+			stale_followup_count: 2,
+		},
+		tasks: {
+			completed_today: [
+				{ task_id: "t1", title: "Ship the PR", completed_at: now },
+			],
+			overdue_open_count: 1,
+		},
+		approvals: { pending_count: 2 },
+		ai_cost: { briefing_line: "$4.20 today across 3 sessions" },
+		git_commits: {
+			repos_with_commits: 2,
+			total_commits: 5,
+			items: [
+				{
+					repo: "personal-ops",
+					count: 3,
+					subjects: ["feat: add git scan", "fix: archive eod", "test: 1.4"],
+				},
+				{
+					repo: "GithubRepoAuditor",
+					count: 2,
+					subjects: ["feat: risk overlay", "fix: null handle"],
+				},
+			],
+		},
+	});
+	assert.match(output, /End-of-Day Digest/);
+	assert.match(output, /2026-04-14/);
+	assert.match(output, /Standup/);
+	assert.match(output, /12 received/);
+	assert.match(output, /Ship the PR/);
+	assert.match(output, /2 approval/);
+	assert.match(output, /\$4\.20/);
+	assert.match(output, /2 sent threads with no reply/);
+	assert.match(output, /SHIPPED TODAY/);
+	assert.match(output, /personal-ops/);
+	assert.match(output, /feat: add git scan/);
+});
+
+// ── Tier 2.1: Relationship Graph ─────────────────────────────────────────
+
+test("Tier 2.1 contact_graph mcp tool is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes('"contact_graph"'),
+		"contact_graph tool definition missing",
+	);
+	assert.ok(
+		src.includes("/v1/contacts"),
+		"contact_graph handler missing route",
+	);
+	assert.ok(
+		src.includes("formatContactGraph"),
+		"contact_graph handler missing formatter",
+	);
+});
+
+test("Tier 2.1 GET /v1/contacts route is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf8",
+	);
+	assert.ok(src.includes('"/v1/contacts"'), "/v1/contacts route missing");
+	assert.ok(
+		src.includes("getContactGraph"),
+		"getContactGraph call missing from route",
+	);
+});
+
+test("Tier 2.1 getContactGraph is wired in service", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes("getContactGraph"),
+		"getContactGraph missing from service",
+	);
+	assert.ok(
+		src.includes("buildContactGraph"),
+		"buildContactGraph call missing from service",
+	);
+});
+
+test("Tier 2.1 formatContactGraph renders warmth tiers", async () => {
+	const { formatContactGraph } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatContactGraph: (contacts: unknown[]) => string };
+	const now = new Date().toISOString();
+	const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+	const output = formatContactGraph([
+		{
+			email: "hot@example.com",
+			display_name: "Hot Contact",
+			first_seen_at: old,
+			last_contact_at: now,
+			last_inbound_at: now,
+			last_outbound_at: now,
+			message_count: 50,
+			meeting_count: 5,
+			open_thread_count: 3,
+			warmth_score: 0.85,
+			updated_at: now,
+		},
+		{
+			email: "cold@example.com",
+			display_name: null,
+			first_seen_at: old,
+			last_contact_at: old,
+			last_inbound_at: old,
+			last_outbound_at: null,
+			message_count: 2,
+			meeting_count: 0,
+			open_thread_count: 0,
+			warmth_score: 0.05,
+			updated_at: now,
+		},
+	]);
+	assert.match(output, /RELATIONSHIP GRAPH/);
+	assert.match(output, /HOT/);
+	assert.match(output, /Hot Contact/);
+	assert.match(output, /COLD/);
+	assert.match(output, /cold@example\.com/);
+	assert.match(output, /3 open/);
+});
+
+// ── Tier 2.2: AI Session Memory ───────────────────────────────────────────
+
+test("Tier 2.2 ai_context_recall mcp tool is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes('"ai_context_recall"'),
+		"ai_context_recall tool definition missing",
+	);
+	assert.ok(
+		src.includes("/v1/ai/memory"),
+		"ai_context_recall handler missing route",
+	);
+	assert.ok(
+		src.includes("formatAiMemory"),
+		"ai_context_recall handler missing formatter",
+	);
+});
+
+test("Tier 2.2 GET /v1/ai/memory route is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf8",
+	);
+	assert.ok(src.includes('"/v1/ai/memory"'), "/v1/ai/memory route missing");
+	assert.ok(
+		src.includes("searchAiMemory"),
+		"searchAiMemory call missing from route",
+	);
+});
+
+test("Tier 2.2 searchAiMemory is wired in service", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes("searchAiMemory"),
+		"searchAiMemory missing from service",
+	);
+	assert.ok(
+		src.includes("searchAiMemoryImpl"),
+		"bridge-db delegation missing from service",
+	);
+});
+
+test("Tier 2.2 formatAiMemory renders sessions grouped by project", async () => {
+	const { formatAiMemory } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatAiMemory: (entries: unknown[]) => string };
+	const output = formatAiMemory([
+		{
+			id: 1,
+			source: "cc",
+			timestamp: "2026-04-13T10:00:00.000Z",
+			project_name: "personal-ops",
+			summary: "Tier 2.1 relationship graph",
+			branch: "feat/tier-2",
+			tags: ["typescript", "db"],
+		},
+		{
+			id: 2,
+			source: "codex",
+			timestamp: "2026-04-13T09:00:00.000Z",
+			project_name: "GithubRepoAuditor",
+			summary: "Risk overlay shipped",
+			branch: null,
+			tags: [],
+		},
+	]);
+	assert.match(output, /AI SESSION MEMORY/);
+	assert.match(output, /personal-ops/);
+	assert.match(output, /Tier 2\.1 relationship graph/);
+	assert.match(output, /feat\/tier-2/);
+	assert.match(output, /GithubRepoAuditor/);
+	assert.match(output, /Risk overlay shipped/);
+});
+
+// ── Tier 2.3: Email Knowledge Base ────────────────────────────────────────
+
+test("Tier 2.3 email_search mcp tool is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/mcp-server.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes('"email_search"'),
+		"email_search tool definition missing",
+	);
+	assert.ok(
+		src.includes("/v1/inbox/search"),
+		"email_search handler missing route",
+	);
+	assert.ok(
+		src.includes("formatEmailSearch"),
+		"email_search handler missing formatter",
+	);
+});
+
+test("Tier 2.3 GET /v1/inbox/search route is wired", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/http.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes('"/v1/inbox/search"'),
+		"/v1/inbox/search route missing",
+	);
+	assert.ok(
+		src.includes("searchEmailKb"),
+		"searchEmailKb call missing from route",
+	);
+});
+
+test("Tier 2.3 searchEmailKb is wired in service", () => {
+	const src = fs.readFileSync(
+		path.resolve(process.cwd(), "src/service.ts"),
+		"utf8",
+	);
+	assert.ok(
+		src.includes("searchEmailKb"),
+		"searchEmailKb missing from service",
+	);
+	assert.ok(
+		src.includes("searchEmailKbImpl"),
+		"email-kb delegation missing from service",
+	);
+});
+
+test("Tier 2.3 formatEmailSearch renders results with query echo", async () => {
+	const { formatEmailSearch } = (await import(
+		path.resolve(process.cwd(), "dist/src/formatters/workflows.js")
+	)) as { formatEmailSearch: (results: unknown[], query: string) => string };
+	const output = formatEmailSearch(
+		[
+			{
+				message_id: "msg_aabbccdd1234",
+				thread_id: "thread_001",
+				subject: "Pricing proposal",
+				from_header: "alice@example.com",
+				relevance_rank: -1.5,
+			},
+			{
+				message_id: "msg_eeff56781234",
+				thread_id: "thread_002",
+				subject: "Q2 pricing review",
+				from_header: "bob@example.com",
+				relevance_rank: -1.2,
+			},
+		],
+		"pricing",
+	);
+	assert.match(output, /EMAIL SEARCH/);
+	assert.match(output, /"pricing"/);
+	assert.match(output, /2 thread/);
+	assert.match(output, /Pricing proposal/);
+	assert.match(output, /alice@example\.com/);
+	assert.match(output, /Q2 pricing review/);
+});

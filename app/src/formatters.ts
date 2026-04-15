@@ -104,6 +104,11 @@ export {
 	formatTaskSuggestions,
 } from "./formatters/tasks.js";
 export {
+	formatAiMemory,
+	formatContactGraph,
+	formatEmailSearch,
+	formatEndOfDayDigest,
+	formatMeetingContactBrief,
 	formatMeetingPrepPacket,
 	formatMorningBriefing,
 	formatWorkflowBundleReport,

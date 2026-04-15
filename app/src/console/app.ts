@@ -1,282 +1,312 @@
-import type {
-  AutopilotStatusReport,
-  ApprovalDetail,
-  ApprovalRequest,
-  AssistantActionItem,
-  AssistantActionQueueReport,
-  AssistantActionRunResult,
-  AttentionItem,
-  AuditEvent,
-  AuditEventCategory,
-  DoctorReport,
-  DraftArtifact,
-  GithubPullRequest,
-  InboxAutopilotGroup,
-  InboxAutopilotReport,
-  MailThreadDetail,
-  MeetingPrepPacket,
-  OutboundAutopilotActionResult,
-  OutboundAutopilotGroup,
-  OutboundAutopilotReport,
-  PlanningAutopilotBundle,
-  PlanningAutopilotReport,
-  PlanningRecommendationDetail,
-  PlanningRecommendationGroup,
-  PlanningRecommendationGroupDetail,
-  PlanningRecommendationSummaryReport,
-  ReviewCalibrationReport,
-  ReviewImpactReport,
-  ReviewPackage,
-  ReviewPackageReport,
-  ReviewReport,
-  ReviewTrendsReport,
-  ReviewTuningProposal,
-  ReviewTuningReport,
-  ReviewWeeklyReport,
-  ReviewItem,
-  ServiceStatusReport,
-  SnapshotInspection,
-  SnapshotManifest,
-  SnapshotSummary,
-  TaskDetail,
-  WorkflowBundleReport,
-  WorklistReport,
-} from "../types.js";
 import {
-  buildReviewApprovalPresentation,
-  reviewApprovalCalibrationNoteText,
-  reviewApprovalConsoleFlowNoteText,
-  reviewApprovalSupportingNoteText,
+	buildReviewApprovalPresentation,
+	reviewApprovalCalibrationNoteText,
+	reviewApprovalConsoleFlowNoteText,
+	reviewApprovalSupportingNoteText,
 } from "../review-approval-presentation.js";
+import type {
+	ApprovalDetail,
+	ApprovalRequest,
+	AssistantActionItem,
+	AssistantActionQueueReport,
+	AssistantActionRunResult,
+	AttentionItem,
+	AuditEvent,
+	AuditEventCategory,
+	AutopilotStatusReport,
+	DoctorReport,
+	DraftArtifact,
+	GithubPullRequest,
+	InboxAutopilotGroup,
+	InboxAutopilotReport,
+	MailThreadDetail,
+	MeetingPrepPacket,
+	OutboundAutopilotActionResult,
+	OutboundAutopilotGroup,
+	OutboundAutopilotReport,
+	PlanningAutopilotBundle,
+	PlanningAutopilotReport,
+	PlanningRecommendationDetail,
+	PlanningRecommendationGroup,
+	PlanningRecommendationGroupDetail,
+	PlanningRecommendationSummaryReport,
+	ReviewCalibrationReport,
+	ReviewImpactReport,
+	ReviewItem,
+	ReviewPackage,
+	ReviewPackageReport,
+	ReviewReport,
+	ReviewTrendsReport,
+	ReviewTuningProposal,
+	ReviewTuningReport,
+	ReviewWeeklyReport,
+	ServiceStatusReport,
+	SnapshotInspection,
+	SnapshotManifest,
+	SnapshotSummary,
+	TaskDetail,
+	WorkflowBundleReport,
+	WorklistReport,
+} from "../types.js";
 
-type SectionId = "overview" | "review" | "worklist" | "approvals" | "drafts" | "planning" | "audit" | "backups";
+type SectionId =
+	| "overview"
+	| "review"
+	| "worklist"
+	| "approvals"
+	| "drafts"
+	| "planning"
+	| "audit"
+	| "backups";
 type BannerTone = "good" | "warn" | "critical";
 
 interface ConsolePayload {
-  status: ServiceStatusReport;
-  autopilot: AutopilotStatusReport;
-  worklist: WorklistReport;
-  assistantQueue: AssistantActionQueueReport;
-  inboxAutopilot: InboxAutopilotReport;
-  outboundAutopilot: OutboundAutopilotReport;
-  nowNextWorkflow: WorkflowBundleReport;
-  prepDayWorkflow: WorkflowBundleReport;
-  prepMeetingsWorkflow: WorkflowBundleReport;
-  doctor: DoctorReport;
-  approvals: ApprovalRequest[];
-  drafts: DraftArtifact[];
-  reviewItems: ReviewItem[];
-  planningSummary: PlanningRecommendationSummaryReport;
-  planningAutopilot: PlanningAutopilotReport;
-  reviewPackages: ReviewPackageReport;
-  reviewTuning: ReviewTuningReport;
-  reviewCalibration: ReviewCalibrationReport;
-  reviewReport: ReviewReport;
-  reviewTrends: ReviewTrendsReport;
-  reviewImpact: ReviewImpactReport;
-  reviewWeekly: ReviewWeeklyReport;
-  planningGroups: PlanningRecommendationGroup[];
-  planningNext: PlanningRecommendationDetail | null;
-  audit: AuditEvent[];
-  snapshots: SnapshotSummary[];
+	status: ServiceStatusReport;
+	autopilot: AutopilotStatusReport;
+	worklist: WorklistReport;
+	assistantQueue: AssistantActionQueueReport;
+	inboxAutopilot: InboxAutopilotReport;
+	outboundAutopilot: OutboundAutopilotReport;
+	nowNextWorkflow: WorkflowBundleReport;
+	prepDayWorkflow: WorkflowBundleReport;
+	prepMeetingsWorkflow: WorkflowBundleReport;
+	doctor: DoctorReport;
+	approvals: ApprovalRequest[];
+	drafts: DraftArtifact[];
+	reviewItems: ReviewItem[];
+	planningSummary: PlanningRecommendationSummaryReport;
+	planningAutopilot: PlanningAutopilotReport;
+	reviewPackages: ReviewPackageReport;
+	reviewTuning: ReviewTuningReport;
+	reviewCalibration: ReviewCalibrationReport;
+	reviewReport: ReviewReport;
+	reviewTrends: ReviewTrendsReport;
+	reviewImpact: ReviewImpactReport;
+	reviewWeekly: ReviewWeeklyReport;
+	planningGroups: PlanningRecommendationGroup[];
+	planningNext: PlanningRecommendationDetail | null;
+	audit: AuditEvent[];
+	snapshots: SnapshotSummary[];
 }
 
 interface AuditResponse {
-  events: AuditEvent[];
+	events: AuditEvent[];
 }
 
 interface StatusResponse {
-  status: ServiceStatusReport;
+	status: ServiceStatusReport;
 }
 
 interface AutopilotResponse {
-  autopilot: AutopilotStatusReport;
+	autopilot: AutopilotStatusReport;
 }
 
 interface WorklistResponse {
-  worklist: WorklistReport;
+	worklist: WorklistReport;
 }
 
 interface AssistantQueueResponse {
-  assistant_queue: AssistantActionQueueReport;
+	assistant_queue: AssistantActionQueueReport;
 }
 
 interface InboxAutopilotResponse {
-  inbox_autopilot: InboxAutopilotReport;
+	inbox_autopilot: InboxAutopilotReport;
 }
 
 interface OutboundAutopilotResponse {
-  outbound_autopilot: OutboundAutopilotReport;
+	outbound_autopilot: OutboundAutopilotReport;
 }
 
 interface OutboundAutopilotGroupResponse {
-  outbound_autopilot_group: OutboundAutopilotGroup | OutboundAutopilotActionResult;
+	outbound_autopilot_group:
+		| OutboundAutopilotGroup
+		| OutboundAutopilotActionResult;
 }
 
 interface AssistantRunResponse {
-  assistant_run: AssistantActionRunResult;
+	assistant_run: AssistantActionRunResult;
 }
 
 interface WorkflowResponse {
-  workflow: WorkflowBundleReport;
+	workflow: WorkflowBundleReport;
 }
 
 const MAINTENANCE_SESSION_COMMAND = "personal-ops maintenance session";
 
 interface MeetingPrepPacketResponse {
-  meeting_prep_packet: MeetingPrepPacket;
+	meeting_prep_packet: MeetingPrepPacket;
 }
 
 interface DoctorResponse {
-  doctor: DoctorReport;
+	doctor: DoctorReport;
 }
 
 interface ApprovalQueueResponse {
-  approval_requests: ApprovalRequest[];
+	approval_requests: ApprovalRequest[];
 }
 
 interface ApprovalDetailResponse {
-  approval: ApprovalDetail;
+	approval: ApprovalDetail;
 }
 
 interface DraftResponse {
-  drafts: DraftArtifact[];
+	drafts: DraftArtifact[];
 }
 
 interface ReviewQueueResponse {
-  review_items: ReviewItem[];
+	review_items: ReviewItem[];
 }
 
 interface PlanningSummaryResponse {
-  planning_recommendation_summary: PlanningRecommendationSummaryReport;
+	planning_recommendation_summary: PlanningRecommendationSummaryReport;
 }
 
 interface PlanningAutopilotResponse {
-  planning_autopilot: PlanningAutopilotReport;
+	planning_autopilot: PlanningAutopilotReport;
 }
 
 interface ReviewPackageReportResponse {
-  review_packages: ReviewPackageReport;
+	review_packages: ReviewPackageReport;
 }
 
 interface ReviewTuningResponse {
-  review_tuning: ReviewTuningReport;
+	review_tuning: ReviewTuningReport;
 }
 
 interface ReviewReportResponse {
-  review_report: ReviewReport;
+	review_report: ReviewReport;
 }
 
 interface ReviewCalibrationResponse {
-  review_calibration: ReviewCalibrationReport;
+	review_calibration: ReviewCalibrationReport;
 }
 
 interface ReviewTrendsResponse {
-  review_trends: ReviewTrendsReport;
+	review_trends: ReviewTrendsReport;
 }
 
 interface ReviewImpactResponse {
-  review_impact: ReviewImpactReport;
+	review_impact: ReviewImpactReport;
 }
 
 interface ReviewWeeklyResponse {
-  review_weekly: ReviewWeeklyReport;
+	review_weekly: ReviewWeeklyReport;
 }
 
 interface PlanningAutopilotBundleResponse {
-  planning_autopilot_bundle:
-    | PlanningAutopilotBundle
-    | {
-        bundle?: PlanningAutopilotBundle;
-        summary?: string;
-      };
+	planning_autopilot_bundle:
+		| PlanningAutopilotBundle
+		| {
+				bundle?: PlanningAutopilotBundle;
+				summary?: string;
+		  };
 }
 
 interface PlanningGroupsResponse {
-  planning_recommendation_groups: PlanningRecommendationGroup[];
+	planning_recommendation_groups: PlanningRecommendationGroup[];
 }
 
 interface PlanningRecommendationDetailResponse {
-  planning_recommendation: PlanningRecommendationDetail | null;
+	planning_recommendation: PlanningRecommendationDetail | null;
 }
 
 interface PlanningRecommendationGroupDetailResponse {
-  planning_recommendation_group: PlanningRecommendationGroupDetail;
+	planning_recommendation_group: PlanningRecommendationGroupDetail;
 }
 
 interface SnapshotListResponse {
-  snapshots: SnapshotSummary[];
+	snapshots: SnapshotSummary[];
 }
 
 interface SnapshotInspectResponse {
-  snapshot: SnapshotInspection;
+	snapshot: SnapshotInspection;
 }
 
 interface SnapshotCreateResponse {
-  snapshot: SnapshotManifest;
+	snapshot: SnapshotManifest;
 }
 
 interface GithubPullDetailResponse {
-  pull_request: GithubPullRequest;
+	pull_request: GithubPullRequest;
 }
 
 interface TaskDetailResponse {
-  task: TaskDetail;
+	task: TaskDetail;
 }
 
 interface ThreadDetailResponse {
-  thread: MailThreadDetail;
+	thread: MailThreadDetail;
 }
 
 type WorklistDetail =
-  | { kind: "task"; item: AttentionItem; detail: TaskDetail }
-  | { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
-  | { kind: "meeting_packet"; item: AttentionItem; detail: MeetingPrepPacket }
-  | { kind: "outbound_autopilot_group"; item: AttentionItem; detail: OutboundAutopilotGroup }
-  | { kind: "planning_autopilot_bundle"; item: AttentionItem; detail: PlanningAutopilotBundle }
-  | { kind: "planning_recommendation"; item: AttentionItem; detail: PlanningRecommendationDetail }
-  | { kind: "planning_recommendation_group"; item: AttentionItem; detail: PlanningRecommendationGroupDetail }
-  | { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
-  | { kind: "github_pull_request"; item: AttentionItem; detail: GithubPullRequest }
-  | { kind: "snapshot"; item: AttentionItem; detail: SnapshotInspection }
-  | { kind: "unsupported"; item: AttentionItem; message: string };
+	| { kind: "task"; item: AttentionItem; detail: TaskDetail }
+	| { kind: "mail_thread"; item: AttentionItem; detail: MailThreadDetail }
+	| { kind: "meeting_packet"; item: AttentionItem; detail: MeetingPrepPacket }
+	| {
+			kind: "outbound_autopilot_group";
+			item: AttentionItem;
+			detail: OutboundAutopilotGroup;
+	  }
+	| {
+			kind: "planning_autopilot_bundle";
+			item: AttentionItem;
+			detail: PlanningAutopilotBundle;
+	  }
+	| {
+			kind: "planning_recommendation";
+			item: AttentionItem;
+			detail: PlanningRecommendationDetail;
+	  }
+	| {
+			kind: "planning_recommendation_group";
+			item: AttentionItem;
+			detail: PlanningRecommendationGroupDetail;
+	  }
+	| { kind: "approval_request"; item: AttentionItem; detail: ApprovalDetail }
+	| {
+			kind: "github_pull_request";
+			item: AttentionItem;
+			detail: GithubPullRequest;
+	  }
+	| { kind: "snapshot"; item: AttentionItem; detail: SnapshotInspection }
+	| { kind: "unsupported"; item: AttentionItem; message: string };
 
 interface ConsoleState {
-  section: SectionId;
-  payload: ConsolePayload | null;
-  auditLimit: number;
-  auditCategory: AuditEventCategory | "";
-  lockedHint: boolean;
-  flash: { message: string; tone: BannerTone } | null;
-  selectedApprovalId: string | null;
-  selectedSnapshotId: string | null;
-  selectedPlanningRecommendationId: string | null;
-  selectedPlanningBundleId: string | null;
-  selectedPlanningGroupKey: string | null;
-  selectedOutboundGroupId: string | null;
-  selectedWorklistItemId: string | null;
-  approvalDetail: ApprovalDetail | null;
-  snapshotInspection: SnapshotInspection | null;
-  planningRecommendationDetail: PlanningRecommendationDetail | null;
-  planningBundleDetail: PlanningAutopilotBundle | null;
-  planningGroupDetail: PlanningRecommendationGroupDetail | null;
-  outboundGroupDetail: OutboundAutopilotGroup | null;
-  worklistDetail: WorklistDetail | null;
-  deferredPayloadLoaded: boolean;
-  snapshotsLoaded: boolean;
+	section: SectionId;
+	payload: ConsolePayload | null;
+	auditLimit: number;
+	auditCategory: AuditEventCategory | "";
+	lockedHint: boolean;
+	flash: { message: string; tone: BannerTone } | null;
+	selectedApprovalId: string | null;
+	selectedSnapshotId: string | null;
+	selectedPlanningRecommendationId: string | null;
+	selectedPlanningBundleId: string | null;
+	selectedPlanningGroupKey: string | null;
+	selectedOutboundGroupId: string | null;
+	selectedWorklistItemId: string | null;
+	approvalDetail: ApprovalDetail | null;
+	snapshotInspection: SnapshotInspection | null;
+	planningRecommendationDetail: PlanningRecommendationDetail | null;
+	planningBundleDetail: PlanningAutopilotBundle | null;
+	planningGroupDetail: PlanningRecommendationGroupDetail | null;
+	outboundGroupDetail: OutboundAutopilotGroup | null;
+	worklistDetail: WorklistDetail | null;
+	deferredPayloadLoaded: boolean;
+	snapshotsLoaded: boolean;
 }
 
 class SessionLockedError extends Error {}
 
 const SECTIONS: Record<SectionId, string> = {
-  overview: "Overview",
-  review: "Review Calibration",
-  worklist: "Worklist",
-  approvals: "Approvals",
-  drafts: "Drafts",
-  planning: "Planning",
-  audit: "Audit",
-  backups: "Backups",
+	overview: "Overview",
+	review: "Review Calibration",
+	worklist: "Worklist",
+	approvals: "Approvals",
+	drafts: "Drafts",
+	planning: "Planning",
+	audit: "Audit",
+	backups: "Backups",
 };
 
 const hasBrowserLocation = typeof location !== "undefined";
@@ -284,28 +314,32 @@ const hasBrowserDocument = typeof document !== "undefined";
 const hasBrowserWindow = typeof window !== "undefined";
 
 const state: ConsoleState = {
-  section: hasBrowserLocation ? ((location.hash.replace(/^#/, "") as SectionId) || "overview") : "overview",
-  payload: null,
-  auditLimit: 20,
-  auditCategory: "",
-  lockedHint: hasBrowserLocation ? new URLSearchParams(location.search).get("locked") === "1" : false,
-  flash: null,
-  selectedApprovalId: null,
-  selectedSnapshotId: null,
-  selectedPlanningRecommendationId: null,
-  selectedPlanningBundleId: null,
-  selectedPlanningGroupKey: null,
-  selectedOutboundGroupId: null,
-  selectedWorklistItemId: null,
-  approvalDetail: null,
-  snapshotInspection: null,
-  planningRecommendationDetail: null,
-  planningBundleDetail: null,
-  planningGroupDetail: null,
-  outboundGroupDetail: null,
-  worklistDetail: null,
-  deferredPayloadLoaded: false,
-  snapshotsLoaded: false,
+	section: hasBrowserLocation
+		? (location.hash.replace(/^#/, "") as SectionId) || "overview"
+		: "overview",
+	payload: null,
+	auditLimit: 20,
+	auditCategory: "",
+	lockedHint: hasBrowserLocation
+		? new URLSearchParams(location.search).get("locked") === "1"
+		: false,
+	flash: null,
+	selectedApprovalId: null,
+	selectedSnapshotId: null,
+	selectedPlanningRecommendationId: null,
+	selectedPlanningBundleId: null,
+	selectedPlanningGroupKey: null,
+	selectedOutboundGroupId: null,
+	selectedWorklistItemId: null,
+	approvalDetail: null,
+	snapshotInspection: null,
+	planningRecommendationDetail: null,
+	planningBundleDetail: null,
+	planningGroupDetail: null,
+	outboundGroupDetail: null,
+	worklistDetail: null,
+	deferredPayloadLoaded: false,
+	snapshotsLoaded: false,
 };
 
 let deferredPayloadPromise: Promise<void> | null = null;
@@ -316,1211 +350,1337 @@ let corePayloadTimer: number | null = null;
 let planningActionTargetPromise: Promise<void> | null = null;
 
 function getShellElements(): {
-  content: HTMLElement;
-  banner: HTMLElement;
-  sectionTitle: HTMLElement;
-  refreshButton: HTMLButtonElement;
+	content: HTMLElement;
+	banner: HTMLElement;
+	sectionTitle: HTMLElement;
+	refreshButton: HTMLButtonElement;
 } {
-  if (!hasBrowserDocument) {
-    throw new Error("Console shell is only available in a browser context.");
-  }
-  const content = document.querySelector<HTMLElement>("#content");
-  const banner = document.querySelector<HTMLElement>("#banner");
-  const sectionTitle = document.querySelector<HTMLElement>("#section-title");
-  const refreshButton = document.querySelector<HTMLButtonElement>("#refresh-button");
-  if (!content || !banner || !sectionTitle || !refreshButton) {
-    throw new Error("Console shell did not render correctly.");
-  }
-  return {
-    content,
-    banner,
-    sectionTitle,
-    refreshButton,
-  };
+	if (!hasBrowserDocument) {
+		throw new Error("Console shell is only available in a browser context.");
+	}
+	const content = document.querySelector<HTMLElement>("#content");
+	const banner = document.querySelector<HTMLElement>("#banner");
+	const sectionTitle = document.querySelector<HTMLElement>("#section-title");
+	const refreshButton =
+		document.querySelector<HTMLButtonElement>("#refresh-button");
+	if (!content || !banner || !sectionTitle || !refreshButton) {
+		throw new Error("Console shell did not render correctly.");
+	}
+	return {
+		content,
+		banner,
+		sectionTitle,
+		refreshButton,
+	};
 }
 
-function escapeHtml(value: string | number | boolean | null | undefined): string {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+function escapeHtml(
+	value: string | number | boolean | null | undefined,
+): string {
+	return String(value ?? "")
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
 }
 
 function formatTime(value: string | null | undefined): string {
-  if (!value) {
-    return "not recorded";
-  }
-  return new Date(value).toLocaleString();
+	if (!value) {
+		return "not recorded";
+	}
+	return new Date(value).toLocaleString();
 }
 
 function formatCount(value: number): string {
-  return new Intl.NumberFormat().format(value);
+	return new Intl.NumberFormat().format(value);
 }
 
 function formatSeverity(severity: "pass" | "warn" | "fail"): string {
-  if (severity === "pass") return "pill pill--good";
-  if (severity === "warn") return "pill pill--warn";
-  return "pill pill--critical";
+	if (severity === "pass") return "pill pill--good";
+	if (severity === "warn") return "pill pill--warn";
+	return "pill pill--critical";
 }
 
 function formatDurationHours(hours: number | null | undefined): string {
-  if (hours === null || hours === undefined) {
-    return "not recorded";
-  }
-  if (hours < 1) {
-    return `${Math.max(1, Math.round(hours * 60))}m`;
-  }
-  return `${hours.toFixed(hours >= 10 ? 0 : 1)}h`;
+	if (hours === null || hours === undefined) {
+		return "not recorded";
+	}
+	if (hours < 1) {
+		return `${Math.max(1, Math.round(hours * 60))}m`;
+	}
+	return `${hours.toFixed(hours >= 10 ? 0 : 1)}h`;
 }
 
 function recommendationCliPrefix(recommendationId: string): string {
-  return `personal-ops recommendation`;
+	return `personal-ops recommendation`;
 }
 
 function recommendationShowCommand(recommendationId: string): string {
-  return `${recommendationCliPrefix(recommendationId)} show ${recommendationId}`;
+	return `${recommendationCliPrefix(recommendationId)} show ${recommendationId}`;
 }
 
 function recommendationApplyCommand(recommendationId: string): string {
-  return `${recommendationCliPrefix(recommendationId)} apply ${recommendationId} --note "<reason>"`;
+	return `${recommendationCliPrefix(recommendationId)} apply ${recommendationId} --note "<reason>"`;
 }
 
 function recommendationSnoozeCommand(recommendationId: string): string {
-  return `${recommendationCliPrefix(recommendationId)} snooze ${recommendationId} --preset tomorrow-morning --note "<reason>"`;
+	return `${recommendationCliPrefix(recommendationId)} snooze ${recommendationId} --preset tomorrow-morning --note "<reason>"`;
 }
 
 function recommendationRejectCommand(recommendationId: string): string {
-  return `${recommendationCliPrefix(recommendationId)} reject ${recommendationId} --reason handled_elsewhere --note "<reason>"`;
+	return `${recommendationCliPrefix(recommendationId)} reject ${recommendationId} --reason handled_elsewhere --note "<reason>"`;
 }
 
 function recommendationGroupShowCommand(groupKey: string): string {
-  return `personal-ops recommendation group show ${groupKey}`;
+	return `personal-ops recommendation group show ${groupKey}`;
 }
 
 function recommendationGroupSnoozeCommand(groupKey: string): string {
-  return `personal-ops recommendation group snooze ${groupKey} --preset tomorrow-morning --note "<reason>"`;
+	return `personal-ops recommendation group snooze ${groupKey} --preset tomorrow-morning --note "<reason>"`;
 }
 
 function recommendationGroupRejectCommand(groupKey: string): string {
-  return `personal-ops recommendation group reject ${groupKey} --reason handled_elsewhere --note "<reason>"`;
+	return `personal-ops recommendation group reject ${groupKey} --reason handled_elsewhere --note "<reason>"`;
 }
 
 function planningBundleShowCommand(bundleId: string): string {
-  return `personal-ops planning autopilot --bundle ${bundleId}`;
+	return `personal-ops planning autopilot --bundle ${bundleId}`;
 }
 
 function planningBundlePrepareCommand(bundleId: string): string {
-  return `personal-ops planning autopilot --bundle ${bundleId} --prepare`;
+	return `personal-ops planning autopilot --bundle ${bundleId} --prepare`;
 }
 
 function planningBundleApplyCommand(bundleId: string): string {
-  return `personal-ops planning autopilot --bundle ${bundleId} --apply --note "<reason>"`;
+	return `personal-ops planning autopilot --bundle ${bundleId} --apply --note "<reason>"`;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      accept: "application/json",
-    },
-  });
-  if (response.status === 401 || response.status === 403) {
-    throw new SessionLockedError("Run personal-ops console");
-  }
-  const payload = (await response.json()) as { error?: string };
-  if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed for ${url}`);
-  }
-  return payload as T;
+	const response = await fetch(url, {
+		credentials: "same-origin",
+		headers: {
+			accept: "application/json",
+		},
+	});
+	if (response.status === 401 || response.status === 403) {
+		throw new SessionLockedError("Run personal-ops console");
+	}
+	const payload = (await response.json()) as { error?: string };
+	if (!response.ok) {
+		throw new Error(payload.error ?? `Request failed for ${url}`);
+	}
+	return payload as T;
 }
 
 async function postJson<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  if (response.status === 401 || response.status === 403) {
-    throw new SessionLockedError("Run personal-ops console");
-  }
-  const payload = (await response.json()) as { error?: string };
-  if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed for ${url}`);
-  }
-  return payload as T;
+	const response = await fetch(url, {
+		method: "POST",
+		credentials: "same-origin",
+		headers: {
+			accept: "application/json",
+			"content-type": "application/json",
+		},
+		...(body === undefined ? {} : { body: JSON.stringify(body) }),
+	});
+	if (response.status === 401 || response.status === 403) {
+		throw new SessionLockedError("Run personal-ops console");
+	}
+	const payload = (await response.json()) as { error?: string };
+	if (!response.ok) {
+		throw new Error(payload.error ?? `Request failed for ${url}`);
+	}
+	return payload as T;
 }
 
-async function fetchAudit(limit: number, category: AuditEventCategory | ""): Promise<AuditResponse> {
-  const query = new URLSearchParams();
-  query.set("limit", String(limit));
-  if (category) {
-    query.set("category", category);
-  }
-  return fetchJson<AuditResponse>(`/v1/audit/events?${query.toString()}`);
+async function fetchAudit(
+	limit: number,
+	category: AuditEventCategory | "",
+): Promise<AuditResponse> {
+	const query = new URLSearchParams();
+	query.set("limit", String(limit));
+	if (category) {
+		query.set("category", category);
+	}
+	return fetchJson<AuditResponse>(`/v1/audit/events?${query.toString()}`);
 }
 
 function emptyWorkflowReport(
-  generatedAt: string,
-  workflow: WorkflowBundleReport["workflow"],
-  readiness: ServiceStatusReport["state"],
-  summary: string,
+	generatedAt: string,
+	workflow: WorkflowBundleReport["workflow"],
+	readiness: ServiceStatusReport["state"],
+	summary: string,
 ): WorkflowBundleReport {
-  return {
-    workflow,
-    generated_at: generatedAt,
-    readiness,
-    summary,
-    sections: [],
-    actions: [],
-    first_repair_step: null,
-    maintenance_follow_through: emptyMaintenanceFollowThroughSummary(generatedAt),
-    maintenance_escalation: emptyMaintenanceEscalationSummary(),
-    maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
-    maintenance_commitment: emptyMaintenanceCommitmentSummary(),
-    maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
-    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
-    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
-    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
-    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
-  };
+	return {
+		workflow,
+		generated_at: generatedAt,
+		readiness,
+		summary,
+		sections: [],
+		actions: [],
+		first_repair_step: null,
+		maintenance_follow_through:
+			emptyMaintenanceFollowThroughSummary(generatedAt),
+		maintenance_escalation: emptyMaintenanceEscalationSummary(),
+		maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+		maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+		maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+		maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+		maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+		maintenance_decision_explanation:
+			emptyMaintenanceDecisionExplanationSummary(),
+		maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
+	};
 }
 
 function emptyMaintenanceWindowSummary(): ServiceStatusReport["maintenance_window"] {
-  return {
-    eligible_now: false,
-    deferred_reason: "no_preventive_work",
-    count: 0,
-    top_step_id: null,
-    bundle: null,
-  };
+	return {
+		eligible_now: false,
+		deferred_reason: "no_preventive_work",
+		count: 0,
+		top_step_id: null,
+		bundle: null,
+	};
 }
 
-function emptyMaintenanceFollowThroughSummary(generatedAt: string): ServiceStatusReport["maintenance_follow_through"] {
-  return {
-    generated_at: generatedAt,
-    last_maintenance_outcome: null,
-    last_maintenance_step_id: null,
-    top_signal: null,
-    current_bundle_outcome: null,
-    maintenance_pressure_count: 0,
-    top_maintenance_pressure_step_id: null,
-    pressure: {
-      signal: null,
-      count: 0,
-      top_step_id: null,
-      summary: null,
-      suggested_command: null,
-    },
-    escalation: emptyMaintenanceEscalationSummary(),
-    summary: null,
-    commitment: emptyMaintenanceCommitmentSummary(),
-    defer_memory: emptyMaintenanceDeferMemorySummary(),
-    confidence: emptyMaintenanceConfidenceSummary(),
-    convergence: emptyMaintenanceRepairConvergenceSummary(),
-  };
+function emptyMaintenanceFollowThroughSummary(
+	generatedAt: string,
+): ServiceStatusReport["maintenance_follow_through"] {
+	return {
+		generated_at: generatedAt,
+		last_maintenance_outcome: null,
+		last_maintenance_step_id: null,
+		top_signal: null,
+		current_bundle_outcome: null,
+		maintenance_pressure_count: 0,
+		top_maintenance_pressure_step_id: null,
+		pressure: {
+			signal: null,
+			count: 0,
+			top_step_id: null,
+			summary: null,
+			suggested_command: null,
+		},
+		escalation: emptyMaintenanceEscalationSummary(),
+		summary: null,
+		commitment: emptyMaintenanceCommitmentSummary(),
+		defer_memory: emptyMaintenanceDeferMemorySummary(),
+		confidence: emptyMaintenanceConfidenceSummary(),
+		convergence: emptyMaintenanceRepairConvergenceSummary(),
+	};
 }
 
 function emptyMaintenanceCommitmentSummary(): ServiceStatusReport["maintenance_commitment"] {
-  return {
-    active: false,
-    step_id: null,
-    placement: null,
-    state: null,
-    summary: null,
-    suggested_command: null,
-    defer_count: 0,
-    last_presented_at: null,
-    bundle_step_ids: [],
-  };
+	return {
+		active: false,
+		step_id: null,
+		placement: null,
+		state: null,
+		summary: null,
+		suggested_command: null,
+		defer_count: 0,
+		last_presented_at: null,
+		bundle_step_ids: [],
+	};
 }
 
 function emptyMaintenanceDeferMemorySummary(): ServiceStatusReport["maintenance_defer_memory"] {
-  return {
-    active: false,
-    step_id: null,
-    defer_count: 0,
-    last_deferred_at: null,
-    summary: null,
-  };
+	return {
+		active: false,
+		step_id: null,
+		defer_count: 0,
+		last_deferred_at: null,
+		summary: null,
+	};
 }
 
 function emptyMaintenanceConfidenceSummary(): ServiceStatusReport["maintenance_confidence"] {
-  return {
-    eligible: false,
-    step_id: null,
-    level: null,
-    trend: null,
-    summary: null,
-    suggested_command: null,
-    defer_count: 0,
-    handoff_count_30d: 0,
-    cooldown_active: false,
-  };
+	return {
+		eligible: false,
+		step_id: null,
+		level: null,
+		trend: null,
+		summary: null,
+		suggested_command: null,
+		defer_count: 0,
+		handoff_count_30d: 0,
+		cooldown_active: false,
+	};
 }
 
 function emptyMaintenanceOperatingBlockSummary(): ServiceStatusReport["maintenance_operating_block"] {
-  return {
-    eligible: false,
-    block: "suppressed",
-    step_id: null,
-    summary: null,
-    suggested_command: null,
-    reason: null,
-    confidence_level: null,
-    bundle_step_ids: [],
-  };
+	return {
+		eligible: false,
+		block: "suppressed",
+		step_id: null,
+		summary: null,
+		suggested_command: null,
+		reason: null,
+		confidence_level: null,
+		bundle_step_ids: [],
+	};
 }
 
 function emptyMaintenanceDecisionExplanationSummary(): ServiceStatusReport["maintenance_decision_explanation"] {
-  return {
-    eligible: false,
-    step_id: null,
-    state: "suppressed",
-    driver: null,
-    summary: null,
-    why_now: null,
-    why_not_higher: null,
-    suggested_command: null,
-    confidence_level: null,
-    operating_block: null,
-    reasons: [],
-    bundle_step_ids: [],
-  };
+	return {
+		eligible: false,
+		step_id: null,
+		state: "suppressed",
+		driver: null,
+		summary: null,
+		why_now: null,
+		why_not_higher: null,
+		suggested_command: null,
+		confidence_level: null,
+		operating_block: null,
+		reasons: [],
+		bundle_step_ids: [],
+	};
 }
 
 function emptyMaintenanceRepairConvergenceSummary(): ServiceStatusReport["maintenance_repair_convergence"] {
-  return {
-    eligible: false,
-    step_id: null,
-    state: "none",
-    driver: null,
-    summary: null,
-    why: null,
-    primary_command: null,
-    repair_command: "personal-ops repair plan",
-    maintenance_command: "personal-ops maintenance session",
-    handoff_count_30d: 0,
-    active_repair_step_id: null,
-    bundle_step_ids: [],
-  };
+	return {
+		eligible: false,
+		step_id: null,
+		state: "none",
+		driver: null,
+		summary: null,
+		why: null,
+		primary_command: null,
+		repair_command: "personal-ops repair plan",
+		maintenance_command: "personal-ops maintenance session",
+		handoff_count_30d: 0,
+		active_repair_step_id: null,
+		bundle_step_ids: [],
+	};
 }
 
 function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
-  return {
-    ready: false,
-    state: "caught_up",
-    title: "The workspace is loading",
-    summary: "The shared workspace focus is loading local operator state.",
-    why_now: null,
-    primary_command: null,
-    secondary_summary: null,
-    assistant_action_id: null,
-    workflow: null,
-    maintenance_state: null,
-  };
+	return {
+		ready: false,
+		state: "caught_up",
+		title: "The workspace is loading",
+		summary: "The shared workspace focus is loading local operator state.",
+		why_now: null,
+		primary_command: null,
+		secondary_summary: null,
+		assistant_action_id: null,
+		workflow: null,
+		maintenance_state: null,
+	};
 }
 
 function emptyMaintenanceEscalationSummary(): ServiceStatusReport["maintenance_escalation"] {
-  return {
-    eligible: false,
-    step_id: null,
-    signal: null,
-    summary: null,
-    suggested_command: null,
-    handoff_count_30d: 0,
-    cue: null,
-  };
+	return {
+		eligible: false,
+		step_id: null,
+		signal: null,
+		summary: null,
+		suggested_command: null,
+		handoff_count_30d: 0,
+		cue: null,
+	};
 }
 
 function emptyMaintenanceSchedulingSummary(): ServiceStatusReport["maintenance_scheduling"] {
-  return {
-    eligible: false,
-    placement: "suppressed",
-    step_id: null,
-    summary: null,
-    suggested_command: null,
-    reason: null,
-    bundle_step_ids: [],
-    commitment: emptyMaintenanceCommitmentSummary(),
-    defer_memory: emptyMaintenanceDeferMemorySummary(),
-    confidence: emptyMaintenanceConfidenceSummary(),
-    operating_block: emptyMaintenanceOperatingBlockSummary(),
-    decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
-  };
+	return {
+		eligible: false,
+		placement: "suppressed",
+		step_id: null,
+		summary: null,
+		suggested_command: null,
+		reason: null,
+		bundle_step_ids: [],
+		commitment: emptyMaintenanceCommitmentSummary(),
+		defer_memory: emptyMaintenanceDeferMemorySummary(),
+		confidence: emptyMaintenanceConfidenceSummary(),
+		operating_block: emptyMaintenanceOperatingBlockSummary(),
+		decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
+	};
 }
 
-function emptyRepairPlan(generatedAt: string): ServiceStatusReport["repair_plan"] {
-  const maintenanceWindow = emptyMaintenanceWindowSummary();
-  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(generatedAt);
-  return {
-    generated_at: generatedAt,
-    first_step_id: null,
-    first_repair_step: null,
-    last_execution: null,
-    top_recurring_issue: null,
-    preventive_maintenance: {
-      recommendations: [],
-      count: 0,
-      top_step_id: null,
-    },
-    maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThrough,
-    maintenance_escalation: emptyMaintenanceEscalationSummary(),
-    maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
-    maintenance_commitment: emptyMaintenanceCommitmentSummary(),
-    maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
-    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
-    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
-    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
-    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
-    last_repair: null,
-    recurring_issue: null,
-    steps: [],
-  };
+function emptyRepairPlan(
+	generatedAt: string,
+): ServiceStatusReport["repair_plan"] {
+	const maintenanceWindow = emptyMaintenanceWindowSummary();
+	const maintenanceFollowThrough =
+		emptyMaintenanceFollowThroughSummary(generatedAt);
+	return {
+		generated_at: generatedAt,
+		first_step_id: null,
+		first_repair_step: null,
+		last_execution: null,
+		top_recurring_issue: null,
+		preventive_maintenance: {
+			recommendations: [],
+			count: 0,
+			top_step_id: null,
+		},
+		maintenance_window: maintenanceWindow,
+		maintenance_follow_through: maintenanceFollowThrough,
+		maintenance_escalation: emptyMaintenanceEscalationSummary(),
+		maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+		maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+		maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+		maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+		maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+		maintenance_decision_explanation:
+			emptyMaintenanceDecisionExplanationSummary(),
+		maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
+		last_repair: null,
+		recurring_issue: null,
+		steps: [],
+	};
 }
 
 function emptyDesktopStatus(): ServiceStatusReport["desktop"] {
-  const maintenanceWindow = emptyMaintenanceWindowSummary();
-  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(new Date().toISOString());
-  return {
-    support_contract: "macos_only",
-    supported: false,
-    installed: false,
-    bundle_exists: false,
-    app_path: "",
-    build_bundle_path: "",
-    project_path: "",
-    build_provenance: {
-      built_at: null,
-      source_commit: null,
-      vite_version: null,
-      tauri_cli_version: null,
-      tauri_runtime_version: null,
-    },
-    reinstall_recommended: false,
-    reinstall_reason: null,
-    launcher_repair_recommended: false,
-    launcher_repair_reason: null,
-    toolchain: {
-      support_contract: "macos_only",
-      platform_supported: false,
-      npm_available: false,
-      cargo_available: false,
-      rustc_available: false,
-      xcode_select_available: false,
-      unsupported_reason: "Loading desktop support details.",
-      dependency_posture: {
-        status: "project_missing",
-        summary: "Loading desktop dependency posture.",
-        unsupported_platform_notes: [],
-      },
-      ready: false,
-      summary: "Loading desktop toolchain status.",
-    },
-    daemon_session_handoff_ready: false,
-    launch_url: null,
-    repair_plan_summary: {
-      first_step_id: null,
-      first_repair_step: null,
-      step_count: 0,
-      last_step_id: null,
-      last_outcome: null,
-      top_recurring_step_id: null,
-      preventive_maintenance_count: 0,
-      top_preventive_step_id: null,
-      last_maintenance_outcome: null,
-      last_maintenance_step_id: null,
-      maintenance_pressure_count: 0,
-      top_maintenance_pressure_step_id: null,
-      maintenance_follow_through: maintenanceFollowThrough,
-      maintenance_escalation: emptyMaintenanceEscalationSummary(),
-      maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
-      maintenance_window: maintenanceWindow,
-      maintenance_commitment: emptyMaintenanceCommitmentSummary(),
-      maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
-      maintenance_confidence: emptyMaintenanceConfidenceSummary(),
-      maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
-      maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
-      maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
-      last_repair: null,
-      recurring_issue: null,
-    },
-  };
+	const maintenanceWindow = emptyMaintenanceWindowSummary();
+	const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(
+		new Date().toISOString(),
+	);
+	return {
+		support_contract: "macos_only",
+		supported: false,
+		installed: false,
+		bundle_exists: false,
+		app_path: "",
+		build_bundle_path: "",
+		project_path: "",
+		build_provenance: {
+			built_at: null,
+			source_commit: null,
+			vite_version: null,
+			tauri_cli_version: null,
+			tauri_runtime_version: null,
+		},
+		reinstall_recommended: false,
+		reinstall_reason: null,
+		launcher_repair_recommended: false,
+		launcher_repair_reason: null,
+		toolchain: {
+			support_contract: "macos_only",
+			platform_supported: false,
+			npm_available: false,
+			cargo_available: false,
+			rustc_available: false,
+			xcode_select_available: false,
+			unsupported_reason: "Loading desktop support details.",
+			dependency_posture: {
+				status: "project_missing",
+				summary: "Loading desktop dependency posture.",
+				unsupported_platform_notes: [],
+			},
+			ready: false,
+			summary: "Loading desktop toolchain status.",
+		},
+		daemon_session_handoff_ready: false,
+		launch_url: null,
+		repair_plan_summary: {
+			first_step_id: null,
+			first_repair_step: null,
+			step_count: 0,
+			last_step_id: null,
+			last_outcome: null,
+			top_recurring_step_id: null,
+			preventive_maintenance_count: 0,
+			top_preventive_step_id: null,
+			last_maintenance_outcome: null,
+			last_maintenance_step_id: null,
+			maintenance_pressure_count: 0,
+			top_maintenance_pressure_step_id: null,
+			maintenance_follow_through: maintenanceFollowThrough,
+			maintenance_escalation: emptyMaintenanceEscalationSummary(),
+			maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+			maintenance_window: maintenanceWindow,
+			maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+			maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+			maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+			maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+			maintenance_decision_explanation:
+				emptyMaintenanceDecisionExplanationSummary(),
+			maintenance_repair_convergence:
+				emptyMaintenanceRepairConvergenceSummary(),
+			last_repair: null,
+			recurring_issue: null,
+		},
+	};
 }
 
 function buildBootstrapStatusReport(generatedAt: string): ServiceStatusReport {
-  const maintenanceWindow = emptyMaintenanceWindowSummary();
-  const repairPlan = emptyRepairPlan(generatedAt);
-  const maintenanceFollowThrough = emptyMaintenanceFollowThroughSummary(generatedAt);
-  return {
-    generated_at: generatedAt,
-    service_version: "Loading…",
-    state: "degraded",
-    first_repair_step: null,
-    workspace_home: emptyWorkspaceHomeSummary(),
-    repair_plan: repairPlan,
-    maintenance_window: maintenanceWindow,
-    maintenance_follow_through: maintenanceFollowThrough,
-    maintenance_escalation: emptyMaintenanceEscalationSummary(),
-    maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
-    maintenance_commitment: emptyMaintenanceCommitmentSummary(),
-    maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
-    maintenance_confidence: emptyMaintenanceConfidenceSummary(),
-    maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
-    maintenance_decision_explanation: emptyMaintenanceDecisionExplanationSummary(),
-    maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
-    daemon_reachable: true,
-    send_enabled: false,
-    send_policy: {
-      permanent_enabled: false,
-      window_active: false,
-      window_expires_at: null,
-      effective_enabled: false,
-    },
-    mailbox: {
-      configured: null,
-      connected: null,
-      matches_configuration: false,
-      oauth_client_configured: false,
-      keychain_token_present: false,
-    },
-    launch_agent: {
-      exists: false,
-      loaded: false,
-      label: "Loading…",
-    },
-    machine: {
-      machine_id: null,
-      machine_label: null,
-      hostname: null,
-      state_origin: "native",
-      last_restore: null,
-      last_snapshot_source_machine: null,
-    },
-    schema: {
-      current_version: 0,
-      expected_version: 0,
-      compatible: true,
-      compatibility_message: "Loading schema status.",
-    },
-    review_queue: {
-      pending_count: 0,
-      opened_count: 0,
-      total_count: 0,
-    },
-    approval_queue: {
-      pending_count: 0,
-      approved_count: 0,
-      sending_count: 0,
-      send_failed_count: 0,
-      total_count: 0,
-    },
-    tasks: {
-      pending_count: 0,
-      in_progress_count: 0,
-      completed_count: 0,
-      canceled_count: 0,
-      active_count: 0,
-      historical_count: 0,
-      total_count: 0,
-      top_item_summary: null,
-    },
-    task_suggestions: {
-      pending_count: 0,
-      accepted_count: 0,
-      rejected_count: 0,
-      active_count: 0,
-      historical_count: 0,
-      total_count: 0,
-      top_item_summary: null,
-    },
-    planning_recommendations: {
-      pending_count: 0,
-      snoozed_count: 0,
-      applied_count: 0,
-      rejected_count: 0,
-      expired_count: 0,
-      superseded_count: 0,
-      scheduled_count: 0,
-      completed_count: 0,
-      canceled_count: 0,
-      dismissed_count: 0,
-      handled_elsewhere_count: 0,
-      source_resolved_count: 0,
-      manual_scheduling_count: 0,
-      stale_pending_count: 0,
-      stale_scheduled_count: 0,
-      resurfaced_source_count: 0,
-      closed_last_7d: 0,
-      closed_last_30d: 0,
-      completed_last_30d: 0,
-      handled_elsewhere_last_30d: 0,
-      median_time_to_first_action_minutes: null,
-      median_time_to_close_minutes: null,
-      active_count: 0,
-      historical_count: 0,
-      total_count: 0,
-      top_group_summary: null,
-      top_item_summary: null,
-      top_next_action_summary: null,
-      blocked_group_summary: null,
-      top_backlog_summary: null,
-      top_closure_summary: null,
-      top_hygiene_summary: null,
-      dominant_backlog_summary: null,
-      top_suppression_candidate_summary: null,
-      review_needed_count: 0,
-      top_review_needed_summary: null,
-      reviewed_fresh_count: 0,
-      reviewed_stale_count: 0,
-      proposal_open_count: 0,
-      proposal_stale_count: 0,
-      proposal_dismissed_count: 0,
-      top_reviewed_stale_summary: null,
-      top_proposal_open_summary: null,
-      top_proposal_stale_summary: null,
-      policy_attention_kind: "none",
-      top_policy_attention_summary: null,
-      pending_by_group: {
-        urgent_unscheduled_tasks: 0,
-        urgent_inbox_followups: 0,
-        near_term_meeting_prep: 0,
-      },
-    },
-    snapshot_latest: undefined,
-    checks_summary: {
-      pass: 0,
-      warn: 1,
-      fail: 0,
-    },
-    worklist_summary: {
-      critical_count: 0,
-      warn_count: 0,
-      info_count: 0,
-      top_item_summary: "The console shell is loading local operator state.",
-    },
-    inbox: {
-      sync_status: "not_configured",
-      last_history_id: null,
-      last_synced_at: null,
-      unread_thread_count: 0,
-      followup_thread_count: 0,
-      total_thread_count: 0,
-      top_item_summary: null,
-    },
-    calendar: {
-      enabled: false,
-      sync_status: "not_configured",
-      last_synced_at: null,
-      calendars_synced_count: 0,
-      events_synced_count: 0,
-      owned_writable_calendar_count: 0,
-      personal_ops_active_event_count: 0,
-      linked_scheduled_task_count: 0,
-      conflict_count_next_24h: 0,
-      next_upcoming_event_summary: null,
-      top_item_summary: null,
-      top_scheduling_item_summary: null,
-    },
-    github: {
-      enabled: false,
-      connected_login: null,
-      authenticated: false,
-      sync_status: "not_configured",
-      last_synced_at: null,
-      included_repository_count: 0,
-      review_requested_count: 0,
-      authored_pr_attention_count: 0,
-      top_item_summary: null,
-    },
-    drive: {
-      enabled: false,
-      authenticated: false,
-      sync_status: "not_configured",
-      last_synced_at: null,
-      included_folder_count: 0,
-      included_file_count: 0,
-      indexed_file_count: 0,
-      indexed_doc_count: 0,
-      indexed_sheet_count: 0,
-      top_item_summary: null,
-    },
-    autopilot: {
-      enabled: true,
-      mode: "continuous",
-      readiness: "degraded",
-      running: false,
-      last_success_at: null,
-      stale_profile_count: 0,
-      top_item_summary: null,
-    },
-    review: {
-      ready_package_count: 0,
-      open_tuning_proposal_count: 0,
-      unused_package_count_7d: 0,
-      top_review_summary: null,
-      refreshed_at: null,
-      refresh_state: "empty",
-      package_open_rate_14d: 0,
-      package_acted_on_rate_14d: 0,
-      stale_unused_rate_14d: 0,
-      notification_action_conversion_rate_14d: 0,
-      week_over_week_open_rate_delta: 0,
-      week_over_week_action_rate_delta: 0,
-      week_over_week_notification_action_conversion_delta: 0,
-      top_review_trend_surface: null,
-      calibration_status: "watch",
-      surfaces_off_track_count: 0,
-      notification_budget_pressure_count: 0,
-      top_calibration_surface: null,
-    },
-    desktop: emptyDesktopStatus(),
-  };
+	const maintenanceWindow = emptyMaintenanceWindowSummary();
+	const repairPlan = emptyRepairPlan(generatedAt);
+	const maintenanceFollowThrough =
+		emptyMaintenanceFollowThroughSummary(generatedAt);
+	return {
+		generated_at: generatedAt,
+		service_version: "Loading…",
+		state: "degraded",
+		first_repair_step: null,
+		workspace_home: emptyWorkspaceHomeSummary(),
+		repair_plan: repairPlan,
+		maintenance_window: maintenanceWindow,
+		maintenance_follow_through: maintenanceFollowThrough,
+		maintenance_escalation: emptyMaintenanceEscalationSummary(),
+		maintenance_scheduling: emptyMaintenanceSchedulingSummary(),
+		maintenance_commitment: emptyMaintenanceCommitmentSummary(),
+		maintenance_defer_memory: emptyMaintenanceDeferMemorySummary(),
+		maintenance_confidence: emptyMaintenanceConfidenceSummary(),
+		maintenance_operating_block: emptyMaintenanceOperatingBlockSummary(),
+		maintenance_decision_explanation:
+			emptyMaintenanceDecisionExplanationSummary(),
+		maintenance_repair_convergence: emptyMaintenanceRepairConvergenceSummary(),
+		daemon_reachable: true,
+		send_enabled: false,
+		send_policy: {
+			permanent_enabled: false,
+			window_active: false,
+			window_expires_at: null,
+			effective_enabled: false,
+		},
+		mailbox: {
+			configured: null,
+			connected: null,
+			matches_configuration: false,
+			oauth_client_configured: false,
+			keychain_token_present: false,
+		},
+		launch_agent: {
+			exists: false,
+			loaded: false,
+			label: "Loading…",
+		},
+		machine: {
+			machine_id: null,
+			machine_label: null,
+			hostname: null,
+			state_origin: "native",
+			last_restore: null,
+			last_snapshot_source_machine: null,
+		},
+		schema: {
+			current_version: 0,
+			expected_version: 0,
+			compatible: true,
+			compatibility_message: "Loading schema status.",
+		},
+		review_queue: {
+			pending_count: 0,
+			opened_count: 0,
+			total_count: 0,
+		},
+		approval_queue: {
+			pending_count: 0,
+			approved_count: 0,
+			sending_count: 0,
+			send_failed_count: 0,
+			total_count: 0,
+		},
+		tasks: {
+			pending_count: 0,
+			in_progress_count: 0,
+			completed_count: 0,
+			canceled_count: 0,
+			active_count: 0,
+			historical_count: 0,
+			total_count: 0,
+			top_item_summary: null,
+		},
+		task_suggestions: {
+			pending_count: 0,
+			accepted_count: 0,
+			rejected_count: 0,
+			active_count: 0,
+			historical_count: 0,
+			total_count: 0,
+			top_item_summary: null,
+		},
+		planning_recommendations: {
+			pending_count: 0,
+			snoozed_count: 0,
+			applied_count: 0,
+			rejected_count: 0,
+			expired_count: 0,
+			superseded_count: 0,
+			scheduled_count: 0,
+			completed_count: 0,
+			canceled_count: 0,
+			dismissed_count: 0,
+			handled_elsewhere_count: 0,
+			source_resolved_count: 0,
+			manual_scheduling_count: 0,
+			stale_pending_count: 0,
+			stale_scheduled_count: 0,
+			resurfaced_source_count: 0,
+			closed_last_7d: 0,
+			closed_last_30d: 0,
+			completed_last_30d: 0,
+			handled_elsewhere_last_30d: 0,
+			median_time_to_first_action_minutes: null,
+			median_time_to_close_minutes: null,
+			active_count: 0,
+			historical_count: 0,
+			total_count: 0,
+			top_group_summary: null,
+			top_item_summary: null,
+			top_next_action_summary: null,
+			blocked_group_summary: null,
+			top_backlog_summary: null,
+			top_closure_summary: null,
+			top_hygiene_summary: null,
+			dominant_backlog_summary: null,
+			top_suppression_candidate_summary: null,
+			review_needed_count: 0,
+			top_review_needed_summary: null,
+			reviewed_fresh_count: 0,
+			reviewed_stale_count: 0,
+			proposal_open_count: 0,
+			proposal_stale_count: 0,
+			proposal_dismissed_count: 0,
+			top_reviewed_stale_summary: null,
+			top_proposal_open_summary: null,
+			top_proposal_stale_summary: null,
+			policy_attention_kind: "none",
+			top_policy_attention_summary: null,
+			pending_by_group: {
+				urgent_unscheduled_tasks: 0,
+				urgent_inbox_followups: 0,
+				near_term_meeting_prep: 0,
+			},
+		},
+		snapshot_latest: undefined,
+		checks_summary: {
+			pass: 0,
+			warn: 1,
+			fail: 0,
+		},
+		worklist_summary: {
+			critical_count: 0,
+			warn_count: 0,
+			info_count: 0,
+			top_item_summary: "The console shell is loading local operator state.",
+		},
+		inbox: {
+			sync_status: "not_configured",
+			last_history_id: null,
+			last_synced_at: null,
+			unread_thread_count: 0,
+			followup_thread_count: 0,
+			total_thread_count: 0,
+			top_item_summary: null,
+		},
+		calendar: {
+			enabled: false,
+			sync_status: "not_configured",
+			last_synced_at: null,
+			calendars_synced_count: 0,
+			events_synced_count: 0,
+			owned_writable_calendar_count: 0,
+			personal_ops_active_event_count: 0,
+			linked_scheduled_task_count: 0,
+			conflict_count_next_24h: 0,
+			next_upcoming_event_summary: null,
+			top_item_summary: null,
+			top_scheduling_item_summary: null,
+		},
+		github: {
+			enabled: false,
+			connected_login: null,
+			authenticated: false,
+			sync_status: "not_configured",
+			last_synced_at: null,
+			included_repository_count: 0,
+			review_requested_count: 0,
+			authored_pr_attention_count: 0,
+			top_item_summary: null,
+		},
+		drive: {
+			enabled: false,
+			authenticated: false,
+			sync_status: "not_configured",
+			last_synced_at: null,
+			included_folder_count: 0,
+			included_file_count: 0,
+			indexed_file_count: 0,
+			indexed_doc_count: 0,
+			indexed_sheet_count: 0,
+			top_item_summary: null,
+		},
+		autopilot: {
+			enabled: true,
+			mode: "continuous",
+			readiness: "degraded",
+			running: false,
+			last_success_at: null,
+			stale_profile_count: 0,
+			top_item_summary: null,
+		},
+		review: {
+			ready_package_count: 0,
+			open_tuning_proposal_count: 0,
+			unused_package_count_7d: 0,
+			top_review_summary: null,
+			refreshed_at: null,
+			refresh_state: "empty",
+			package_open_rate_14d: 0,
+			package_acted_on_rate_14d: 0,
+			stale_unused_rate_14d: 0,
+			notification_action_conversion_rate_14d: 0,
+			week_over_week_open_rate_delta: 0,
+			week_over_week_action_rate_delta: 0,
+			week_over_week_notification_action_conversion_delta: 0,
+			top_review_trend_surface: null,
+			calibration_status: "watch",
+			surfaces_off_track_count: 0,
+			notification_budget_pressure_count: 0,
+			top_calibration_surface: null,
+		},
+		desktop: emptyDesktopStatus(),
+	};
 }
 
 function buildBootstrapConsolePayload(): ConsolePayload {
-  const generatedAt = new Date().toISOString();
-  const status = buildBootstrapStatusReport(generatedAt);
-  return buildCoreConsolePayload({
-    status,
-    worklist: {
-      generated_at: generatedAt,
-      state: status.state,
-      counts_by_severity: {
-        info: 0,
-        warn: 0,
-        critical: 0,
-      },
-      send_window: {
-        active: false,
-      },
-      planning_groups: [],
-      maintenance_window: status.maintenance_window,
-      maintenance_follow_through: status.maintenance_follow_through,
-      maintenance_escalation: status.maintenance_escalation,
-      maintenance_scheduling: status.maintenance_scheduling,
-      maintenance_commitment: status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
-      maintenance_defer_memory: status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
-      maintenance_confidence: status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
-      maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
-      maintenance_decision_explanation:
-        status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
-      maintenance_repair_convergence:
-        status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
-      items: [],
-    },
-    nowNextWorkflow: {
-      workflow: "now-next",
-      generated_at: generatedAt,
-      readiness: status.state,
-      summary: "Local control plane needs attention while the first snapshot loads. Open Worklist if you want the safe fallback right away.",
-      sections: [],
-      actions: [
-        {
-          label: "Open related detail",
-          summary: "Open the worklist fallback while the full now-next bundle finishes loading.",
-          command: "personal-ops worklist",
-          target_type: "placeholder",
-          target_id: "now-next-loading",
-          why_now: "This keeps the safe CLI-backed navigation path available immediately.",
-          score_band: "medium",
-          signals: ["loading"],
-        },
-      ],
-      first_repair_step: null,
-      maintenance_follow_through: status.maintenance_follow_through,
-      maintenance_escalation: status.maintenance_escalation,
-      maintenance_scheduling: status.maintenance_scheduling,
-      maintenance_commitment: status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
-      maintenance_defer_memory: status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
-      maintenance_confidence: status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
-      maintenance_operating_block: status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
-      maintenance_decision_explanation:
-        status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
-      maintenance_repair_convergence:
-        status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
-    },
-    prepDayWorkflow: emptyWorkflowReport(
-      generatedAt,
-      "prep-day",
-      status.state,
-      "Day-start workflow is loading.",
-    ),
-  });
+	const generatedAt = new Date().toISOString();
+	const status = buildBootstrapStatusReport(generatedAt);
+	return buildCoreConsolePayload({
+		status,
+		worklist: {
+			generated_at: generatedAt,
+			state: status.state,
+			counts_by_severity: {
+				info: 0,
+				warn: 0,
+				critical: 0,
+			},
+			send_window: {
+				active: false,
+			},
+			planning_groups: [],
+			maintenance_window: status.maintenance_window,
+			maintenance_follow_through: status.maintenance_follow_through,
+			maintenance_escalation: status.maintenance_escalation,
+			maintenance_scheduling: status.maintenance_scheduling,
+			maintenance_commitment:
+				status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
+			maintenance_defer_memory:
+				status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+			maintenance_confidence:
+				status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+			maintenance_operating_block:
+				status.maintenance_operating_block ??
+				emptyMaintenanceOperatingBlockSummary(),
+			maintenance_decision_explanation:
+				status.maintenance_decision_explanation ??
+				emptyMaintenanceDecisionExplanationSummary(),
+			maintenance_repair_convergence:
+				status.maintenance_repair_convergence ??
+				emptyMaintenanceRepairConvergenceSummary(),
+			items: [],
+		},
+		nowNextWorkflow: {
+			workflow: "now-next",
+			generated_at: generatedAt,
+			readiness: status.state,
+			summary:
+				"Local control plane needs attention while the first snapshot loads. Open Worklist if you want the safe fallback right away.",
+			sections: [],
+			actions: [
+				{
+					label: "Open related detail",
+					summary:
+						"Open the worklist fallback while the full now-next bundle finishes loading.",
+					command: "personal-ops worklist",
+					target_type: "placeholder",
+					target_id: "now-next-loading",
+					why_now:
+						"This keeps the safe CLI-backed navigation path available immediately.",
+					score_band: "medium",
+					signals: ["loading"],
+				},
+			],
+			first_repair_step: null,
+			maintenance_follow_through: status.maintenance_follow_through,
+			maintenance_escalation: status.maintenance_escalation,
+			maintenance_scheduling: status.maintenance_scheduling,
+			maintenance_commitment:
+				status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
+			maintenance_defer_memory:
+				status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
+			maintenance_confidence:
+				status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
+			maintenance_operating_block:
+				status.maintenance_operating_block ??
+				emptyMaintenanceOperatingBlockSummary(),
+			maintenance_decision_explanation:
+				status.maintenance_decision_explanation ??
+				emptyMaintenanceDecisionExplanationSummary(),
+			maintenance_repair_convergence:
+				status.maintenance_repair_convergence ??
+				emptyMaintenanceRepairConvergenceSummary(),
+		},
+		prepDayWorkflow: emptyWorkflowReport(
+			generatedAt,
+			"prep-day",
+			status.state,
+			"Day-start workflow is loading.",
+		),
+	});
 }
 
 function buildCoreConsolePayload(input: {
-  status: ServiceStatusReport;
-  worklist: WorklistReport;
-  nowNextWorkflow: WorkflowBundleReport;
-  prepDayWorkflow: WorkflowBundleReport;
+	status: ServiceStatusReport;
+	worklist: WorklistReport;
+	nowNextWorkflow: WorkflowBundleReport;
+	prepDayWorkflow: WorkflowBundleReport;
 }): ConsolePayload {
-  const generatedAt = input.status.generated_at;
-  const readiness = input.status.state;
-  const doctor: DoctorReport = {
-    generated_at: generatedAt,
-    state: readiness,
-    deep: false,
-    first_repair_step: input.status.first_repair_step,
-    repair_plan: input.status.repair_plan,
-    summary: { pass: 0, warn: 0, fail: 0 },
-    checks: [],
-  };
-  return {
-    status: input.status,
-    autopilot: {
-      enabled: true,
-      mode: "continuous",
-      readiness,
-      running: false,
-      last_run_at: null,
-      last_success_at: null,
-      last_failure_at: null,
-      last_trigger: null,
-      top_item_summary: null,
-      first_repair_step: input.status.first_repair_step,
-      profiles: [],
-    },
-    worklist: input.worklist,
-    assistantQueue: {
-      generated_at: generatedAt,
-      readiness,
-      summary: "Assistant queue is loading.",
-      counts_by_state: {
-        proposed: 0,
-        running: 0,
-        awaiting_review: 0,
-        blocked: 0,
-        completed: 0,
-        failed: 0,
-      },
-      top_item_summary: null,
-      actions: [],
-    },
-    inboxAutopilot: {
-      generated_at: generatedAt,
-      readiness,
-      summary: "Inbox autopilot is loading.",
-      top_item_summary: null,
-      prepared_draft_count: 0,
-      groups: [],
-    },
-    outboundAutopilot: {
-      generated_at: generatedAt,
-      readiness,
-      summary: "Outbound autopilot is loading.",
-      top_item_summary: null,
-      send_window: {
-        active: false,
-        effective_send_enabled: false,
-        permanent_send_enabled: false,
-      },
-      groups: [],
-    },
-    nowNextWorkflow: input.nowNextWorkflow,
-    prepDayWorkflow: input.prepDayWorkflow,
-    prepMeetingsWorkflow: emptyWorkflowReport(generatedAt, "prep-meetings", readiness, "Meeting prep is loading."),
-    doctor,
-    approvals: [],
-    drafts: [],
-    reviewItems: [],
-    planningSummary: {
-      generated_at: generatedAt,
-      open_count: 0,
-      stale_count: 0,
-      manual_scheduling_count: 0,
-      closed_last_7d: 0,
-      closed_last_30d: 0,
-      review_needed_count: 0,
-      reviewed_fresh_count: 0,
-      reviewed_stale_count: 0,
-      proposal_open_count: 0,
-      proposal_stale_count: 0,
-      proposal_dismissed_count: 0,
-    },
-    planningAutopilot: {
-      generated_at: generatedAt,
-      readiness,
-      summary: "Planning autopilot is loading.",
-      top_item_summary: null,
-      prepared_bundle_count: 0,
-      bundles: [],
-    },
-    reviewPackages: {
-      generated_at: generatedAt,
-      readiness,
-      refreshed_at: null,
-      refresh_state: "empty",
-      summary: "Review packages are loading.",
-      top_item_summary: null,
-      open_tuning_proposal_count: 0,
-      unused_package_count_7d: 0,
-      packages: [],
-    },
-    reviewTuning: {
-      generated_at: generatedAt,
-      refreshed_at: null,
-      refresh_state: "empty",
-      summary: "Review tuning is loading.",
-      open_proposal_count: 0,
-      proposals: [],
-    },
-    reviewCalibration: {
-      generated_at: generatedAt,
-      window_days: 14,
-      calibration_window_days: 14,
-      notification_budget_window_days: 7,
-      notification_window_days: 7,
-      global: {} as ReviewCalibrationReport["global"],
-      surfaces: [],
-      surfaces_off_track_count: 0,
-      notification_budget_pressure_count: 0,
-      recommendations: [],
-    },
-    reviewReport: {
-      generated_at: generatedAt,
-      window_days: 14,
-      summary: {
-        created_count: 0,
-        opened_count: 0,
-        acted_on_count: 0,
-        completed_count: 0,
-        stale_unused_count: 0,
-        disappeared_count: 0,
-        open_rate: 0,
-        acted_on_rate: 0,
-        stale_unused_rate: 0,
-        notification_open_conversion_rate: 0,
-        notification_action_conversion_rate: 0,
-      },
-      surfaces: [],
-      proposal_outcomes: {
-        proposed_count: 0,
-        approved_count: 0,
-        dismissed_count: 0,
-        reopened_count: 0,
-        active_state_counts: [],
-      },
-      notification_performance: {
-        fired_count: 0,
-        suppressed_count: 0,
-        cooldown_hit_count: 0,
-        notification_open_conversion_rate: 0,
-        notification_action_conversion_rate: 0,
-      },
-      top_noisy_sources: [],
-    },
-    reviewTrends: {
-      generated_at: generatedAt,
-      days: 30,
-      points: [],
-      summary: {
-        latest_snapshot_date: null,
-        average_open_rate: 0,
-        average_acted_on_rate: 0,
-        average_stale_unused_rate: 0,
-        average_notification_action_conversion_rate: 0,
-        week_over_week_open_rate_delta: 0,
-        week_over_week_action_rate_delta: 0,
-        week_over_week_stale_unused_rate_delta: 0,
-        week_over_week_notification_action_conversion_delta: 0,
-        top_review_trend_surface: null,
-      },
-    },
-    reviewImpact: {
-      generated_at: generatedAt,
-      days: 30,
-      comparisons: [],
-    },
-    reviewWeekly: {
-      generated_at: generatedAt,
-      days: 14,
-      current_period: {
-        created_count: 0,
-        opened_count: 0,
-        acted_on_count: 0,
-        completed_count: 0,
-        stale_unused_count: 0,
-        open_rate: 0,
-        acted_on_rate: 0,
-        stale_unused_rate: 0,
-        fired_notification_count: 0,
-        suppressed_notification_count: 0,
-        cooldown_hit_count: 0,
-        notification_open_conversion_rate: 0,
-        notification_action_conversion_rate: 0,
-        noisy_source_count: 0,
-        open_tuning_proposal_count: 0,
-        active_tuning_state_count: 0,
-      },
-      previous_period: {
-        created_count: 0,
-        opened_count: 0,
-        acted_on_count: 0,
-        completed_count: 0,
-        stale_unused_count: 0,
-        open_rate: 0,
-        acted_on_rate: 0,
-        stale_unused_rate: 0,
-        fired_notification_count: 0,
-        suppressed_notification_count: 0,
-        cooldown_hit_count: 0,
-        notification_open_conversion_rate: 0,
-        notification_action_conversion_rate: 0,
-        noisy_source_count: 0,
-        open_tuning_proposal_count: 0,
-        active_tuning_state_count: 0,
-      },
-      week_over_week_open_rate_delta: 0,
-      week_over_week_action_rate_delta: 0,
-      week_over_week_notification_action_conversion_delta: 0,
-      top_review_trend_surface: null,
-      surfaces: [],
-      top_noisy_sources: [],
-      recent_tuning_impact: [],
-      recommendations: [],
-    },
-    planningGroups: [],
-    planningNext: null,
-    audit: [],
-    snapshots: [],
-  };
+	const generatedAt = input.status.generated_at;
+	const readiness = input.status.state;
+	const doctor: DoctorReport = {
+		generated_at: generatedAt,
+		state: readiness,
+		deep: false,
+		first_repair_step: input.status.first_repair_step,
+		repair_plan: input.status.repair_plan,
+		summary: { pass: 0, warn: 0, fail: 0 },
+		checks: [],
+	};
+	return {
+		status: input.status,
+		autopilot: {
+			enabled: true,
+			mode: "continuous",
+			readiness,
+			running: false,
+			last_run_at: null,
+			last_success_at: null,
+			last_failure_at: null,
+			last_trigger: null,
+			top_item_summary: null,
+			first_repair_step: input.status.first_repair_step,
+			profiles: [],
+		},
+		worklist: input.worklist,
+		assistantQueue: {
+			generated_at: generatedAt,
+			readiness,
+			summary: "Assistant queue is loading.",
+			counts_by_state: {
+				proposed: 0,
+				running: 0,
+				awaiting_review: 0,
+				blocked: 0,
+				completed: 0,
+				failed: 0,
+			},
+			top_item_summary: null,
+			actions: [],
+		},
+		inboxAutopilot: {
+			generated_at: generatedAt,
+			readiness,
+			summary: "Inbox autopilot is loading.",
+			top_item_summary: null,
+			prepared_draft_count: 0,
+			groups: [],
+		},
+		outboundAutopilot: {
+			generated_at: generatedAt,
+			readiness,
+			summary: "Outbound autopilot is loading.",
+			top_item_summary: null,
+			send_window: {
+				active: false,
+				effective_send_enabled: false,
+				permanent_send_enabled: false,
+			},
+			groups: [],
+		},
+		nowNextWorkflow: input.nowNextWorkflow,
+		prepDayWorkflow: input.prepDayWorkflow,
+		prepMeetingsWorkflow: emptyWorkflowReport(
+			generatedAt,
+			"prep-meetings",
+			readiness,
+			"Meeting prep is loading.",
+		),
+		doctor,
+		approvals: [],
+		drafts: [],
+		reviewItems: [],
+		planningSummary: {
+			generated_at: generatedAt,
+			open_count: 0,
+			stale_count: 0,
+			manual_scheduling_count: 0,
+			closed_last_7d: 0,
+			closed_last_30d: 0,
+			review_needed_count: 0,
+			reviewed_fresh_count: 0,
+			reviewed_stale_count: 0,
+			proposal_open_count: 0,
+			proposal_stale_count: 0,
+			proposal_dismissed_count: 0,
+		},
+		planningAutopilot: {
+			generated_at: generatedAt,
+			readiness,
+			summary: "Planning autopilot is loading.",
+			top_item_summary: null,
+			prepared_bundle_count: 0,
+			bundles: [],
+		},
+		reviewPackages: {
+			generated_at: generatedAt,
+			readiness,
+			refreshed_at: null,
+			refresh_state: "empty",
+			summary: "Review packages are loading.",
+			top_item_summary: null,
+			open_tuning_proposal_count: 0,
+			unused_package_count_7d: 0,
+			packages: [],
+		},
+		reviewTuning: {
+			generated_at: generatedAt,
+			refreshed_at: null,
+			refresh_state: "empty",
+			summary: "Review tuning is loading.",
+			open_proposal_count: 0,
+			proposals: [],
+		},
+		reviewCalibration: {
+			generated_at: generatedAt,
+			window_days: 14,
+			calibration_window_days: 14,
+			notification_budget_window_days: 7,
+			notification_window_days: 7,
+			global: {} as ReviewCalibrationReport["global"],
+			surfaces: [],
+			surfaces_off_track_count: 0,
+			notification_budget_pressure_count: 0,
+			recommendations: [],
+		},
+		reviewReport: {
+			generated_at: generatedAt,
+			window_days: 14,
+			summary: {
+				created_count: 0,
+				opened_count: 0,
+				acted_on_count: 0,
+				completed_count: 0,
+				stale_unused_count: 0,
+				disappeared_count: 0,
+				open_rate: 0,
+				acted_on_rate: 0,
+				stale_unused_rate: 0,
+				notification_open_conversion_rate: 0,
+				notification_action_conversion_rate: 0,
+			},
+			surfaces: [],
+			proposal_outcomes: {
+				proposed_count: 0,
+				approved_count: 0,
+				dismissed_count: 0,
+				reopened_count: 0,
+				active_state_counts: [],
+			},
+			notification_performance: {
+				fired_count: 0,
+				suppressed_count: 0,
+				cooldown_hit_count: 0,
+				notification_open_conversion_rate: 0,
+				notification_action_conversion_rate: 0,
+			},
+			top_noisy_sources: [],
+		},
+		reviewTrends: {
+			generated_at: generatedAt,
+			days: 30,
+			points: [],
+			summary: {
+				latest_snapshot_date: null,
+				average_open_rate: 0,
+				average_acted_on_rate: 0,
+				average_stale_unused_rate: 0,
+				average_notification_action_conversion_rate: 0,
+				week_over_week_open_rate_delta: 0,
+				week_over_week_action_rate_delta: 0,
+				week_over_week_stale_unused_rate_delta: 0,
+				week_over_week_notification_action_conversion_delta: 0,
+				top_review_trend_surface: null,
+			},
+		},
+		reviewImpact: {
+			generated_at: generatedAt,
+			days: 30,
+			comparisons: [],
+		},
+		reviewWeekly: {
+			generated_at: generatedAt,
+			days: 14,
+			current_period: {
+				created_count: 0,
+				opened_count: 0,
+				acted_on_count: 0,
+				completed_count: 0,
+				stale_unused_count: 0,
+				open_rate: 0,
+				acted_on_rate: 0,
+				stale_unused_rate: 0,
+				fired_notification_count: 0,
+				suppressed_notification_count: 0,
+				cooldown_hit_count: 0,
+				notification_open_conversion_rate: 0,
+				notification_action_conversion_rate: 0,
+				noisy_source_count: 0,
+				open_tuning_proposal_count: 0,
+				active_tuning_state_count: 0,
+			},
+			previous_period: {
+				created_count: 0,
+				opened_count: 0,
+				acted_on_count: 0,
+				completed_count: 0,
+				stale_unused_count: 0,
+				open_rate: 0,
+				acted_on_rate: 0,
+				stale_unused_rate: 0,
+				fired_notification_count: 0,
+				suppressed_notification_count: 0,
+				cooldown_hit_count: 0,
+				notification_open_conversion_rate: 0,
+				notification_action_conversion_rate: 0,
+				noisy_source_count: 0,
+				open_tuning_proposal_count: 0,
+				active_tuning_state_count: 0,
+			},
+			week_over_week_open_rate_delta: 0,
+			week_over_week_action_rate_delta: 0,
+			week_over_week_notification_action_conversion_delta: 0,
+			top_review_trend_surface: null,
+			surfaces: [],
+			top_noisy_sources: [],
+			recent_tuning_impact: [],
+			recommendations: [],
+		},
+		planningGroups: [],
+		planningNext: null,
+		audit: [],
+		snapshots: [],
+	};
 }
 
 async function loadCorePayload(): Promise<ConsolePayload> {
-  const statusResponse = await fetchJson<StatusResponse>("/v1/status?skip_derived=1");
-  return buildCoreConsolePayload({
-    status: statusResponse.status,
-    worklist: {
-      generated_at: statusResponse.status.generated_at,
-      state: statusResponse.status.state,
-      counts_by_severity: {
-        info: 0,
-        warn: 0,
-        critical: 0,
-      },
-      send_window: {
-        active: false,
-      },
-      planning_groups: [],
-      maintenance_window: statusResponse.status.maintenance_window,
-      maintenance_follow_through: statusResponse.status.maintenance_follow_through,
-      maintenance_escalation: statusResponse.status.maintenance_escalation,
-      maintenance_scheduling: statusResponse.status.maintenance_scheduling,
-      maintenance_commitment: statusResponse.status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
-      maintenance_defer_memory: statusResponse.status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
-      maintenance_confidence: statusResponse.status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
-      maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
-      maintenance_decision_explanation:
-        statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
-      maintenance_repair_convergence:
-        statusResponse.status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
-      items: [],
-    },
-    nowNextWorkflow: {
-      workflow: "now-next",
-      generated_at: statusResponse.status.generated_at,
-      readiness: statusResponse.status.state,
-      summary: "Loading the bounded next-step bundle. Open Worklist if you want the stable CLI-safe fallback first.",
-      sections: [],
-      actions: [
-        {
-          label: "Open the worklist fallback",
-          summary: "Jump into the worklist while the now-next bundle finishes loading.",
-          command: "personal-ops worklist",
-          target_type: "placeholder",
-          target_id: "now-next-loading",
-          why_now: "This keeps the operator path available even while workflow hydration is still in progress.",
-          score_band: "medium",
-          signals: ["loading"],
-        },
-      ],
-      first_repair_step: statusResponse.status.first_repair_step,
-      maintenance_follow_through: statusResponse.status.maintenance_follow_through,
-      maintenance_escalation: statusResponse.status.maintenance_escalation,
-      maintenance_scheduling: statusResponse.status.maintenance_scheduling,
-      maintenance_commitment: statusResponse.status.maintenance_commitment ?? emptyMaintenanceCommitmentSummary(),
-      maintenance_defer_memory: statusResponse.status.maintenance_defer_memory ?? emptyMaintenanceDeferMemorySummary(),
-      maintenance_confidence: statusResponse.status.maintenance_confidence ?? emptyMaintenanceConfidenceSummary(),
-      maintenance_operating_block: statusResponse.status.maintenance_operating_block ?? emptyMaintenanceOperatingBlockSummary(),
-      maintenance_decision_explanation:
-        statusResponse.status.maintenance_decision_explanation ?? emptyMaintenanceDecisionExplanationSummary(),
-      maintenance_repair_convergence:
-        statusResponse.status.maintenance_repair_convergence ?? emptyMaintenanceRepairConvergenceSummary(),
-    },
-    prepDayWorkflow: emptyWorkflowReport(
-      statusResponse.status.generated_at,
-      "prep-day",
-      statusResponse.status.state,
-      "Day-start workflow is loading.",
-    ),
-  });
+	const statusResponse = await fetchJson<StatusResponse>(
+		"/v1/status?skip_derived=1",
+	);
+	return buildCoreConsolePayload({
+		status: statusResponse.status,
+		worklist: {
+			generated_at: statusResponse.status.generated_at,
+			state: statusResponse.status.state,
+			counts_by_severity: {
+				info: 0,
+				warn: 0,
+				critical: 0,
+			},
+			send_window: {
+				active: false,
+			},
+			planning_groups: [],
+			maintenance_window: statusResponse.status.maintenance_window,
+			maintenance_follow_through:
+				statusResponse.status.maintenance_follow_through,
+			maintenance_escalation: statusResponse.status.maintenance_escalation,
+			maintenance_scheduling: statusResponse.status.maintenance_scheduling,
+			maintenance_commitment:
+				statusResponse.status.maintenance_commitment ??
+				emptyMaintenanceCommitmentSummary(),
+			maintenance_defer_memory:
+				statusResponse.status.maintenance_defer_memory ??
+				emptyMaintenanceDeferMemorySummary(),
+			maintenance_confidence:
+				statusResponse.status.maintenance_confidence ??
+				emptyMaintenanceConfidenceSummary(),
+			maintenance_operating_block:
+				statusResponse.status.maintenance_operating_block ??
+				emptyMaintenanceOperatingBlockSummary(),
+			maintenance_decision_explanation:
+				statusResponse.status.maintenance_decision_explanation ??
+				emptyMaintenanceDecisionExplanationSummary(),
+			maintenance_repair_convergence:
+				statusResponse.status.maintenance_repair_convergence ??
+				emptyMaintenanceRepairConvergenceSummary(),
+			items: [],
+		},
+		nowNextWorkflow: {
+			workflow: "now-next",
+			generated_at: statusResponse.status.generated_at,
+			readiness: statusResponse.status.state,
+			summary:
+				"Loading the bounded next-step bundle. Open Worklist if you want the stable CLI-safe fallback first.",
+			sections: [],
+			actions: [
+				{
+					label: "Open the worklist fallback",
+					summary:
+						"Jump into the worklist while the now-next bundle finishes loading.",
+					command: "personal-ops worklist",
+					target_type: "placeholder",
+					target_id: "now-next-loading",
+					why_now:
+						"This keeps the operator path available even while workflow hydration is still in progress.",
+					score_band: "medium",
+					signals: ["loading"],
+				},
+			],
+			first_repair_step: statusResponse.status.first_repair_step,
+			maintenance_follow_through:
+				statusResponse.status.maintenance_follow_through,
+			maintenance_escalation: statusResponse.status.maintenance_escalation,
+			maintenance_scheduling: statusResponse.status.maintenance_scheduling,
+			maintenance_commitment:
+				statusResponse.status.maintenance_commitment ??
+				emptyMaintenanceCommitmentSummary(),
+			maintenance_defer_memory:
+				statusResponse.status.maintenance_defer_memory ??
+				emptyMaintenanceDeferMemorySummary(),
+			maintenance_confidence:
+				statusResponse.status.maintenance_confidence ??
+				emptyMaintenanceConfidenceSummary(),
+			maintenance_operating_block:
+				statusResponse.status.maintenance_operating_block ??
+				emptyMaintenanceOperatingBlockSummary(),
+			maintenance_decision_explanation:
+				statusResponse.status.maintenance_decision_explanation ??
+				emptyMaintenanceDecisionExplanationSummary(),
+			maintenance_repair_convergence:
+				statusResponse.status.maintenance_repair_convergence ??
+				emptyMaintenanceRepairConvergenceSummary(),
+		},
+		prepDayWorkflow: emptyWorkflowReport(
+			statusResponse.status.generated_at,
+			"prep-day",
+			statusResponse.status.state,
+			"Day-start workflow is loading.",
+		),
+	});
 }
 
 async function hydrateCorePayload(generation: number): Promise<void> {
-  const corePayload = await loadCorePayload();
-  if (generation !== corePayloadGeneration || !state.payload) {
-    return;
-  }
-  state.payload = {
-    ...state.payload,
-    ...corePayload,
-  };
-  corePayloadLoaded = true;
-  resolveSelections(state.payload);
-  await loadSelectedDetails();
-  render();
+	const corePayload = await loadCorePayload();
+	if (generation !== corePayloadGeneration || !state.payload) {
+		return;
+	}
+	state.payload = {
+		...state.payload,
+		...corePayload,
+	};
+	corePayloadLoaded = true;
+	resolveSelections(state.payload);
+	await loadSelectedDetails();
+	render();
 }
 
 async function ensureCorePayloadLoaded(): Promise<void> {
-  if (corePayloadLoaded) {
-    return;
-  }
-  if (corePayloadTimer !== null) {
-    window.clearTimeout(corePayloadTimer);
-    corePayloadTimer = null;
-  }
-  if (!corePayloadPromise) {
-    const generation = corePayloadGeneration;
-    corePayloadPromise = hydrateCorePayload(generation)
-      .catch((error) => {
-        if (error instanceof SessionLockedError) {
-          renderLocked();
-          return;
-        }
-        setFlash(
-          `${error instanceof Error ? error.message : String(error)} Run personal-ops doctor if the console stays degraded after this first load.`,
-          "critical",
-        );
-        render();
-      })
-      .finally(() => {
-        corePayloadPromise = null;
-      });
-  }
-  await corePayloadPromise;
+	if (corePayloadLoaded) {
+		return;
+	}
+	if (corePayloadTimer !== null) {
+		window.clearTimeout(corePayloadTimer);
+		corePayloadTimer = null;
+	}
+	if (!corePayloadPromise) {
+		const generation = corePayloadGeneration;
+		corePayloadPromise = hydrateCorePayload(generation)
+			.catch((error) => {
+				if (error instanceof SessionLockedError) {
+					renderLocked();
+					return;
+				}
+				setFlash(
+					`${error instanceof Error ? error.message : String(error)} Run personal-ops doctor if the console stays degraded after this first load.`,
+					"critical",
+				);
+				render();
+			})
+			.finally(() => {
+				corePayloadPromise = null;
+			});
+	}
+	await corePayloadPromise;
 }
 
 function scheduleCorePayloadHydration(delayMs = 5_000): void {
-  if (corePayloadLoaded || corePayloadPromise || corePayloadTimer !== null) {
-    return;
-  }
-  const generation = corePayloadGeneration;
-  corePayloadTimer = window.setTimeout(() => {
-    corePayloadTimer = null;
-    if (generation !== corePayloadGeneration) {
-      return;
-    }
-    void ensureCorePayloadLoaded();
-  }, delayMs);
+	if (corePayloadLoaded || corePayloadPromise || corePayloadTimer !== null) {
+		return;
+	}
+	const generation = corePayloadGeneration;
+	corePayloadTimer = window.setTimeout(() => {
+		corePayloadTimer = null;
+		if (generation !== corePayloadGeneration) {
+			return;
+		}
+		void ensureCorePayloadLoaded();
+	}, delayMs);
 }
 
 async function loadDeferredPayload(): Promise<Partial<ConsolePayload>> {
-  const [
-    autopilotResponse,
-    worklistResponse,
-    nowNextWorkflowResponse,
-    assistantQueueResponse,
-    inboxAutopilotResponse,
-    outboundAutopilotResponse,
-    workflowResponse,
-    prepMeetingsWorkflowResponse,
-    approvalsResponse,
-    draftsResponse,
-    reviewQueueResponse,
-    reviewPackagesResponse,
-    reviewTuningResponse,
-  ] = await Promise.all([
-    fetchJson<AutopilotResponse>("/v1/autopilot/status"),
-    fetchJson<WorklistResponse>("/v1/worklist"),
-    fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
-    fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
-    fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
-    fetchJson<OutboundAutopilotResponse>("/v1/outbound/autopilot"),
-    fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
-    fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
-    fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
-    fetchJson<DraftResponse>("/v1/mail/drafts"),
-    fetchJson<ReviewQueueResponse>("/v1/review-queue"),
-    fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
-    fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
-  ]);
+	const [
+		autopilotResponse,
+		worklistResponse,
+		nowNextWorkflowResponse,
+		assistantQueueResponse,
+		inboxAutopilotResponse,
+		outboundAutopilotResponse,
+		workflowResponse,
+		prepMeetingsWorkflowResponse,
+		approvalsResponse,
+		draftsResponse,
+		reviewQueueResponse,
+		reviewPackagesResponse,
+		reviewTuningResponse,
+	] = await Promise.all([
+		fetchJson<AutopilotResponse>("/v1/autopilot/status"),
+		fetchJson<WorklistResponse>("/v1/worklist"),
+		fetchJson<WorkflowResponse>("/v1/workflows/now-next"),
+		fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
+		fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
+		fetchJson<OutboundAutopilotResponse>("/v1/outbound/autopilot"),
+		fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
+		fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
+		fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
+		fetchJson<DraftResponse>("/v1/mail/drafts"),
+		fetchJson<ReviewQueueResponse>("/v1/review-queue"),
+		fetchJson<ReviewPackageReportResponse>("/v1/review/packages"),
+		fetchJson<ReviewTuningResponse>("/v1/review/tuning"),
+	]);
 
-  return {
-    autopilot: autopilotResponse.autopilot,
-    worklist: worklistResponse.worklist,
-    nowNextWorkflow: nowNextWorkflowResponse.workflow,
-    assistantQueue: assistantQueueResponse.assistant_queue,
-    inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
-    outboundAutopilot: outboundAutopilotResponse.outbound_autopilot,
-    prepDayWorkflow: workflowResponse.workflow,
-    prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
-    approvals: approvalsResponse.approval_requests,
-    drafts: draftsResponse.drafts,
-    reviewItems: reviewQueueResponse.review_items,
-    reviewPackages: reviewPackagesResponse.review_packages,
-    reviewTuning: reviewTuningResponse.review_tuning,
-  };
+	return {
+		autopilot: autopilotResponse.autopilot,
+		worklist: worklistResponse.worklist,
+		nowNextWorkflow: nowNextWorkflowResponse.workflow,
+		assistantQueue: assistantQueueResponse.assistant_queue,
+		inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
+		outboundAutopilot: outboundAutopilotResponse.outbound_autopilot,
+		prepDayWorkflow: workflowResponse.workflow,
+		prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
+		approvals: approvalsResponse.approval_requests,
+		drafts: draftsResponse.drafts,
+		reviewItems: reviewQueueResponse.review_items,
+		reviewPackages: reviewPackagesResponse.review_packages,
+		reviewTuning: reviewTuningResponse.review_tuning,
+	};
 }
 
 function topWorklistCommand(worklist: WorklistReport): string {
-  return worklist.items[0]?.suggested_command ?? "personal-ops worklist";
+	return worklist.items[0]?.suggested_command ?? "personal-ops worklist";
 }
 
-function autopilotGroupForThread(payload: ConsolePayload, threadId: string): InboxAutopilotGroup | null {
-  return payload.inboxAutopilot.groups.find((group) => group.threads.some((thread) => thread.thread_id === threadId)) ?? null;
+function autopilotGroupForThread(
+	payload: ConsolePayload,
+	threadId: string,
+): InboxAutopilotGroup | null {
+	return (
+		payload.inboxAutopilot.groups.find((group) =>
+			group.threads.some((thread) => thread.thread_id === threadId),
+		) ?? null
+	);
 }
 
-function autopilotGroupForDraft(payload: ConsolePayload, artifactId: string): InboxAutopilotGroup | null {
-  return payload.inboxAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+function autopilotGroupForDraft(
+	payload: ConsolePayload,
+	artifactId: string,
+): InboxAutopilotGroup | null {
+	return (
+		payload.inboxAutopilot.groups.find((group) =>
+			group.draft_artifact_ids.includes(artifactId),
+		) ?? null
+	);
 }
 
-function outboundGroupById(payload: ConsolePayload, groupId: string): OutboundAutopilotGroup | null {
-  return payload.outboundAutopilot.groups.find((group) => group.group_id === groupId) ?? null;
+function outboundGroupById(
+	payload: ConsolePayload,
+	groupId: string,
+): OutboundAutopilotGroup | null {
+	return (
+		payload.outboundAutopilot.groups.find(
+			(group) => group.group_id === groupId,
+		) ?? null
+	);
 }
 
-function outboundGroupForDraft(payload: ConsolePayload, artifactId: string): OutboundAutopilotGroup | null {
-  return payload.outboundAutopilot.groups.find((group) => group.draft_artifact_ids.includes(artifactId)) ?? null;
+function outboundGroupForDraft(
+	payload: ConsolePayload,
+	artifactId: string,
+): OutboundAutopilotGroup | null {
+	return (
+		payload.outboundAutopilot.groups.find((group) =>
+			group.draft_artifact_ids.includes(artifactId),
+		) ?? null
+	);
 }
 
-function outboundGroupForApproval(payload: ConsolePayload, approvalId: string): OutboundAutopilotGroup | null {
-  return payload.outboundAutopilot.groups.find((group) => group.approval_ids.includes(approvalId)) ?? null;
+function outboundGroupForApproval(
+	payload: ConsolePayload,
+	approvalId: string,
+): OutboundAutopilotGroup | null {
+	return (
+		payload.outboundAutopilot.groups.find((group) =>
+			group.approval_ids.includes(approvalId),
+		) ?? null
+	);
 }
 
-function planningBundleForRecommendation(payload: ConsolePayload, recommendationId: string): PlanningAutopilotBundle | null {
-  return payload.planningAutopilot.bundles.find((bundle) => bundle.recommendation_ids.includes(recommendationId)) ?? null;
+function planningBundleForRecommendation(
+	payload: ConsolePayload,
+	recommendationId: string,
+): PlanningAutopilotBundle | null {
+	return (
+		payload.planningAutopilot.bundles.find((bundle) =>
+			bundle.recommendation_ids.includes(recommendationId),
+		) ?? null
+	);
 }
 
-function planningBundleById(payload: ConsolePayload, bundleId: string): PlanningAutopilotBundle | null {
-  return payload.planningAutopilot.bundles.find((bundle) => bundle.bundle_id === bundleId) ?? null;
+function planningBundleById(
+	payload: ConsolePayload,
+	bundleId: string,
+): PlanningAutopilotBundle | null {
+	return (
+		payload.planningAutopilot.bundles.find(
+			(bundle) => bundle.bundle_id === bundleId,
+		) ?? null
+	);
 }
 
-function reviewItemForArtifact(payload: ConsolePayload, artifactId: string): ReviewItem | null {
-  return payload.reviewItems.find((review) => review.artifact_id === artifactId && review.state !== "resolved")
-    ?? payload.reviewItems.find((review) => review.artifact_id === artifactId)
-    ?? null;
+function reviewItemForArtifact(
+	payload: ConsolePayload,
+	artifactId: string,
+): ReviewItem | null {
+	return (
+		payload.reviewItems.find(
+			(review) =>
+				review.artifact_id === artifactId && review.state !== "resolved",
+		) ??
+		payload.reviewItems.find((review) => review.artifact_id === artifactId) ??
+		null
+	);
 }
 
 function reviewPackageCommand(packageId: string): string {
-  return `personal-ops review package ${packageId}`;
+	return `personal-ops review package ${packageId}`;
 }
 
 function reviewPackageFeedbackCommand(
-  packageId: string,
-  reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
-  packageItemId?: string,
+	packageId: string,
+	reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+	packageItemId?: string,
 ): string {
-  return `${reviewPackageCommand(packageId)} feedback --reason ${reason} --note "<reason>"${packageItemId ? ` --item ${packageItemId}` : ""}`;
+	return `${reviewPackageCommand(packageId)} feedback --reason ${reason} --note "<reason>"${packageItemId ? ` --item ${packageItemId}` : ""}`;
 }
 
 function renderReviewPackageCard(pkg: ReviewPackage): string {
-  return `
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>${escapeHtml(pkg.summary)}</h4>
@@ -1532,8 +1692,8 @@ function renderReviewPackageCard(pkg: ReviewPackage): string {
         <h4>Package items</h4>
         <ul>
           ${pkg.items
-            .map(
-              (item) => `
+						.map(
+							(item) => `
                 <li>
                   ${escapeHtml(item.title)} · ${escapeHtml(item.underlying_state)}
                   ${item.current_feedback_reason ? ` · feedback ${escapeHtml(item.current_feedback_reason)}` : ""}
@@ -1543,8 +1703,8 @@ function renderReviewPackageCard(pkg: ReviewPackage): string {
                   </div>
                 </li>
               `,
-            )
-            .join("")}
+						)
+						.join("")}
         </ul>
       </section>
       <div class="list-item__actions">
@@ -1561,7 +1721,7 @@ function renderReviewPackageCard(pkg: ReviewPackage): string {
 }
 
 function renderReviewTuningCard(proposal: ReviewTuningProposal): string {
-  return `
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>${escapeHtml(proposal.summary)}</h4>
@@ -1578,35 +1738,38 @@ function renderReviewTuningCard(proposal: ReviewTuningProposal): string {
 }
 
 function setFlash(message: string, tone: BannerTone = "good"): void {
-  state.flash = { message, tone };
+	state.flash = { message, tone };
 }
 
-function renderBannerCards(cards: Array<{ message: string; tone: BannerTone }>): void {
-  const { banner } = getShellElements();
-  if (cards.length === 0) {
-    banner.innerHTML = "";
-    return;
-  }
-  banner.innerHTML = cards
-    .map(
-      (card) =>
-        `<div class="banner__card banner__card--${escapeHtml(card.tone)}"><p>${escapeHtml(card.message)}</p></div>`,
-    )
-    .join("");
+function renderBannerCards(
+	cards: Array<{ message: string; tone: BannerTone }>,
+): void {
+	const { banner } = getShellElements();
+	if (cards.length === 0) {
+		banner.innerHTML = "";
+		return;
+	}
+	banner.innerHTML = cards
+		.map(
+			(card) =>
+				`<div class="banner__card banner__card--${escapeHtml(card.tone)}"><p>${escapeHtml(card.message)}</p></div>`,
+		)
+		.join("");
 }
 
 function renderLocked(): void {
-  const { content } = getShellElements();
-  if (hasBrowserWindow && window.parent && window.parent !== window) {
-    window.parent.postMessage({ type: "personal-ops-console-locked" }, "*");
-  }
-  renderBannerCards([
-    {
-      message: "Console session is missing or expired. Run `personal-ops console` to reopen the operator console.",
-      tone: "critical",
-    },
-  ]);
-  content.innerHTML = `
+	const { content } = getShellElements();
+	if (hasBrowserWindow && window.parent && window.parent !== window) {
+		window.parent.postMessage({ type: "personal-ops-console-locked" }, "*");
+	}
+	renderBannerCards([
+		{
+			message:
+				"Console session is missing or expired. Run `personal-ops console` to reopen the operator console.",
+			tone: "critical",
+		},
+	]);
+	content.innerHTML = `
     <section class="hero">
       <p class="eyebrow">Console locked</p>
       <h3>Local browser access uses a short-lived operator session.</h3>
@@ -1616,7 +1779,7 @@ function renderLocked(): void {
 }
 
 function metricCard(label: string, value: string, detail: string): string {
-  return `
+	return `
     <div class="metric">
       <p class="eyebrow">${escapeHtml(label)}</p>
       <p class="metric__value">${escapeHtml(value)}</p>
@@ -1626,11 +1789,11 @@ function metricCard(label: string, value: string, detail: string): string {
 }
 
 function asPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+	return `${(value * 100).toFixed(1)}%`;
 }
 
 function renderReviewReport(report: ReviewReport): string {
-  return `
+	return `
     <section class="detail-stack">
       <section class="hero">
         <p class="eyebrow">Review outcomes</p>
@@ -1650,11 +1813,11 @@ function renderReviewReport(report: ReviewReport): string {
           <section class="detail-card">
             <h3>Surface performance</h3>
             ${
-              report.surfaces.length === 0
-                ? `<div class="empty">No review activity was recorded in this reporting window.</div>`
-                : report.surfaces
-                    .map(
-                      (surface) => `
+							report.surfaces.length === 0
+								? `<div class="empty">No review activity was recorded in this reporting window.</div>`
+								: report.surfaces
+										.map(
+											(surface) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(surface.surface)}</h4>
@@ -1670,18 +1833,18 @@ function renderReviewReport(report: ReviewReport): string {
                           </div>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
           <section class="detail-card">
             <h3>Top noisy sources</h3>
             ${
-              report.top_noisy_sources.length === 0
-                ? `<div class="empty">No noisy sources were detected in this window.</div>`
-                : report.top_noisy_sources
-                    .map(
-                      (source) => `
+							report.top_noisy_sources.length === 0
+								? `<div class="empty">No noisy sources were detected in this window.</div>`
+								: report.top_noisy_sources
+										.map(
+											(source) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(source.scope_key)}</h4>
@@ -1691,9 +1854,9 @@ function renderReviewReport(report: ReviewReport): string {
                           <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
         </div>
         <div class="detail-stack">
@@ -1706,22 +1869,22 @@ function renderReviewReport(report: ReviewReport): string {
               <div class="detail-row"><dt>Reopened</dt><dd>${escapeHtml(String(report.proposal_outcomes.reopened_count))}</dd></div>
             </div>
             ${
-              report.proposal_outcomes.active_state_counts.length === 0
-                ? `<p class="subtle subtle--body">No active review tuning state is currently applied.</p>`
-                : `
+							report.proposal_outcomes.active_state_counts.length === 0
+								? `<p class="subtle subtle--body">No active review tuning state is currently applied.</p>`
+								: `
                   <section class="panel">
                     <h4>Active tuning by surface</h4>
                     <ul>
                       ${report.proposal_outcomes.active_state_counts
-                        .map(
-                          (entry) =>
-                            `<li>${escapeHtml(`${entry.surface} · ${entry.proposal_kind} · ${entry.count}`)}</li>`,
-                        )
-                        .join("")}
+												.map(
+													(entry) =>
+														`<li>${escapeHtml(`${entry.surface} · ${entry.proposal_kind} · ${entry.count}`)}</li>`,
+												)
+												.join("")}
                     </ul>
                   </section>
                 `
-            }
+						}
           </section>
           <section class="detail-card">
             <h3>Notification performance</h3>
@@ -1743,8 +1906,8 @@ function renderReviewReport(report: ReviewReport): string {
 }
 
 function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
-  const calibration = payload.reviewCalibration;
-  return `
+	const calibration = payload.reviewCalibration;
+	return `
     <section class="detail-stack">
       <section class="hero">
         <p class="eyebrow">Review calibration</p>
@@ -1764,11 +1927,11 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
           <section class="detail-card">
             <h3>Surface scorecard</h3>
             ${
-              calibration.surfaces.length === 0
-                ? `<div class="empty">No calibration surface summaries are available yet.</div>`
-                : calibration.surfaces
-                    .map(
-                      (surface) => `
+							calibration.surfaces.length === 0
+								? `<div class="empty">No calibration surface summaries are available yet.</div>`
+								: calibration.surfaces
+										.map(
+											(surface) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(surface.label)}</h4>
@@ -1777,34 +1940,34 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
                           <p>${escapeHtml(surface.reason)}</p>
                           <div class="detail-list detail-list--spaced">
                             ${surface.metrics
-                              .map(
-                                (metric) => `
+															.map(
+																(metric) => `
                                   <div class="detail-row">
                                     <dt>${escapeHtml(metric.label)}</dt>
                                     <dd>${escapeHtml(
-                                      metric.metric === "notifications_per_7d"
-                                        ? `${metric.actual_value.toFixed(0)} / ${metric.target_value.toFixed(0)}`
-                                        : `${asPercent(metric.actual_value)} / ${asPercent(metric.target_value)}`,
-                                    )}</dd>
+																			metric.metric === "notifications_per_7d"
+																				? `${metric.actual_value.toFixed(0)} / ${metric.target_value.toFixed(0)}`
+																				: `${asPercent(metric.actual_value)} / ${asPercent(metric.target_value)}`,
+																		)}</dd>
                                   </div>
                                 `,
-                              )
-                              .join("")}
+															)
+															.join("")}
                           </div>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
           <section class="detail-card">
             <h3>Top noisy sources</h3>
             ${
-              calibration.global.top_noisy_sources.length === 0
-                ? `<div class="empty">No noisy sources are currently dominating the review loop.</div>`
-                : calibration.global.top_noisy_sources
-                    .map(
-                      (source) => `
+							calibration.global.top_noisy_sources.length === 0
+								? `<div class="empty">No noisy sources are currently dominating the review loop.</div>`
+								: calibration.global.top_noisy_sources
+										.map(
+											(source) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(source.scope_key)}</h4>
@@ -1814,20 +1977,20 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
                           <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
         </div>
         <div class="detail-stack">
           <section class="detail-card">
             <h3>Recommended manual actions</h3>
             ${
-              calibration.recommendations.length === 0
-                ? `<div class="empty">No calibration moves are recommended right now.</div>`
-                : calibration.recommendations
-                    .map(
-                      (recommendation) => `
+							calibration.recommendations.length === 0
+								? `<div class="empty">No calibration moves are recommended right now.</div>`
+								: calibration.recommendations
+										.map(
+											(recommendation) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(recommendation.kind.replaceAll("_", " "))}</h4>
@@ -1836,26 +1999,26 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
                           <p>${escapeHtml(recommendation.message)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
             <div class="list-item__actions list-item__actions--stack">
               ${commandStack([
-                "personal-ops review calibration",
-                "personal-ops review calibration targets",
-                "personal-ops review calibration targets set --scope inbox --max-notifications-per-7d 5",
-                "personal-ops review calibration targets reset --scope inbox",
-              ])}
+								"personal-ops review calibration",
+								"personal-ops review calibration targets",
+								"personal-ops review calibration targets set --scope inbox --max-notifications-per-7d 5",
+								"personal-ops review calibration targets reset --scope inbox",
+							])}
             </div>
           </section>
           <section class="detail-card">
             <h3>Recent tuning effect</h3>
             ${
-              calibration.global.recent_tuning_impact.length === 0
-                ? `<div class="empty">No recent approved tuning impact is available yet.</div>`
-                : calibration.global.recent_tuning_impact
-                    .map(
-                      (comparison) => `
+							calibration.global.recent_tuning_impact.length === 0
+								? `<div class="empty">No recent approved tuning impact is available yet.</div>`
+								: calibration.global.recent_tuning_impact
+										.map(
+											(comparison) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(comparison.proposal_kind)}</h4>
@@ -1865,9 +2028,9 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
                           <p class="subtle subtle--body">${escapeHtml(`Action ${asPercent(comparison.acted_on_rate_delta)} · stale-unused ${asPercent(comparison.stale_unused_rate_delta)} · notification action ${asPercent(comparison.notification_action_conversion_delta)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
         </div>
       </section>
@@ -1876,10 +2039,10 @@ function renderReviewCalibrationDashboard(payload: ConsolePayload): string {
 }
 
 function renderReviewTrendsDashboard(payload: ConsolePayload): string {
-  const weekly = payload.reviewWeekly;
-  const trends = payload.reviewTrends;
-  const impact = payload.reviewImpact;
-  return `
+	const weekly = payload.reviewWeekly;
+	const trends = payload.reviewTrends;
+	const impact = payload.reviewImpact;
+	return `
     <section class="detail-stack">
       ${renderReviewCalibrationDashboard(payload)}
       <section class="hero">
@@ -1900,11 +2063,11 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
           <section class="detail-card">
             <h3>Surface deltas</h3>
             ${
-              weekly.surfaces.length === 0
-                ? `<div class="empty">No surface trend data is available yet.</div>`
-                : weekly.surfaces
-                    .map(
-                      (surface) => `
+							weekly.surfaces.length === 0
+								? `<div class="empty">No surface trend data is available yet.</div>`
+								: weekly.surfaces
+										.map(
+											(surface) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(surface.surface)}</h4>
@@ -1913,18 +2076,18 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
                           <p class="subtle subtle--body">${escapeHtml(`Open ${asPercent(surface.open_rate_delta)} · stale-unused ${asPercent(surface.stale_unused_rate_delta)} · notification action ${asPercent(surface.notification_action_conversion_delta)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
           <section class="detail-card">
             <h3>Top unresolved noisy sources</h3>
             ${
-              weekly.top_noisy_sources.length === 0
-                ? `<div class="empty">No noisy sources are standing out right now.</div>`
-                : weekly.top_noisy_sources
-                    .map(
-                      (source) => `
+							weekly.top_noisy_sources.length === 0
+								? `<div class="empty">No noisy sources are standing out right now.</div>`
+								: weekly.top_noisy_sources
+										.map(
+											(source) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(source.scope_key)}</h4>
@@ -1934,21 +2097,21 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
                           <p class="subtle subtle--body">${escapeHtml(`Negative ${source.negative_feedback_count} · stale-unused ${source.stale_unused_count} · rate ${asPercent(source.negative_feedback_rate)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
         </div>
         <div class="detail-stack">
           <section class="detail-card">
             <h3>Recent tuning impact</h3>
             ${
-              impact.comparisons.length === 0
-                ? `<div class="empty">No approved tuning comparisons are available yet.</div>`
-                : impact.comparisons
-                    .slice(0, 5)
-                    .map(
-                      (comparison) => `
+							impact.comparisons.length === 0
+								? `<div class="empty">No approved tuning comparisons are available yet.</div>`
+								: impact.comparisons
+										.slice(0, 5)
+										.map(
+											(comparison) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(comparison.proposal_kind)}</h4>
@@ -1958,18 +2121,18 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
                           <p class="subtle subtle--body">${escapeHtml(`Open ${asPercent(comparison.open_rate_delta)} · action ${asPercent(comparison.acted_on_rate_delta)} · stale-unused ${asPercent(comparison.stale_unused_rate_delta)}`)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
           </section>
           <section class="detail-card">
             <h3>Recommended manual review actions</h3>
             ${
-              weekly.recommendations.length === 0
-                ? `<div class="empty">No weekly review actions are recommended right now.</div>`
-                : weekly.recommendations
-                    .map(
-                      (recommendation) => `
+							weekly.recommendations.length === 0
+								? `<div class="empty">No weekly review actions are recommended right now.</div>`
+								: weekly.recommendations
+										.map(
+											(recommendation) => `
                         <article class="list-item">
                           <div class="list-item__top">
                             <h4>${escapeHtml(recommendation.kind.replaceAll("_", " "))}</h4>
@@ -1978,15 +2141,15 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
                           <p>${escapeHtml(recommendation.message)}</p>
                         </article>
                       `,
-                    )
-                    .join("")
-            }
+										)
+										.join("")
+						}
             <div class="list-item__actions list-item__actions--stack">
               ${commandStack([
-                "personal-ops review weekly",
-                "personal-ops review trends --days 30",
-                "personal-ops review impact --days 30",
-              ])}
+								"personal-ops review weekly",
+								"personal-ops review trends --days 30",
+								"personal-ops review impact --days 30",
+							])}
             </div>
           </section>
           <section class="detail-card">
@@ -2000,8 +2163,10 @@ function renderReviewTrendsDashboard(payload: ConsolePayload): string {
 }
 
 function renderAutopilotStatusCard(report: AutopilotStatusReport): string {
-  const staleCount = report.profiles.filter((profile) => profile.state === "stale" || profile.state === "idle").length;
-  return `
+	const staleCount = report.profiles.filter(
+		(profile) => profile.state === "stale" || profile.state === "idle",
+	).length;
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>Workspace freshness</h4>
@@ -2020,13 +2185,24 @@ function renderAutopilotStatusCard(report: AutopilotStatusReport): string {
   `;
 }
 
-function renderProfileFreshness(report: AutopilotStatusReport, profileName: AutopilotStatusReport["profiles"][number]["profile"], label: string): string {
-  const profile = report.profiles.find((entry) => entry.profile === profileName);
-  if (!profile) {
-    return "";
-  }
-  const tone = profile.state === "fresh" ? "pill--good" : profile.state === "running" ? "pill--warn" : "pill--critical";
-  return `
+function renderProfileFreshness(
+	report: AutopilotStatusReport,
+	profileName: AutopilotStatusReport["profiles"][number]["profile"],
+	label: string,
+): string {
+	const profile = report.profiles.find(
+		(entry) => entry.profile === profileName,
+	);
+	if (!profile) {
+		return "";
+	}
+	const tone =
+		profile.state === "fresh"
+			? "pill--good"
+			: profile.state === "running"
+				? "pill--warn"
+				: "pill--critical";
+	return `
     <section class="panel">
       <div class="list-item__top">
         <h3>${escapeHtml(label)}</h3>
@@ -2042,44 +2218,47 @@ function renderProfileFreshness(report: AutopilotStatusReport, profileName: Auto
 }
 
 function commandAction(command: string, label = "Copy command"): string {
-  return `
+	return `
     <code class="code">${escapeHtml(command)}</code>
     <button class="copy-button" data-copy="${escapeHtml(command)}" type="button">${escapeHtml(label)}</button>
   `;
 }
 
 function draftCommand(artifactId: string): string {
-  return `personal-ops mail draft show ${artifactId}`;
+	return `personal-ops mail draft show ${artifactId}`;
 }
 
 function commandStack(commands: string[]): string {
-  return commands
-    .map((command) => `<div class="command-line">${commandAction(command, "Copy")}</div>`)
-    .join("");
+	return commands
+		.map(
+			(command) =>
+				`<div class="command-line">${commandAction(command, "Copy")}</div>`,
+		)
+		.join("");
 }
 
 function workflowActionButton(
-  workflow: WorkflowBundleReport["workflow"],
-  action: WorkflowBundleReport["actions"][number],
-  index: number,
+	workflow: WorkflowBundleReport["workflow"],
+	action: WorkflowBundleReport["actions"][number],
+	index: number,
 ): string {
-  return `
+	return `
     <div class="command-line">
       <div>
         <p class="eyebrow">${escapeHtml(action.label)}</p>
         <code class="code">${escapeHtml(action.command)}</code>
         ${
-          action.why_now
-            ? `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
-            : ""
-        }
+					action.why_now
+						? `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
+						: ""
+				}
         ${
-          action.workflow_personalization?.eligible &&
-          action.workflow_personalization.summary &&
-          action.workflow_personalization.fit !== "neutral"
-            ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
-            : ""
-        }
+					action.workflow_personalization?.eligible &&
+					action.workflow_personalization.summary &&
+					action.workflow_personalization.fit !== "neutral"
+						? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
+						: ""
+				}
         ${renderSurfacedWorkHelpfulness(action)}
       </div>
       <div class="list-item__actions">
@@ -2090,80 +2269,108 @@ function workflowActionButton(
   `;
 }
 
-function renderWorkflowItemMeta(item: WorkflowBundleReport["sections"][number]["items"][number]): string {
-  const parts: string[] = [];
-  if (item.score_band) {
-    parts.push(`Score band: ${item.score_band}`);
-  }
-  if (item.signals?.length) {
-    parts.push(`Signals: ${item.signals.join(", ")}`);
-  }
-  return parts.length > 0 ? `<p class="subtle subtle--body">${escapeHtml(parts.join(" · "))}</p>` : "";
+function renderWorkflowItemMeta(
+	item: WorkflowBundleReport["sections"][number]["items"][number],
+): string {
+	const parts: string[] = [];
+	if (item.score_band) {
+		parts.push(`Score band: ${item.score_band}`);
+	}
+	if (item.signals?.length) {
+		parts.push(`Signals: ${item.signals.join(", ")}`);
+	}
+	return parts.length > 0
+		? `<p class="subtle subtle--body">${escapeHtml(parts.join(" · "))}</p>`
+		: "";
 }
 
 function renderWorkflowPersonalization(
-  item: WorkflowBundleReport["sections"][number]["items"][number],
+	item: WorkflowBundleReport["sections"][number]["items"][number],
 ): string {
-  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_personalization) {
-    return "";
-  }
-  if (!item.workflow_personalization?.eligible || !item.workflow_personalization.summary || item.workflow_personalization.fit === "neutral") {
-    return "";
-  }
-  return `<p class="subtle subtle--body">${escapeHtml(item.workflow_personalization.summary)}</p>`;
+	if (
+		item.surfaced_noise_reduction?.eligible &&
+		!item.surfaced_noise_reduction.show_personalization
+	) {
+		return "";
+	}
+	if (
+		!item.workflow_personalization?.eligible ||
+		!item.workflow_personalization.summary ||
+		item.workflow_personalization.fit === "neutral"
+	) {
+		return "";
+	}
+	return `<p class="subtle subtle--body">${escapeHtml(item.workflow_personalization.summary)}</p>`;
 }
 
 function renderSurfacedWorkHelpfulness(
-  item:
-    | WorkflowBundleReport["sections"][number]["items"][number]
-    | WorkflowBundleReport["actions"][number]
-    | ServiceStatusReport["workspace_home"]
-    | AssistantActionQueueReport["actions"][number],
+	item:
+		| WorkflowBundleReport["sections"][number]["items"][number]
+		| WorkflowBundleReport["actions"][number]
+		| ServiceStatusReport["workspace_home"]
+		| AssistantActionQueueReport["actions"][number],
 ): string {
-  if (item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_helpfulness) {
-    return "";
-  }
-  if (!item.surfaced_work_helpfulness?.eligible || !item.surfaced_work_helpfulness.summary) {
-    return "";
-  }
-  return `<p class="subtle subtle--body">${escapeHtml(item.surfaced_work_helpfulness.summary)}</p>`;
+	if (
+		item.surfaced_noise_reduction?.eligible &&
+		!item.surfaced_noise_reduction.show_helpfulness
+	) {
+		return "";
+	}
+	if (
+		!item.surfaced_work_helpfulness?.eligible ||
+		!item.surfaced_work_helpfulness.summary
+	) {
+		return "";
+	}
+	return `<p class="subtle subtle--body">${escapeHtml(item.surfaced_work_helpfulness.summary)}</p>`;
 }
 
 function renderReviewApprovalFlowNote(
-  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+	item:
+		| AssistantActionQueueReport["actions"][number]
+		| ServiceStatusReport["workspace_home"],
 ): string {
-  const note = reviewApprovalConsoleFlowNoteText(item.review_approval_flow);
-  return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
+	const note = reviewApprovalConsoleFlowNoteText(item.review_approval_flow);
+	return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
 }
 
 function renderReviewApprovalCalibrationNote(
-  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+	item:
+		| AssistantActionQueueReport["actions"][number]
+		| ServiceStatusReport["workspace_home"],
 ): string {
-  const note = reviewApprovalCalibrationNoteText(item.review_approval_flow);
-  return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
+	const note = reviewApprovalCalibrationNoteText(item.review_approval_flow);
+	return note ? `<p class="subtle subtle--body">${escapeHtml(note)}</p>` : "";
 }
 
 function renderReviewApprovalSupportingNote(
-  item: AssistantActionQueueReport["actions"][number] | ServiceStatusReport["workspace_home"],
+	item:
+		| AssistantActionQueueReport["actions"][number]
+		| ServiceStatusReport["workspace_home"],
 ): string {
-  const note = reviewApprovalSupportingNoteText(item.review_approval_flow);
-  return note ? `<p class="subtle subtle--body">${escapeHtml(`Review and approval: ${note}`)}</p>` : "";
+	const note = reviewApprovalSupportingNoteText(item.review_approval_flow);
+	return note
+		? `<p class="subtle subtle--body">${escapeHtml(`Review and approval: ${note}`)}</p>`
+		: "";
 }
 
 function surfacedNoiseSummary(
-  item:
-    | WorkflowBundleReport["sections"][number]["items"][number]
-    | WorkflowBundleReport["actions"][number]
-    | AssistantActionQueueReport["actions"][number],
+	item:
+		| WorkflowBundleReport["sections"][number]["items"][number]
+		| WorkflowBundleReport["actions"][number]
+		| AssistantActionQueueReport["actions"][number],
 ): string | null {
-  return item.surfaced_noise_reduction?.eligible && item.surfaced_noise_reduction.summary
-    ? item.surfaced_noise_reduction.summary
-    : null;
+	return item.surfaced_noise_reduction?.eligible &&
+		item.surfaced_noise_reduction.summary
+		? item.surfaced_noise_reduction.summary
+		: null;
 }
 
-function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]): string {
-  const stateLabel = summary.state.replaceAll("_", " ");
-  return `
+function renderWorkspaceFocusCard(
+	summary: ServiceStatusReport["workspace_home"],
+): string {
+	const stateLabel = summary.state.replaceAll("_", " ");
+	return `
     <section class="detail-card">
       <p class="eyebrow">Workspace focus</p>
       <div class="list-item__top">
@@ -2172,53 +2379,58 @@ function renderWorkspaceFocusCard(summary: ServiceStatusReport["workspace_home"]
       </div>
       <p>${escapeHtml(summary.summary ?? "The workspace focus is still loading.")}</p>
       ${
-        summary.why_now
-          ? `<p class="subtle subtle--body">${escapeHtml(summary.why_now)}</p>`
-          : ""
-      }
+				summary.why_now
+					? `<p class="subtle subtle--body">${escapeHtml(summary.why_now)}</p>`
+					: ""
+			}
       ${renderSurfacedWorkHelpfulness(summary)}
       ${renderReviewApprovalSupportingNote(summary)}
       ${renderReviewApprovalCalibrationNote(summary)}
       ${
-        summary.secondary_summary
-          ? `<p class="subtle subtle--body">${escapeHtml(`Next up: ${summary.secondary_summary}`)}</p>`
-          : ""
-      }
+				summary.secondary_summary
+					? `<p class="subtle subtle--body">${escapeHtml(`Next up: ${summary.secondary_summary}`)}</p>`
+					: ""
+			}
       ${
-        summary.primary_command
-          ? `<div class="list-item__actions list-item__actions--stack">${commandAction(summary.primary_command)}</div>`
-          : ""
-      }
+				summary.primary_command
+					? `<div class="list-item__actions list-item__actions--stack">${commandAction(summary.primary_command)}</div>`
+					: ""
+			}
     </section>
   `;
 }
 
 function renderRelatedFiles(
-  files:
-    | WorkflowBundleReport["actions"][number]["related_files"]
-    | WorkflowBundleReport["actions"][number]["related_docs"]
-    | MeetingPrepPacket["related_files"]
-    | MeetingPrepPacket["related_docs"]
-    | undefined,
+	files:
+		| WorkflowBundleReport["actions"][number]["related_files"]
+		| WorkflowBundleReport["actions"][number]["related_docs"]
+		| MeetingPrepPacket["related_files"]
+		| MeetingPrepPacket["related_docs"]
+		| undefined,
 ): string {
-  if (!files || files.length === 0) {
-    return "";
-  }
-  return `
+	if (!files || files.length === 0) {
+		return "";
+	}
+	return `
     <div class="detail-stack">
       <p class="eyebrow">Related Files</p>
       ${files
-        .map((file) => {
-          const kind = "file_kind" in file && file.file_kind ? file.file_kind : "doc";
-          const headerPreview =
-            "header_preview" in file && Array.isArray(file.header_preview) && file.header_preview.length > 0
-              ? `<p class="subtle subtle--body">${escapeHtml(`Headers: ${file.header_preview.join(" | ")}`)}</p>`
-              : "";
-          const tabPreview =
-            "tab_names" in file && Array.isArray(file.tab_names) && file.tab_names.length > 0
-              ? `<p class="subtle subtle--body">${escapeHtml(`Tabs: ${file.tab_names.join(", ")}`)}</p>`
-              : "";
-          return `
+				.map((file) => {
+					const kind =
+						"file_kind" in file && file.file_kind ? file.file_kind : "doc";
+					const headerPreview =
+						"header_preview" in file &&
+						Array.isArray(file.header_preview) &&
+						file.header_preview.length > 0
+							? `<p class="subtle subtle--body">${escapeHtml(`Headers: ${file.header_preview.join(" | ")}`)}</p>`
+							: "";
+					const tabPreview =
+						"tab_names" in file &&
+						Array.isArray(file.tab_names) &&
+						file.tab_names.length > 0
+							? `<p class="subtle subtle--body">${escapeHtml(`Tabs: ${file.tab_names.join(", ")}`)}</p>`
+							: "";
+					return `
             <article class="list-item">
               <div class="list-item__top">
                 <h4>${escapeHtml(file.title)}</h4>
@@ -2228,139 +2440,169 @@ function renderRelatedFiles(
               ${tabPreview}
               ${headerPreview}
               ${
-                file.web_view_link
-                  ? `<div class="list-item__actions"><a class="button" href="${escapeHtml(file.web_view_link)}" target="_blank" rel="noreferrer">Open File</a></div>`
-                  : ""
-              }
+								file.web_view_link
+									? `<div class="list-item__actions"><a class="button" href="${escapeHtml(file.web_view_link)}" target="_blank" rel="noreferrer">Open File</a></div>`
+									: ""
+							}
             </article>
           `;
-        })
-        .join("")}
+				})
+				.join("")}
     </div>
   `;
 }
 
 function reviewCommand(review: ReviewItem | null): string {
-  if (!review) {
-    return "personal-ops review list";
-  }
-  if (review.state === "pending") {
-    return `personal-ops review open ${review.review_id}`;
-  }
-  if (review.state === "opened") {
-    return `personal-ops review resolve ${review.review_id} --note "Reviewed"`;
-  }
-  return `personal-ops review show ${review.review_id}`;
+	if (!review) {
+		return "personal-ops review list";
+	}
+	if (review.state === "pending") {
+		return `personal-ops review open ${review.review_id}`;
+	}
+	if (review.state === "opened") {
+		return `personal-ops review resolve ${review.review_id} --note "Reviewed"`;
+	}
+	return `personal-ops review show ${review.review_id}`;
 }
 
-function groupPrimaryCommand(payload: ConsolePayload, group: InboxAutopilotGroup): string {
-  if (group.review_required) {
-    const firstReview = group.draft_artifact_ids
-      .map((artifactId) => reviewItemForArtifact(payload, artifactId))
-      .find((review): review is ReviewItem => Boolean(review));
-    return reviewCommand(firstReview ?? null);
-  }
-  return "personal-ops inbox autopilot";
+function groupPrimaryCommand(
+	payload: ConsolePayload,
+	group: InboxAutopilotGroup,
+): string {
+	if (group.review_required) {
+		const firstReview = group.draft_artifact_ids
+			.map((artifactId) => reviewItemForArtifact(payload, artifactId))
+			.find((review): review is ReviewItem => Boolean(review));
+		return reviewCommand(firstReview ?? null);
+	}
+	return "personal-ops inbox autopilot";
 }
 
 function groupPrimaryLabel(group: InboxAutopilotGroup): string {
-  if (group.review_required) {
-    return "Open draft review";
-  }
-  if (group.state === "running") {
-    return "Preparing drafts";
-  }
-  return group.kind === "needs_reply" ? "Prepare reply block" : "Prepare follow-up block";
+	if (group.review_required) {
+		return "Open draft review";
+	}
+	if (group.state === "running") {
+		return "Preparing drafts";
+	}
+	return group.kind === "needs_reply"
+		? "Prepare reply block"
+		: "Prepare follow-up block";
 }
 
-function approvalForDraft(payload: ConsolePayload, artifactId: string): ApprovalRequest | null {
-  return payload.approvals.find((approval) => approval.artifact_id === artifactId && approval.state !== "rejected") ?? null;
+function approvalForDraft(
+	payload: ConsolePayload,
+	artifactId: string,
+): ApprovalRequest | null {
+	return (
+		payload.approvals.find(
+			(approval) =>
+				approval.artifact_id === artifactId && approval.state !== "rejected",
+		) ?? null
+	);
 }
 
 function groupedOutboundPrimaryPathCopy(group: OutboundAutopilotGroup): string {
-  if (group.state === "review_pending") {
-    return "The next step is already staged here, so review the grouped handoff instead of reconstructing it from separate draft cards.";
-  }
-  if (group.state === "approval_ready") {
-    return "The next step is already staged here, so request grouped approval from this handoff instead of from separate queues.";
-  }
-  if (group.state === "approval_pending") {
-    return "Approval is already staged here, so keep individual approvals in inspection mode while this grouped handoff remains primary.";
-  }
-  if (group.state === "send_ready") {
-    return "Approval is complete, so send the grouped handoff here instead of from an individual approval detail.";
-  }
-  if (group.state === "blocked") {
-    return "Resolve the blocked grouped handoff first, then return to the prepared flow.";
-  }
-  return "The next step is already staged here, so you do not need to reconstruct the handoff from separate queues.";
+	if (group.state === "review_pending") {
+		return "The next step is already staged here, so review the grouped handoff instead of reconstructing it from separate draft cards.";
+	}
+	if (group.state === "approval_ready") {
+		return "The next step is already staged here, so request grouped approval from this handoff instead of from separate queues.";
+	}
+	if (group.state === "approval_pending") {
+		return "Approval is already staged here, so keep individual approvals in inspection mode while this grouped handoff remains primary.";
+	}
+	if (group.state === "send_ready") {
+		return "Approval is complete, so send the grouped handoff here instead of from an individual approval detail.";
+	}
+	if (group.state === "blocked") {
+		return "Resolve the blocked grouped handoff first, then return to the prepared flow.";
+	}
+	return "The next step is already staged here, so you do not need to reconstruct the handoff from separate queues.";
 }
 
-function groupedOutboundDraftSupportCopy(group: OutboundAutopilotGroup): string {
-  if (group.state === "review_pending") {
-    return "This draft stays inside the grouped handoff, so review here and let the group carry the later approval and send steps.";
-  }
-  if (group.state === "approval_ready" || group.state === "approval_pending" || group.state === "send_ready") {
-    return "This draft is already staged in the grouped handoff, so use the group action above for approval and send.";
-  }
-  if (group.state === "blocked") {
-    return "This draft remains attached to the blocked grouped handoff until the recovery step is cleared.";
-  }
-  return "This draft remains part of the current grouped handoff.";
+function groupedOutboundDraftSupportCopy(
+	group: OutboundAutopilotGroup,
+): string {
+	if (group.state === "review_pending") {
+		return "This draft stays inside the grouped handoff, so review here and let the group carry the later approval and send steps.";
+	}
+	if (
+		group.state === "approval_ready" ||
+		group.state === "approval_pending" ||
+		group.state === "send_ready"
+	) {
+		return "This draft is already staged in the grouped handoff, so use the group action above for approval and send.";
+	}
+	if (group.state === "blocked") {
+		return "This draft remains attached to the blocked grouped handoff until the recovery step is cleared.";
+	}
+	return "This draft remains part of the current grouped handoff.";
 }
 
 function groupedApprovalRecoveryCopy(group: OutboundAutopilotGroup): string {
-  if (group.state === "blocked") {
-    return "This approval belongs to a blocked grouped handoff. Resolve the failed or blocked handoff first, then return to the grouped flow.";
-  }
-  if (group.state === "send_ready") {
-    return "This approval belongs to the current grouped handoff. Use the grouped send path first and keep this detail for inspection or recovery.";
-  }
-  if (group.state === "approval_pending") {
-    return "This approval belongs to the current grouped handoff. Use the grouped approval path first and keep this detail for inspection or recovery.";
-  }
-  return "This approval belongs to the current grouped handoff. Keep recovery and inspection here, then return to the grouped path.";
+	if (group.state === "blocked") {
+		return "This approval belongs to a blocked grouped handoff. Resolve the failed or blocked handoff first, then return to the grouped flow.";
+	}
+	if (group.state === "send_ready") {
+		return "This approval belongs to the current grouped handoff. Use the grouped send path first and keep this detail for inspection or recovery.";
+	}
+	if (group.state === "approval_pending") {
+		return "This approval belongs to the current grouped handoff. Use the grouped approval path first and keep this detail for inspection or recovery.";
+	}
+	return "This approval belongs to the current grouped handoff. Keep recovery and inspection here, then return to the grouped path.";
 }
 
-function approvalCommandList(approvalId: string, options: { groupedContext?: OutboundAutopilotGroup | null } = {}): string[] {
-  const commands = [
-    `personal-ops approval show ${approvalId}`,
-    `personal-ops approval reject ${approvalId} --note "<reason>"`,
-    `personal-ops approval reopen ${approvalId} --note "<reason>"`,
-    `personal-ops approval cancel ${approvalId} --note "<reason>"`,
-  ];
-  if (options.groupedContext) {
-    commands.unshift(`personal-ops outbound autopilot --group ${options.groupedContext.group_id}`);
-    return commands;
-  }
-  commands.push(`personal-ops approval approve ${approvalId} --note "<reason>"`);
-  commands.push(`personal-ops approval send ${approvalId} --note "<reason>"`);
-  return commands;
+function approvalCommandList(
+	approvalId: string,
+	options: { groupedContext?: OutboundAutopilotGroup | null } = {},
+): string[] {
+	const commands = [
+		`personal-ops approval show ${approvalId}`,
+		`personal-ops approval reject ${approvalId} --note "<reason>"`,
+		`personal-ops approval reopen ${approvalId} --note "<reason>"`,
+		`personal-ops approval cancel ${approvalId} --note "<reason>"`,
+	];
+	if (options.groupedContext) {
+		commands.unshift(
+			`personal-ops outbound autopilot --group ${options.groupedContext.group_id}`,
+		);
+		return commands;
+	}
+	commands.push(
+		`personal-ops approval approve ${approvalId} --note "<reason>"`,
+	);
+	commands.push(`personal-ops approval send ${approvalId} --note "<reason>"`);
+	return commands;
 }
 
 function renderInboxAutopilotGroupCard(
-  payload: ConsolePayload,
-  group: InboxAutopilotGroup,
-  options: { compact?: boolean; showThreads?: boolean } = {},
+	payload: ConsolePayload,
+	group: InboxAutopilotGroup,
+	options: { compact?: boolean; showThreads?: boolean } = {},
 ): string {
-  const drafts = group.draft_artifact_ids
-    .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
-    .filter((draft): draft is DraftArtifact => Boolean(draft));
-  const firstReview = drafts
-    .map((draft) => reviewItemForArtifact(payload, draft.artifact_id))
-    .find((review): review is ReviewItem => Boolean(review));
-  const primaryButton =
-    group.state === "running"
-      ? `<button class="button" type="button" disabled>Preparing drafts</button>`
-      : group.review_required
-        ? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
-        : group.one_click
-          ? `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
-          : `<button class="button" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open related detail</button>`;
-  const secondaryButton = group.review_required
-    ? `<button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload, group))}" type="button">Copy review command</button>`
-    : `<button class="copy-button" data-copy="personal-ops inbox autopilot" type="button">Copy CLI command</button>`;
-  return `
+	const drafts = group.draft_artifact_ids
+		.map(
+			(artifactId) =>
+				payload.drafts.find((draft) => draft.artifact_id === artifactId) ??
+				null,
+		)
+		.filter((draft): draft is DraftArtifact => Boolean(draft));
+	const firstReview = drafts
+		.map((draft) => reviewItemForArtifact(payload, draft.artifact_id))
+		.find((review): review is ReviewItem => Boolean(review));
+	const primaryButton =
+		group.state === "running"
+			? `<button class="button" type="button" disabled>Preparing drafts</button>`
+			: group.review_required
+				? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
+				: group.one_click
+					? `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">${escapeHtml(groupPrimaryLabel(group))}</button>`
+					: `<button class="button" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open related detail</button>`;
+	const secondaryButton = group.review_required
+		? `<button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload, group))}" type="button">Copy review command</button>`
+		: `<button class="copy-button" data-copy="personal-ops inbox autopilot" type="button">Copy CLI command</button>`;
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>${escapeHtml(group.kind === "needs_reply" ? "Reply block" : "Follow-up block")}</h4>
@@ -2370,33 +2612,33 @@ function renderInboxAutopilotGroupCard(
       <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
       <p class="subtle subtle--body">${escapeHtml(`Score band: ${group.score_band} · Signals: ${group.signals.join(", ")}`)}</p>
       ${
-        drafts.length > 0
-          ? `<p class="subtle subtle--body">${escapeHtml(`${drafts.length} staged draft${drafts.length === 1 ? "" : "s"}${firstReview ? ` · next review ${firstReview.state}` : ""}`)}</p>`
-          : ""
-      }
+				drafts.length > 0
+					? `<p class="subtle subtle--body">${escapeHtml(`${drafts.length} staged draft${drafts.length === 1 ? "" : "s"}${firstReview ? ` · next review ${firstReview.state}` : ""}`)}</p>`
+					: ""
+			}
       ${
-        group.state === "blocked"
-          ? `<p class="subtle subtle--body">Blocked until mailbox auth and sync are healthy again.</p>`
-          : ""
-      }
+				group.state === "blocked"
+					? `<p class="subtle subtle--body">Blocked until mailbox auth and sync are healthy again.</p>`
+					: ""
+			}
       ${
-        !options.compact && options.showThreads !== false
-          ? `
+				!options.compact && options.showThreads !== false
+					? `
             <div class="detail-stack">
               ${group.threads
-                .map(
-                  (thread, index) => `
+								.map(
+									(thread, index) => `
                     <div class="detail-row">
                       <dt>${escapeHtml(`${index + 1}. ${thread.subject}`)}</dt>
                       <dd>${escapeHtml(`${thread.counterparty_summary} · ${formatTime(thread.last_message_at)}`)}</dd>
                     </div>
                   `,
-                )
-                .join("")}
+								)
+								.join("")}
             </div>
           `
-          : ""
-      }
+					: ""
+			}
       <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
         ${primaryButton}
         ${secondaryButton}
@@ -2405,10 +2647,15 @@ function renderInboxAutopilotGroupCard(
   `;
 }
 
-function renderDraftReviewCard(payload: ConsolePayload, group: InboxAutopilotGroup, draft: DraftArtifact, index: number): string {
-  const review = reviewItemForArtifact(payload, draft.artifact_id);
-  const approval = approvalForDraft(payload, draft.artifact_id);
-  return `
+function renderDraftReviewCard(
+	payload: ConsolePayload,
+	group: InboxAutopilotGroup,
+	draft: DraftArtifact,
+	index: number,
+): string {
+	const review = reviewItemForArtifact(payload, draft.artifact_id);
+	const approval = approvalForDraft(payload, draft.artifact_id);
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</h4>
@@ -2419,12 +2666,12 @@ function renderDraftReviewCard(payload: ConsolePayload, group: InboxAutopilotGro
       <p class="subtle subtle--body">${escapeHtml(`Status: ${draft.status}${approval ? ` · approval ${approval.state}` : review ? ` · review ${review.state}` : ""}`)}</p>
       <div class="list-item__actions list-item__actions--stack">
         ${
-          review && review.state === "pending"
-            ? `<button class="button button--primary" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
-            : review && review.state === "opened"
-              ? `<button class="button button--primary" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
-              : `<button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh prepared draft</button>`
-        }
+					review && review.state === "pending"
+						? `<button class="button button--primary" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
+						: review && review.state === "opened"
+							? `<button class="button button--primary" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
+							: `<button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh prepared draft</button>`
+				}
         <button class="button" data-draft-approval="${escapeHtml(draft.artifact_id)}" type="button">Request approval</button>
         <button class="button" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Refresh group drafts</button>
         <button class="copy-button" data-copy="${escapeHtml(reviewCommand(review ?? null))}" type="button">Copy review command</button>
@@ -2434,33 +2681,48 @@ function renderDraftReviewCard(payload: ConsolePayload, group: InboxAutopilotGro
 }
 
 function outboundPrimaryButton(group: OutboundAutopilotGroup): string {
-  if (group.state === "review_pending") {
-    return `<button class="button button--primary" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open review group</button>`;
-  }
-  if (group.state === "approval_ready") {
-    return `<button class="button button--primary" data-outbound-request-approval="${escapeHtml(group.group_id)}" type="button">Request approval</button>`;
-  }
-  if (group.state === "approval_pending") {
-    return `<button class="button button--primary" data-outbound-approve="${escapeHtml(group.group_id)}" type="button">Approve group</button>`;
-  }
-  if (group.state === "send_ready") {
-    return `<button class="button button--primary" data-outbound-send="${escapeHtml(group.group_id)}" type="button">Send group</button>`;
-  }
-  if (group.state === "blocked") {
-    return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect blocked group</button>`;
-  }
-  return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open group</button>`;
+	if (group.state === "review_pending") {
+		return `<button class="button button--primary" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open review group</button>`;
+	}
+	if (group.state === "approval_ready") {
+		return `<button class="button button--primary" data-outbound-request-approval="${escapeHtml(group.group_id)}" type="button">Request approval</button>`;
+	}
+	if (group.state === "approval_pending") {
+		return `<button class="button button--primary" data-outbound-approve="${escapeHtml(group.group_id)}" type="button">Approve group</button>`;
+	}
+	if (group.state === "send_ready") {
+		return `<button class="button button--primary" data-outbound-send="${escapeHtml(group.group_id)}" type="button">Send group</button>`;
+	}
+	if (group.state === "blocked") {
+		return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect blocked group</button>`;
+	}
+	return `<button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open group</button>`;
 }
 
-function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopilotGroup, options: { compact?: boolean } = {}): string {
-  const drafts = group.draft_artifact_ids
-    .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
-    .filter((draft): draft is DraftArtifact => Boolean(draft));
-  const approvals = group.approval_ids
-    .map((approvalId) => payload.approvals.find((approval) => approval.approval_id === approvalId) ?? null)
-    .filter((approval): approval is ApprovalRequest => Boolean(approval));
-  const sendWindowBlocked = group.state === "blocked" && !payload.outboundAutopilot.send_window.effective_send_enabled;
-  return `
+function renderOutboundGroupCard(
+	payload: ConsolePayload,
+	group: OutboundAutopilotGroup,
+	options: { compact?: boolean } = {},
+): string {
+	const drafts = group.draft_artifact_ids
+		.map(
+			(artifactId) =>
+				payload.drafts.find((draft) => draft.artifact_id === artifactId) ??
+				null,
+		)
+		.filter((draft): draft is DraftArtifact => Boolean(draft));
+	const approvals = group.approval_ids
+		.map(
+			(approvalId) =>
+				payload.approvals.find(
+					(approval) => approval.approval_id === approvalId,
+				) ?? null,
+		)
+		.filter((approval): approval is ApprovalRequest => Boolean(approval));
+	const sendWindowBlocked =
+		group.state === "blocked" &&
+		!payload.outboundAutopilot.send_window.effective_send_enabled;
+	return `
     <article class="list-item${selectedClass(group.group_id === state.selectedOutboundGroupId)}">
       <div class="list-item__top">
         <h4>${escapeHtml(group.kind === "reply_block" ? "Reply block" : group.kind === "followup_block" ? "Follow-up block" : "Single draft")}</h4>
@@ -2471,21 +2733,24 @@ function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopil
       <p class="subtle subtle--body">${escapeHtml(groupedOutboundPrimaryPathCopy(group))}</p>
       <p class="subtle subtle--body">${escapeHtml(`Drafts: ${drafts.length} · approvals: ${approvals.length} · score: ${group.score_band}`)}</p>
       ${
-        sendWindowBlocked
-          ? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
-          : ""
-      }
+				sendWindowBlocked
+					? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
+					: ""
+			}
       ${
-        !options.compact
-          ? `
+				!options.compact
+					? `
             <div class="detail-stack">
               ${drafts
-                .map((draft, index) => `<div class="detail-row"><dt>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</dt><dd>${escapeHtml(`${draft.to.join(", ") || "No recipients"} · ${draft.status}`)}</dd></div>`)
-                .join("")}
+								.map(
+									(draft, index) =>
+										`<div class="detail-row"><dt>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</dt><dd>${escapeHtml(`${draft.to.join(", ") || "No recipients"} · ${draft.status}`)}</dd></div>`,
+								)
+								.join("")}
             </div>
           `
-          : ""
-      }
+					: ""
+			}
       <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
         ${outboundPrimaryButton(group)}
         <button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Inspect group</button>
@@ -2496,120 +2761,152 @@ function renderOutboundGroupCard(payload: ConsolePayload, group: OutboundAutopil
 }
 
 function renderWorkflowSections(
-  report: WorkflowBundleReport,
-  options: {
-    suppressPrimaryWhyNow?: boolean;
-    suppressPrimaryPersonalization?: boolean;
-    referential?: boolean;
-  } = {},
+	report: WorkflowBundleReport,
+	options: {
+		suppressPrimaryWhyNow?: boolean;
+		suppressPrimaryPersonalization?: boolean;
+		referential?: boolean;
+	} = {},
 ): string {
-  return report.sections
-    .map(
-      (section, sectionIndex) => `
+	return report.sections
+		.map(
+			(section, sectionIndex) => `
         <section class="panel">
           <h3>${escapeHtml(section.title)}</h3>
           ${
-            options.referential && sectionIndex === 0
-              ? `<p class="subtle subtle--body">Repair owns the workspace right now, so treat this as the next-up move once repair is clear.</p>`
-              : ""
-          }
+						options.referential && sectionIndex === 0
+							? `<p class="subtle subtle--body">Repair owns the workspace right now, so treat this as the next-up move once repair is clear.</p>`
+							: ""
+					}
           ${
-            section.items.length === 0
-              ? `<div class="empty">Nothing notable right now.</div>`
-              : section.items
-                  .map(
-                    (item, itemIndex) => `
+						section.items.length === 0
+							? `<div class="empty">Nothing notable right now.</div>`
+							: section.items
+									.map(
+										(item, itemIndex) => `
                       <article class="list-item">
                         <div class="list-item__top">
                           <h4>${escapeHtml(item.label)}</h4>
                         </div>
                         <p>${escapeHtml(surfacedNoiseSummary(item) ?? item.summary)}</p>
                         ${
-                          item.why_now &&
-                          !(options.suppressPrimaryWhyNow && sectionIndex === 0 && itemIndex === 0) &&
-                          !(item.surfaced_noise_reduction?.eligible && !item.surfaced_noise_reduction.show_why_now)
-                            ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>`
-                            : ""
-                        }
+													item.why_now &&
+													!(
+														options.suppressPrimaryWhyNow &&
+														sectionIndex === 0 &&
+														itemIndex === 0
+													) &&
+													!(
+														item.surfaced_noise_reduction?.eligible &&
+														!item.surfaced_noise_reduction.show_why_now
+													)
+														? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>`
+														: ""
+												}
                         ${
-                          options.suppressPrimaryPersonalization && sectionIndex === 0 && itemIndex === 0
-                            ? ""
-                            : renderWorkflowPersonalization(item)
-                        }
+													options.suppressPrimaryPersonalization &&
+													sectionIndex === 0 &&
+													itemIndex === 0
+														? ""
+														: renderWorkflowPersonalization(item)
+												}
                         ${renderSurfacedWorkHelpfulness(item)}
                         ${renderWorkflowItemMeta(item)}
                         ${renderRelatedFiles(item.related_files ?? item.related_docs)}
                         ${
-                          item.command
-                            ? `<div class="list-item__actions">${commandAction(item.command, "Copy command")}</div>`
-                            : ""
-                        }
+													item.command
+														? `<div class="list-item__actions">${commandAction(item.command, "Copy command")}</div>`
+														: ""
+												}
                       </article>
                     `,
-                  )
-                  .join("")
-          }
+									)
+									.join("")
+					}
         </section>
       `,
-    )
-    .join("");
+		)
+		.join("");
 }
 
 function selectedClass(selected: boolean): string {
-  return selected ? " is-selected" : "";
+	return selected ? " is-selected" : "";
 }
 
-function maybe(value: string | null | undefined, fallback = "not recorded"): string {
-  return value?.trim() ? value : fallback;
+function maybe(
+	value: string | null | undefined,
+	fallback = "not recorded",
+): string {
+	return value?.trim() ? value : fallback;
 }
 
 function truncateId(value: string | null | undefined): string {
-  if (!value) {
-    return "n/a";
-  }
-  return value.length > 12 ? value.slice(0, 12) : value;
+	if (!value) {
+		return "n/a";
+	}
+	return value.length > 12 ? value.slice(0, 12) : value;
 }
 
 function getCurrentPayload(): ConsolePayload {
-  if (!state.payload) {
-    throw new Error("Console payload is not loaded yet.");
-  }
-  return state.payload;
+	if (!state.payload) {
+		throw new Error("Console payload is not loaded yet.");
+	}
+	return state.payload;
 }
 
-function workflowByName(payload: ConsolePayload, workflow: WorkflowBundleReport["workflow"]): WorkflowBundleReport {
-  if (workflow === "now-next") {
-    return payload.nowNextWorkflow;
-  }
-  if (workflow === "prep-meetings") {
-    return payload.prepMeetingsWorkflow;
-  }
-  return payload.prepDayWorkflow;
+function workflowByName(
+	payload: ConsolePayload,
+	workflow: WorkflowBundleReport["workflow"],
+): WorkflowBundleReport {
+	if (workflow === "now-next") {
+		return payload.nowNextWorkflow;
+	}
+	if (workflow === "prep-meetings") {
+		return payload.prepMeetingsWorkflow;
+	}
+	return payload.prepDayWorkflow;
 }
 
 function assistantStateClass(action: AssistantActionItem): string {
-  if (action.state === "failed" || action.state === "blocked") {
-    return "pill pill--critical";
-  }
-  if (action.state === "running" || action.state === "awaiting_review" || action.state === "proposed") {
-    return "pill pill--warn";
-  }
-  return "pill pill--good";
+	if (action.state === "failed" || action.state === "blocked") {
+		return "pill pill--critical";
+	}
+	if (
+		action.state === "running" ||
+		action.state === "awaiting_review" ||
+		action.state === "proposed"
+	) {
+		return "pill pill--warn";
+	}
+	return "pill pill--good";
 }
 
-function assistantActionsForSection(payload: ConsolePayload, section: AssistantActionItem["section"]): AssistantActionItem[] {
-  return payload.assistantQueue.actions.filter((action) => action.section === section);
+function assistantActionsForSection(
+	payload: ConsolePayload,
+	section: AssistantActionItem["section"],
+): AssistantActionItem[] {
+	return payload.assistantQueue.actions.filter(
+		(action) => action.section === section,
+	);
 }
 
 function renderAssistantActionCard(
-  action: AssistantActionItem,
-  options: { compact?: boolean; suppressWhyNow?: boolean; suppressPersonalization?: boolean; referential?: boolean } = {},
+	action: AssistantActionItem,
+	options: {
+		compact?: boolean;
+		suppressWhyNow?: boolean;
+		suppressPersonalization?: boolean;
+		referential?: boolean;
+	} = {},
 ): string {
-  const primaryAction =
-    action.one_click && action.state !== "blocked" && action.state !== "completed" && action.state !== "running"
-      ? `<button class="button button--primary" data-assistant-run="${escapeHtml(action.action_id)}" type="button">Run safe action</button>`
-      : `<button class="button" data-assistant-open="${escapeHtml(action.action_id)}" type="button">Open related detail</button>`;
-  return `
+	const primaryAction =
+		action.one_click &&
+		action.state !== "blocked" &&
+		action.state !== "completed" &&
+		action.state !== "running"
+			? `<button class="button button--primary" data-assistant-run="${escapeHtml(action.action_id)}" type="button">Run safe action</button>`
+			: `<button class="button" data-assistant-open="${escapeHtml(action.action_id)}" type="button">Open related detail</button>`;
+	return `
     <article class="list-item">
       <div class="list-item__top">
         <h4>${escapeHtml(action.title)}</h4>
@@ -2617,390 +2914,493 @@ function renderAssistantActionCard(
       </div>
       <p>${escapeHtml(surfacedNoiseSummary(action) ?? action.summary)}</p>
       ${
-        options.suppressWhyNow || (action.surfaced_noise_reduction?.eligible && !action.surfaced_noise_reduction.show_why_now)
-          ? ""
-          : `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
-      }
+				options.suppressWhyNow ||
+				(
+					action.surfaced_noise_reduction?.eligible &&
+						!action.surfaced_noise_reduction.show_why_now
+				)
+					? ""
+					: `<p class="subtle subtle--body">${escapeHtml(action.why_now)}</p>`
+			}
       ${
-        action.workflow_personalization?.eligible &&
-        action.workflow_personalization.summary &&
-        action.workflow_personalization.fit !== "neutral" &&
-        !options.suppressPersonalization &&
-        !(action.surfaced_noise_reduction?.eligible && !action.surfaced_noise_reduction.show_personalization)
-          ? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
-          : ""
-      }
+				action.workflow_personalization?.eligible &&
+				action.workflow_personalization.summary &&
+				action.workflow_personalization.fit !== "neutral" &&
+				!options.suppressPersonalization &&
+				!(
+					action.surfaced_noise_reduction?.eligible &&
+					!action.surfaced_noise_reduction.show_personalization
+				)
+					? `<p class="subtle subtle--body">${escapeHtml(action.workflow_personalization.summary)}</p>`
+					: ""
+			}
       ${renderSurfacedWorkHelpfulness(action)}
       ${renderReviewApprovalFlowNote(action)}
       ${renderReviewApprovalCalibrationNote(action)}
       ${options.referential ? `<p class="subtle subtle--body">Repair owns the workspace right now, so this stays as next-up context.</p>` : ""}
       ${
-        action.signals.length > 0
-          ? `<p class="subtle subtle--body">${escapeHtml(`Signals: ${action.signals.join(", ")}`)}</p>`
-          : ""
-      }
+				action.signals.length > 0
+					? `<p class="subtle subtle--body">${escapeHtml(`Signals: ${action.signals.join(", ")}`)}</p>`
+					: ""
+			}
       ${
-        action.blocking_reason
-          ? `<p class="subtle subtle--body">${escapeHtml(`Blocked: ${action.blocking_reason}`)}</p>`
-          : ""
-      }
+				action.blocking_reason
+					? `<p class="subtle subtle--body">${escapeHtml(`Blocked: ${action.blocking_reason}`)}</p>`
+					: ""
+			}
       ${
-        action.latest_run
-          ? `<p class="subtle subtle--body">${escapeHtml(`Latest run: ${action.latest_run.summary}`)}</p>`
-          : ""
-      }
+				action.latest_run
+					? `<p class="subtle subtle--body">${escapeHtml(`Latest run: ${action.latest_run.summary}`)}</p>`
+					: ""
+			}
       <div class="list-item__actions${options.compact ? "" : " list-item__actions--stack"}">
         ${primaryAction}
         ${
-          action.command
-            ? `<button class="copy-button" data-copy="${escapeHtml(action.command)}" type="button">Copy CLI command</button>`
-            : ""
-        }
+					action.command
+						? `<button class="copy-button" data-copy="${escapeHtml(action.command)}" type="button">Copy CLI command</button>`
+						: ""
+				}
       </div>
     </article>
   `;
 }
 
 function renderAssistantSection(
-  payload: ConsolePayload,
-  title: string,
-  section: AssistantActionItem["section"],
-  emptyText: string,
+	payload: ConsolePayload,
+	title: string,
+	section: AssistantActionItem["section"],
+	emptyText: string,
 ): string {
-  const actions = assistantActionsForSection(payload, section);
-  return `
+	const actions = assistantActionsForSection(payload, section);
+	return `
     <section class="panel">
       <h3>${escapeHtml(title)}</h3>
       ${
-        actions.length === 0
-          ? `<div class="empty">${escapeHtml(emptyText)}</div>`
-          : actions.map((action) => renderAssistantActionCard(action)).join("")
-      }
+				actions.length === 0
+					? `<div class="empty">${escapeHtml(emptyText)}</div>`
+					: actions.map((action) => renderAssistantActionCard(action)).join("")
+			}
     </section>
   `;
 }
 
-function findSelectedWorklistItem(payload: ConsolePayload): AttentionItem | null {
-  return payload.worklist.items.find((item) => item.item_id === state.selectedWorklistItemId) ?? null;
+function findSelectedWorklistItem(
+	payload: ConsolePayload,
+): AttentionItem | null {
+	return (
+		payload.worklist.items.find(
+			(item) => item.item_id === state.selectedWorklistItemId,
+		) ?? null
+	);
 }
 
 function intelligenceForWorklistItem(
-  payload: ConsolePayload,
-  item: AttentionItem,
+	payload: ConsolePayload,
+	item: AttentionItem,
 ): WorkflowBundleReport["actions"][number] | null {
-  const matches = [...payload.nowNextWorkflow.actions, ...payload.prepDayWorkflow.actions].find(
-    (action) => action.target_type === item.target_type && action.target_id === item.target_id,
-  );
-  return matches ?? null;
+	const matches = [
+		...payload.nowNextWorkflow.actions,
+		...payload.prepDayWorkflow.actions,
+	].find(
+		(action) =>
+			action.target_type === item.target_type &&
+			action.target_id === item.target_id,
+	);
+	return matches ?? null;
 }
 
 function nextRecommendationId(payload: ConsolePayload): string | null {
-  return payload.planningNext?.recommendation.recommendation_id ?? payload.planningGroups[0]?.top_recommendation_id ?? null;
+	return (
+		payload.planningNext?.recommendation.recommendation_id ??
+		payload.planningGroups[0]?.top_recommendation_id ??
+		null
+	);
 }
 
 function nextPlanningBundleId(payload: ConsolePayload): string | null {
-  return payload.planningAutopilot.bundles[0]?.bundle_id ?? null;
+	return payload.planningAutopilot.bundles[0]?.bundle_id ?? null;
 }
 
-function syntheticAttentionItem(targetType: string, targetId: string, title: string, summary: string, command: string): AttentionItem {
-  return {
-    item_id: `${targetType}:${targetId}`,
-    kind: targetType,
-    severity: "info",
-    title,
-    summary,
-    target_type: targetType,
-    target_id: targetId,
-    created_at: new Date().toISOString(),
-    suggested_command: command,
-    metadata_json: "{}",
-  };
+function syntheticAttentionItem(
+	targetType: string,
+	targetId: string,
+	title: string,
+	summary: string,
+	command: string,
+): AttentionItem {
+	return {
+		item_id: `${targetType}:${targetId}`,
+		kind: targetType,
+		severity: "info",
+		title,
+		summary,
+		target_type: targetType,
+		target_id: targetId,
+		created_at: new Date().toISOString(),
+		suggested_command: command,
+		metadata_json: "{}",
+	};
 }
 
 function resolveSelections(payload: ConsolePayload): void {
-  const approvalIds = new Set(payload.approvals.map((approval) => approval.approval_id));
-  if (!state.selectedApprovalId || !approvalIds.has(state.selectedApprovalId)) {
-    state.selectedApprovalId = payload.approvals[0]?.approval_id ?? null;
-  }
+	const approvalIds = new Set(
+		payload.approvals.map((approval) => approval.approval_id),
+	);
+	if (!state.selectedApprovalId || !approvalIds.has(state.selectedApprovalId)) {
+		state.selectedApprovalId = payload.approvals[0]?.approval_id ?? null;
+	}
 
-  const snapshotIds = new Set(payload.snapshots.map((snapshot) => snapshot.snapshot_id));
-  if (!state.selectedSnapshotId || !snapshotIds.has(state.selectedSnapshotId)) {
-    state.selectedSnapshotId = payload.snapshots[0]?.snapshot_id ?? null;
-  }
+	const snapshotIds = new Set(
+		payload.snapshots.map((snapshot) => snapshot.snapshot_id),
+	);
+	if (!state.selectedSnapshotId || !snapshotIds.has(state.selectedSnapshotId)) {
+		state.selectedSnapshotId = payload.snapshots[0]?.snapshot_id ?? null;
+	}
 
-  const worklistIds = new Set(payload.worklist.items.map((item) => item.item_id));
-  if (!state.selectedWorklistItemId || !worklistIds.has(state.selectedWorklistItemId)) {
-    state.selectedWorklistItemId = payload.worklist.items[0]?.item_id ?? null;
-  }
+	const worklistIds = new Set(
+		payload.worklist.items.map((item) => item.item_id),
+	);
+	if (
+		!state.selectedWorklistItemId ||
+		!worklistIds.has(state.selectedWorklistItemId)
+	) {
+		state.selectedWorklistItemId = payload.worklist.items[0]?.item_id ?? null;
+	}
 
-  if (!state.selectedPlanningRecommendationId) {
-    state.selectedPlanningRecommendationId = nextRecommendationId(payload);
-  }
+	if (!state.selectedPlanningRecommendationId) {
+		state.selectedPlanningRecommendationId = nextRecommendationId(payload);
+	}
 
-  const planningBundleIds = new Set(payload.planningAutopilot.bundles.map((bundle) => bundle.bundle_id));
-  if (!state.selectedPlanningBundleId || !planningBundleIds.has(state.selectedPlanningBundleId)) {
-    state.selectedPlanningBundleId = nextPlanningBundleId(payload);
-  }
+	const planningBundleIds = new Set(
+		payload.planningAutopilot.bundles.map((bundle) => bundle.bundle_id),
+	);
+	if (
+		!state.selectedPlanningBundleId ||
+		!planningBundleIds.has(state.selectedPlanningBundleId)
+	) {
+		state.selectedPlanningBundleId = nextPlanningBundleId(payload);
+	}
 
-  const outboundGroupIds = new Set(payload.outboundAutopilot.groups.map((group) => group.group_id));
-  if (!state.selectedOutboundGroupId || !outboundGroupIds.has(state.selectedOutboundGroupId)) {
-    state.selectedOutboundGroupId = payload.outboundAutopilot.groups[0]?.group_id ?? null;
-  }
+	const outboundGroupIds = new Set(
+		payload.outboundAutopilot.groups.map((group) => group.group_id),
+	);
+	if (
+		!state.selectedOutboundGroupId ||
+		!outboundGroupIds.has(state.selectedOutboundGroupId)
+	) {
+		state.selectedOutboundGroupId =
+			payload.outboundAutopilot.groups[0]?.group_id ?? null;
+	}
 
-  if (!state.selectedPlanningGroupKey) {
-    state.selectedPlanningGroupKey =
-      payload.planningGroups.find((group) => group.recommendation_ids.includes(state.selectedPlanningRecommendationId ?? ""))?.group_key ??
-      payload.planningGroups[0]?.group_key ??
-      null;
-  }
+	if (!state.selectedPlanningGroupKey) {
+		state.selectedPlanningGroupKey =
+			payload.planningGroups.find((group) =>
+				group.recommendation_ids.includes(
+					state.selectedPlanningRecommendationId ?? "",
+				),
+			)?.group_key ??
+			payload.planningGroups[0]?.group_key ??
+			null;
+	}
 }
 
 async function loadSelectedOutboundGroupDetail(): Promise<void> {
-  if (!state.selectedOutboundGroupId) {
-    state.outboundGroupDetail = null;
-    return;
-  }
-  try {
-    const response = await fetchJson<OutboundAutopilotGroupResponse>(
-      `/v1/outbound/autopilot/groups/${encodeURIComponent(state.selectedOutboundGroupId)}`,
-    );
-    state.outboundGroupDetail = response.outbound_autopilot_group as OutboundAutopilotGroup;
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.outboundGroupDetail = null;
-  }
+	if (!state.selectedOutboundGroupId) {
+		state.outboundGroupDetail = null;
+		return;
+	}
+	try {
+		const response = await fetchJson<OutboundAutopilotGroupResponse>(
+			`/v1/outbound/autopilot/groups/${encodeURIComponent(state.selectedOutboundGroupId)}`,
+		);
+		state.outboundGroupDetail =
+			response.outbound_autopilot_group as OutboundAutopilotGroup;
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.outboundGroupDetail = null;
+	}
 }
 
 async function loadSelectedApprovalDetail(): Promise<void> {
-  if (!state.selectedApprovalId) {
-    state.approvalDetail = null;
-    return;
-  }
-  try {
-    const response = await fetchJson<ApprovalDetailResponse>(
-      `/v1/approval-queue/${encodeURIComponent(state.selectedApprovalId)}`,
-    );
-    state.approvalDetail = response.approval;
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.approvalDetail = null;
-  }
+	if (!state.selectedApprovalId) {
+		state.approvalDetail = null;
+		return;
+	}
+	try {
+		const response = await fetchJson<ApprovalDetailResponse>(
+			`/v1/approval-queue/${encodeURIComponent(state.selectedApprovalId)}`,
+		);
+		state.approvalDetail = response.approval;
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.approvalDetail = null;
+	}
 }
 
 async function loadSelectedSnapshotInspection(): Promise<void> {
-  if (!state.selectedSnapshotId) {
-    state.snapshotInspection = null;
-    return;
-  }
-  try {
-    const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(state.selectedSnapshotId)}`);
-    state.snapshotInspection = response.snapshot;
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.snapshotInspection = null;
-  }
+	if (!state.selectedSnapshotId) {
+		state.snapshotInspection = null;
+		return;
+	}
+	try {
+		const response = await fetchJson<SnapshotInspectResponse>(
+			`/v1/snapshots/${encodeURIComponent(state.selectedSnapshotId)}`,
+		);
+		state.snapshotInspection = response.snapshot;
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.snapshotInspection = null;
+	}
 }
 
 async function loadSelectedPlanningRecommendationDetail(): Promise<void> {
-  if (!state.selectedPlanningRecommendationId) {
-    state.planningRecommendationDetail = state.payload?.planningNext ?? null;
-    return;
-  }
-  try {
-    const response = await fetchJson<PlanningRecommendationDetailResponse>(
-      `/v1/planning-recommendations/${encodeURIComponent(state.selectedPlanningRecommendationId)}`,
-    );
-    state.planningRecommendationDetail = response.planning_recommendation;
-    if (state.planningRecommendationDetail?.recommendation.group_key) {
-      state.selectedPlanningGroupKey = state.planningRecommendationDetail.recommendation.group_key;
-    }
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.planningRecommendationDetail = null;
-  }
+	if (!state.selectedPlanningRecommendationId) {
+		state.planningRecommendationDetail = state.payload?.planningNext ?? null;
+		return;
+	}
+	try {
+		const response = await fetchJson<PlanningRecommendationDetailResponse>(
+			`/v1/planning-recommendations/${encodeURIComponent(state.selectedPlanningRecommendationId)}`,
+		);
+		state.planningRecommendationDetail = response.planning_recommendation;
+		if (state.planningRecommendationDetail?.recommendation.group_key) {
+			state.selectedPlanningGroupKey =
+				state.planningRecommendationDetail.recommendation.group_key;
+		}
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.planningRecommendationDetail = null;
+	}
 }
 
 async function loadSelectedPlanningBundleDetail(): Promise<void> {
-  if (!state.selectedPlanningBundleId) {
-    state.planningBundleDetail = null;
-    return;
-  }
-  try {
-    const response = await fetchJson<PlanningAutopilotBundleResponse>(
-      `/v1/planning/autopilot/bundles/${encodeURIComponent(state.selectedPlanningBundleId)}`,
-    );
-    state.planningBundleDetail = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
-      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.planningBundleDetail = null;
-  }
+	if (!state.selectedPlanningBundleId) {
+		state.planningBundleDetail = null;
+		return;
+	}
+	try {
+		const response = await fetchJson<PlanningAutopilotBundleResponse>(
+			`/v1/planning/autopilot/bundles/${encodeURIComponent(state.selectedPlanningBundleId)}`,
+		);
+		state.planningBundleDetail =
+			(
+				response.planning_autopilot_bundle as {
+					bundle?: PlanningAutopilotBundle;
+				}
+			).bundle ??
+			(response.planning_autopilot_bundle as PlanningAutopilotBundle);
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.planningBundleDetail = null;
+	}
 }
 
 async function loadSelectedPlanningGroupDetail(): Promise<void> {
-  if (!state.selectedPlanningGroupKey) {
-    state.planningGroupDetail = null;
-    return;
-  }
-  try {
-    const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
-      `/v1/planning-recommendation-groups/${encodeURIComponent(state.selectedPlanningGroupKey)}`,
-    );
-    state.planningGroupDetail = response.planning_recommendation_group;
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.planningGroupDetail = null;
-  }
+	if (!state.selectedPlanningGroupKey) {
+		state.planningGroupDetail = null;
+		return;
+	}
+	try {
+		const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
+			`/v1/planning-recommendation-groups/${encodeURIComponent(state.selectedPlanningGroupKey)}`,
+		);
+		state.planningGroupDetail = response.planning_recommendation_group;
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.planningGroupDetail = null;
+	}
 }
 
-async function buildWorklistDetail(item: AttentionItem): Promise<WorklistDetail> {
-  if (item.target_type === "task") {
-    const response = await fetchJson<TaskDetailResponse>(`/v1/tasks/${encodeURIComponent(item.target_id)}`);
-    return { kind: "task", item, detail: response.task };
-  }
-  if (item.target_type === "mail_thread") {
-    const response = await fetchJson<ThreadDetailResponse>(`/v1/inbox/threads/${encodeURIComponent(item.target_id)}`);
-    return { kind: "mail_thread", item, detail: response.thread };
-  }
-  if (item.target_type === "calendar_event") {
-    const response = await fetchJson<MeetingPrepPacketResponse>(
-      `/v1/workflows/prep-meetings/${encodeURIComponent(item.target_id)}`,
-    );
-    return { kind: "meeting_packet", item, detail: response.meeting_prep_packet };
-  }
-  if (item.target_type === "outbound_autopilot_group") {
-    const response = await fetchJson<OutboundAutopilotGroupResponse>(
-      `/v1/outbound/autopilot/groups/${encodeURIComponent(item.target_id)}`,
-    );
-    return { kind: "outbound_autopilot_group", item, detail: response.outbound_autopilot_group as OutboundAutopilotGroup };
-  }
-  if (item.target_type === "planning_autopilot_bundle") {
-    const response = await fetchJson<PlanningAutopilotBundleResponse>(
-      `/v1/planning/autopilot/bundles/${encodeURIComponent(item.target_id)}`,
-    );
-    return {
-      kind: "planning_autopilot_bundle",
-      item,
-      detail: (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
-        ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle),
-    };
-  }
-  if (item.target_type === "planning_recommendation") {
-    const response = await fetchJson<PlanningRecommendationDetailResponse>(
-      `/v1/planning-recommendations/${encodeURIComponent(item.target_id)}`,
-    );
-    if (!response.planning_recommendation) {
-      return {
-        kind: "unsupported",
-        item,
-        message: "This worklist item points to a planning recommendation that is no longer available.",
-      };
-    }
-    return { kind: "planning_recommendation", item, detail: response.planning_recommendation };
-  }
-  if (item.target_type === "planning_recommendation_group") {
-    const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
-      `/v1/planning-recommendation-groups/${encodeURIComponent(item.target_id)}`,
-    );
-    return { kind: "planning_recommendation_group", item, detail: response.planning_recommendation_group };
-  }
-  if (item.target_type === "approval_request") {
-    const response = await fetchJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(item.target_id)}`);
-    return { kind: "approval_request", item, detail: response.approval };
-  }
-  if (item.target_type === "github_pull_request") {
-    const response = await fetchJson<GithubPullDetailResponse>(`/v1/github/pulls/${encodeURIComponent(item.target_id)}`);
-    return { kind: "github_pull_request", item, detail: response.pull_request };
-  }
-  if (item.target_type === "snapshot") {
-    const response = await fetchJson<SnapshotInspectResponse>(`/v1/snapshots/${encodeURIComponent(item.target_id)}`);
-    return { kind: "snapshot", item, detail: response.snapshot };
-  }
-  return {
-    kind: "unsupported",
-    item,
-    message: `No in-console detail view exists for ${item.target_type}. Use the suggested CLI command below.`,
-  };
+async function buildWorklistDetail(
+	item: AttentionItem,
+): Promise<WorklistDetail> {
+	if (item.target_type === "task") {
+		const response = await fetchJson<TaskDetailResponse>(
+			`/v1/tasks/${encodeURIComponent(item.target_id)}`,
+		);
+		return { kind: "task", item, detail: response.task };
+	}
+	if (item.target_type === "mail_thread") {
+		const response = await fetchJson<ThreadDetailResponse>(
+			`/v1/inbox/threads/${encodeURIComponent(item.target_id)}`,
+		);
+		return { kind: "mail_thread", item, detail: response.thread };
+	}
+	if (item.target_type === "calendar_event") {
+		const response = await fetchJson<MeetingPrepPacketResponse>(
+			`/v1/workflows/prep-meetings/${encodeURIComponent(item.target_id)}`,
+		);
+		return {
+			kind: "meeting_packet",
+			item,
+			detail: response.meeting_prep_packet,
+		};
+	}
+	if (item.target_type === "outbound_autopilot_group") {
+		const response = await fetchJson<OutboundAutopilotGroupResponse>(
+			`/v1/outbound/autopilot/groups/${encodeURIComponent(item.target_id)}`,
+		);
+		return {
+			kind: "outbound_autopilot_group",
+			item,
+			detail: response.outbound_autopilot_group as OutboundAutopilotGroup,
+		};
+	}
+	if (item.target_type === "planning_autopilot_bundle") {
+		const response = await fetchJson<PlanningAutopilotBundleResponse>(
+			`/v1/planning/autopilot/bundles/${encodeURIComponent(item.target_id)}`,
+		);
+		return {
+			kind: "planning_autopilot_bundle",
+			item,
+			detail:
+				(
+					response.planning_autopilot_bundle as {
+						bundle?: PlanningAutopilotBundle;
+					}
+				).bundle ??
+				(response.planning_autopilot_bundle as PlanningAutopilotBundle),
+		};
+	}
+	if (item.target_type === "planning_recommendation") {
+		const response = await fetchJson<PlanningRecommendationDetailResponse>(
+			`/v1/planning-recommendations/${encodeURIComponent(item.target_id)}`,
+		);
+		if (!response.planning_recommendation) {
+			return {
+				kind: "unsupported",
+				item,
+				message:
+					"This worklist item points to a planning recommendation that is no longer available.",
+			};
+		}
+		return {
+			kind: "planning_recommendation",
+			item,
+			detail: response.planning_recommendation,
+		};
+	}
+	if (item.target_type === "planning_recommendation_group") {
+		const response = await fetchJson<PlanningRecommendationGroupDetailResponse>(
+			`/v1/planning-recommendation-groups/${encodeURIComponent(item.target_id)}`,
+		);
+		return {
+			kind: "planning_recommendation_group",
+			item,
+			detail: response.planning_recommendation_group,
+		};
+	}
+	if (item.target_type === "approval_request") {
+		const response = await fetchJson<ApprovalDetailResponse>(
+			`/v1/approval-queue/${encodeURIComponent(item.target_id)}`,
+		);
+		return { kind: "approval_request", item, detail: response.approval };
+	}
+	if (item.target_type === "github_pull_request") {
+		const response = await fetchJson<GithubPullDetailResponse>(
+			`/v1/github/pulls/${encodeURIComponent(item.target_id)}`,
+		);
+		return { kind: "github_pull_request", item, detail: response.pull_request };
+	}
+	if (item.target_type === "snapshot") {
+		const response = await fetchJson<SnapshotInspectResponse>(
+			`/v1/snapshots/${encodeURIComponent(item.target_id)}`,
+		);
+		return { kind: "snapshot", item, detail: response.snapshot };
+	}
+	return {
+		kind: "unsupported",
+		item,
+		message: `No in-console detail view exists for ${item.target_type}. Use the suggested CLI command below.`,
+	};
 }
 
 async function loadSelectedWorklistDetail(): Promise<void> {
-  const payload = state.payload;
-  const item = payload ? findSelectedWorklistItem(payload) : null;
-  if (!item) {
-    state.worklistDetail = null;
-    return;
-  }
-  try {
-    state.worklistDetail = await buildWorklistDetail(item);
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      throw error;
-    }
-    state.worklistDetail = {
-      kind: "unsupported",
-      item,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
+	const payload = state.payload;
+	const item = payload ? findSelectedWorklistItem(payload) : null;
+	if (!item) {
+		state.worklistDetail = null;
+		return;
+	}
+	try {
+		state.worklistDetail = await buildWorklistDetail(item);
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			throw error;
+		}
+		state.worklistDetail = {
+			kind: "unsupported",
+			item,
+			message: error instanceof Error ? error.message : String(error),
+		};
+	}
 }
 
 async function loadSelectedDetails(): Promise<void> {
-  await Promise.all([
-    loadSelectedApprovalDetail(),
-    loadSelectedOutboundGroupDetail(),
-    loadSelectedSnapshotInspection(),
-    loadSelectedPlanningBundleDetail(),
-    loadSelectedPlanningRecommendationDetail(),
-    loadSelectedPlanningGroupDetail(),
-    loadSelectedWorklistDetail(),
-  ]);
+	await Promise.all([
+		loadSelectedApprovalDetail(),
+		loadSelectedOutboundGroupDetail(),
+		loadSelectedSnapshotInspection(),
+		loadSelectedPlanningBundleDetail(),
+		loadSelectedPlanningRecommendationDetail(),
+		loadSelectedPlanningGroupDetail(),
+		loadSelectedWorklistDetail(),
+	]);
 }
 
 function renderOverview(payload: ConsolePayload): string {
-  const status = payload.status;
-  const workspaceHome = status.workspace_home;
-  const repairPlan = status.repair_plan;
-  const machine = status.machine;
-  const latestSnapshot = status.snapshot_latest;
-  const workflow = payload.prepDayWorkflow;
-  const prepMeetings = payload.prepMeetingsWorkflow;
-  const nowNext = payload.nowNextWorkflow;
-  const assistantQueue = payload.assistantQueue;
-  const autopilot = payload.autopilot;
-  const primaryNowNext = nowNext.actions[0] ?? null;
-  const topAssistantAction = assistantQueue.actions.find((action) => action.state !== "completed") ?? assistantQueue.actions[0] ?? null;
-  const topPlanningBundle = payload.planningAutopilot.bundles[0] ?? null;
-  const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
-  const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
-  const topMeetingPrep = prepMeetings.actions[0] ?? null;
-  const topReviewTuning = payload.reviewTuning.proposals.find((proposal) => proposal.status === "proposed") ?? null;
-  const assistantTargetsTopOutboundGroup =
-    Boolean(topAssistantAction) &&
-    Boolean(topOutboundGroup) &&
-    topAssistantAction?.target_type === "outbound_autopilot_group" &&
-    topAssistantAction.target_id === topOutboundGroup?.group_id;
-  const workflowTargetsTopOutboundGroup =
-    Boolean(primaryNowNext) &&
-    Boolean(topOutboundGroup) &&
-    primaryNowNext?.target_type === "outbound_autopilot_group" &&
-    primaryNowNext.target_id === topOutboundGroup?.group_id;
-  const focusIsAssistant = workspaceHome.state === "assistant" && topAssistantAction?.action_id === workspaceHome.assistant_action_id;
-  const focusIsWorkflow = workspaceHome.state === "workflow";
-  const focusIsRepair = workspaceHome.state === "repair";
-  const focusIsMaintenance = workspaceHome.state === "maintenance";
-  return `
+	const status = payload.status;
+	const workspaceHome = status.workspace_home;
+	const repairPlan = status.repair_plan;
+	const machine = status.machine;
+	const latestSnapshot = status.snapshot_latest;
+	const workflow = payload.prepDayWorkflow;
+	const prepMeetings = payload.prepMeetingsWorkflow;
+	const nowNext = payload.nowNextWorkflow;
+	const assistantQueue = payload.assistantQueue;
+	const autopilot = payload.autopilot;
+	const primaryNowNext = nowNext.actions[0] ?? null;
+	const topAssistantAction =
+		assistantQueue.actions.find((action) => action.state !== "completed") ??
+		assistantQueue.actions[0] ??
+		null;
+	const topPlanningBundle = payload.planningAutopilot.bundles[0] ?? null;
+	const topAutopilotGroup = payload.inboxAutopilot.groups[0] ?? null;
+	const topOutboundGroup = payload.outboundAutopilot.groups[0] ?? null;
+	const topMeetingPrep = prepMeetings.actions[0] ?? null;
+	const topReviewTuning =
+		payload.reviewTuning.proposals.find(
+			(proposal) => proposal.status === "proposed",
+		) ?? null;
+	const assistantTargetsTopOutboundGroup =
+		Boolean(topAssistantAction) &&
+		Boolean(topOutboundGroup) &&
+		topAssistantAction?.target_type === "outbound_autopilot_group" &&
+		topAssistantAction.target_id === topOutboundGroup?.group_id;
+	const workflowTargetsTopOutboundGroup =
+		Boolean(primaryNowNext) &&
+		Boolean(topOutboundGroup) &&
+		primaryNowNext?.target_type === "outbound_autopilot_group" &&
+		primaryNowNext.target_id === topOutboundGroup?.group_id;
+	const focusIsAssistant =
+		workspaceHome.state === "assistant" &&
+		topAssistantAction?.action_id === workspaceHome.assistant_action_id;
+	const focusIsWorkflow = workspaceHome.state === "workflow";
+	const focusIsRepair = workspaceHome.state === "repair";
+	const focusIsMaintenance = workspaceHome.state === "maintenance";
+	return `
     ${renderWorkspaceFocusCard(workspaceHome)}
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
@@ -3046,23 +3446,25 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>What the assistant is doing now</h3>
           <p class="subtle subtle--body">${escapeHtml(
-            focusIsRepair
-              ? "Repair is the active owner right now, so assistant-prepared work stays visible here as next-up context."
-              : assistantTargetsTopOutboundGroup
-                ? "This points to the same grouped handoff shown below, so use it as supporting guidance rather than a second approval path."
-              : focusIsAssistant
-                ? "This is the leading prepared action in the workspace right now."
-                : assistantQueue.summary,
-          )}</p>
+						focusIsRepair
+							? "Repair is the active owner right now, so assistant-prepared work stays visible here as next-up context."
+							: assistantTargetsTopOutboundGroup
+								? "This points to the same grouped handoff shown below, so use it as supporting guidance rather than a second approval path."
+								: focusIsAssistant
+									? "This is the leading prepared action in the workspace right now."
+									: assistantQueue.summary,
+					)}</p>
           ${
-            topAssistantAction
-              ? renderAssistantActionCard(topAssistantAction, {
-                  suppressWhyNow: focusIsAssistant || assistantTargetsTopOutboundGroup,
-                  suppressPersonalization: focusIsAssistant || assistantTargetsTopOutboundGroup,
-                  referential: focusIsRepair,
-                })
-              : `<div class="empty">The assistant queue is currently caught up.</div>`
-          }
+						topAssistantAction
+							? renderAssistantActionCard(topAssistantAction, {
+									suppressWhyNow:
+										focusIsAssistant || assistantTargetsTopOutboundGroup,
+									suppressPersonalization:
+										focusIsAssistant || assistantTargetsTopOutboundGroup,
+									referential: focusIsRepair,
+								})
+							: `<div class="empty">The assistant queue is currently caught up.</div>`
+					}
         </section>
         <section class="detail-card">
           <h3>Autopilot warm start</h3>
@@ -3072,10 +3474,10 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>Repair plan</h3>
           <p class="subtle subtle--body">${escapeHtml(
-            focusIsMaintenance
-              ? "Maintenance and repair ownership are already converged here so the same family does not compete with itself."
-              : "This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.",
-          )}</p>
+						focusIsMaintenance
+							? "Maintenance and repair ownership are already converged here so the same family does not compete with itself."
+							: "This shared local repair plan keeps wrapper, desktop, daemon, and recovery fixes in one deterministic order without widening browser-side authority.",
+					)}</p>
           <div class="detail-row"><dt>Last repair</dt><dd>${escapeHtml(repairPlan.last_repair ? `${repairPlan.last_repair.step_id} (${repairPlan.last_repair.outcome})` : "none")}</dd></div>
           <div class="detail-row"><dt>Last maintenance</dt><dd>${escapeHtml(repairPlan.maintenance_follow_through?.current_bundle_outcome ? `${repairPlan.maintenance_follow_through.current_bundle_outcome.signal}${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id ? ` (${repairPlan.maintenance_follow_through.current_bundle_outcome.step_id})` : ""}` : "none")}</dd></div>
           <div class="detail-row"><dt>Recurring drift</dt><dd>${escapeHtml(repairPlan.recurring_issue ? `${repairPlan.recurring_issue.step_id}: ${repairPlan.recurring_issue.prevention_hint}` : "none")}</dd></div>
@@ -3089,64 +3491,69 @@ function renderOverview(payload: ConsolePayload): string {
           <div class="detail-row"><dt>Maintenance decision</dt><dd>${escapeHtml(repairPlan.maintenance_decision_explanation?.eligible ? `${repairPlan.maintenance_decision_explanation.step_id ?? "none"} (${repairPlan.maintenance_decision_explanation.state.replaceAll("_", " ")} / ${repairPlan.maintenance_decision_explanation.driver?.replaceAll("_", " ") ?? "none"})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance convergence</dt><dd>${escapeHtml(repairPlan.maintenance_repair_convergence?.eligible ? `${repairPlan.maintenance_repair_convergence.step_id ?? "none"} (${repairPlan.maintenance_repair_convergence.state.replaceAll("_", " ")} / ${repairPlan.maintenance_repair_convergence.driver?.replaceAll("_", " ") ?? "none"})` : "none")}</dd></div>
           <div class="detail-row"><dt>Maintenance scheduling</dt><dd>${escapeHtml(repairPlan.maintenance_scheduling?.eligible ? `${repairPlan.maintenance_scheduling.step_id ?? "none"} (${repairPlan.maintenance_scheduling.placement.replaceAll("_", " ")})` : "none")}</dd></div>
-          <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? repairPlan.maintenance_window.bundle?.title ?? "ready now" : repairPlan.maintenance_window?.deferred_reason ?? "none")}</dd></div>
+          <div class="detail-row"><dt>Maintenance window</dt><dd>${escapeHtml(repairPlan.maintenance_window?.eligible_now ? (repairPlan.maintenance_window.bundle?.title ?? "ready now") : (repairPlan.maintenance_window?.deferred_reason ?? "none"))}</dd></div>
           ${
-            repairPlan.maintenance_follow_through?.current_bundle_outcome
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.current_bundle_outcome.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_follow_through?.current_bundle_outcome
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.current_bundle_outcome.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_escalation?.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_escalation.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_escalation?.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_escalation.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_follow_through?.pressure.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.pressure.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_follow_through?.pressure.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_follow_through.pressure.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_commitment?.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_commitment.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_commitment?.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_commitment.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_defer_memory?.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_defer_memory.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_defer_memory?.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_defer_memory.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_confidence?.eligible && repairPlan.maintenance_confidence.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_confidence.summary)}</p>`
-              : ""
-          }
+						repairPlan.maintenance_confidence?.eligible &&
+						repairPlan.maintenance_confidence.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_confidence.summary)}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_operating_block?.eligible && repairPlan.maintenance_operating_block.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_operating_block.summary)}${repairPlan.maintenance_operating_block.reason ? ` ${escapeHtml(repairPlan.maintenance_operating_block.reason)}` : ""}</p>`
-              : ""
-          }
+						repairPlan.maintenance_operating_block?.eligible &&
+						repairPlan.maintenance_operating_block.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_operating_block.summary)}${repairPlan.maintenance_operating_block.reason ? ` ${escapeHtml(repairPlan.maintenance_operating_block.reason)}` : ""}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_decision_explanation?.eligible && repairPlan.maintenance_decision_explanation.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_decision_explanation.summary)}${repairPlan.maintenance_decision_explanation.why_now ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_now)}` : ""}${repairPlan.maintenance_decision_explanation.why_not_higher ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_not_higher)}` : ""}</p>`
-              : ""
-          }
+						repairPlan.maintenance_decision_explanation?.eligible &&
+						repairPlan.maintenance_decision_explanation.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_decision_explanation.summary)}${repairPlan.maintenance_decision_explanation.why_now ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_now)}` : ""}${repairPlan.maintenance_decision_explanation.why_not_higher ? ` ${escapeHtml(repairPlan.maintenance_decision_explanation.why_not_higher)}` : ""}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_repair_convergence?.eligible && repairPlan.maintenance_repair_convergence.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_repair_convergence.summary)}${repairPlan.maintenance_repair_convergence.why ? ` ${escapeHtml(repairPlan.maintenance_repair_convergence.why)}` : ""}${repairPlan.maintenance_repair_convergence.primary_command ? ` Next: ${escapeHtml(repairPlan.maintenance_repair_convergence.primary_command)}` : ""}</p>`
-              : ""
-          }
+						repairPlan.maintenance_repair_convergence?.eligible &&
+						repairPlan.maintenance_repair_convergence.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_repair_convergence.summary)}${repairPlan.maintenance_repair_convergence.why ? ` ${escapeHtml(repairPlan.maintenance_repair_convergence.why)}` : ""}${repairPlan.maintenance_repair_convergence.primary_command ? ` Next: ${escapeHtml(repairPlan.maintenance_repair_convergence.primary_command)}` : ""}</p>`
+							: ""
+					}
           ${
-            repairPlan.maintenance_scheduling?.eligible && repairPlan.maintenance_scheduling.summary
-              ? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_scheduling.summary)}${repairPlan.maintenance_scheduling.reason ? ` ${repairPlan.maintenance_scheduling.reason}` : ""}</p>`
-              : ""
-          }
+						repairPlan.maintenance_scheduling?.eligible &&
+						repairPlan.maintenance_scheduling.summary
+							? `<p class="subtle subtle--body">${escapeHtml(repairPlan.maintenance_scheduling.summary)}${repairPlan.maintenance_scheduling.reason ? ` ${repairPlan.maintenance_scheduling.reason}` : ""}</p>`
+							: ""
+					}
           ${
-            repairPlan.steps.length === 0
-              ? `<div class="empty">No repair actions are pending right now.</div>`
-              : repairPlan.steps
-                  .slice(0, 5)
-                  .map(
-                    (step, index) => `
+						repairPlan.steps.length === 0
+							? `<div class="empty">No repair actions are pending right now.</div>`
+							: repairPlan.steps
+									.slice(0, 5)
+									.map(
+										(step, index) => `
                       <article class="list-item">
                         <div class="list-item__top">
                           <h4>${escapeHtml(`${index + 1}. ${step.title}`)}</h4>
@@ -3158,17 +3565,18 @@ function renderOverview(payload: ConsolePayload): string {
                         </div>
                       </article>
                     `,
-                  )
-                  .join("")
-          }
+									)
+									.join("")
+					}
           ${
-            (repairPlan.preventive_maintenance?.recommendations.length ?? 0) === 0
-              ? ""
-              : `
+						(repairPlan.preventive_maintenance?.recommendations.length ?? 0) ===
+						0
+							? ""
+							: `
                 <div class="subtle subtle--body">Preventive maintenance</div>
                 ${(repairPlan.preventive_maintenance?.recommendations ?? [])
-                  .map(
-                    (recommendation) => `
+									.map(
+										(recommendation) => `
                       <article class="list-item">
                         <div class="list-item__top">
                           <h4>${escapeHtml(recommendation.title)}</h4>
@@ -3180,14 +3588,15 @@ function renderOverview(payload: ConsolePayload): string {
                         </div>
                       </article>
                     `,
-                  )
-                  .join("")}
+									)
+									.join("")}
               `
-          }
+					}
           ${
-            !repairPlan.maintenance_window?.eligible_now || !repairPlan.maintenance_window.bundle
-              ? ""
-              : `
+						!repairPlan.maintenance_window?.eligible_now ||
+						!repairPlan.maintenance_window.bundle
+							? ""
+							: `
                 <div class="subtle subtle--body">Maintenance window</div>
                 <article class="list-item">
                   <div class="list-item__top">
@@ -3201,60 +3610,66 @@ function renderOverview(payload: ConsolePayload): string {
                   </div>
                 </article>
               `
-          }
+					}
         </section>
         <section class="detail-card">
           <h3>Review overlay</h3>
           <p class="subtle subtle--body">Review packages and tuning stay secondary here, so they support inspection without taking over the main review, approval, and send path.</p>
           ${
-            payload.reviewPackages.packages.length === 0
-              ? `<div class="empty">No review packages are active right now.</div>`
-              : payload.reviewPackages.packages.map((pkg) => renderReviewPackageCard(pkg)).join("")
-          }
+						payload.reviewPackages.packages.length === 0
+							? `<div class="empty">No review packages are active right now.</div>`
+							: payload.reviewPackages.packages
+									.map((pkg) => renderReviewPackageCard(pkg))
+									.join("")
+					}
           ${
-            topReviewTuning
-              ? `
+						topReviewTuning
+							? `
                 <section class="panel">
                   <h4>Open tuning proposal</h4>
                   ${renderReviewTuningCard(topReviewTuning)}
                 </section>
               `
-              : ""
-          }
+							: ""
+					}
         </section>
         <section class="detail-card">
           <h3>Planning autopilot</h3>
           <p class="subtle subtle--body">Prepared planning bundles turn recommendation clusters into one reviewable execution path instead of a queue you still have to translate by hand.</p>
           ${
-            topPlanningBundle
-              ? renderPlanningBundleDetail(topPlanningBundle)
-              : `<div class="empty">No planning bundles are active right now.</div>`
-          }
+						topPlanningBundle
+							? renderPlanningBundleDetail(topPlanningBundle)
+							: `<div class="empty">No planning bundles are active right now.</div>`
+					}
         </section>
         <section class="detail-card">
           <h3>Inbox autopilot</h3>
           <p class="subtle subtle--body">Grouped reply and follow-up work is staged here so the next move can be prepare, review, or approval handoff instead of raw inbox triage.</p>
           ${
-            topAutopilotGroup
-              ? renderInboxAutopilotGroupCard(payload, topAutopilotGroup, { showThreads: false })
-              : `<div class="empty">No grouped inbox blocks need assistant prep right now.</div>`
-          }
+						topAutopilotGroup
+							? renderInboxAutopilotGroupCard(payload, topAutopilotGroup, {
+									showThreads: false,
+								})
+							: `<div class="empty">No grouped inbox blocks need assistant prep right now.</div>`
+					}
         </section>
         <section class="detail-card">
           <h3>Outbound Finish-Work</h3>
           <p class="subtle subtle--body">Reviewed mail work lands here, and grouped outbound is the primary place to review, request approval, approve, and send when group context exists.</p>
           ${
-            topOutboundGroup
-              ? renderOutboundGroupCard(payload, topOutboundGroup, { compact: true })
-              : `<div class="empty">No outbound finish-work groups are active right now.</div>`
-          }
+						topOutboundGroup
+							? renderOutboundGroupCard(payload, topOutboundGroup, {
+									compact: true,
+								})
+							: `<div class="empty">No outbound finish-work groups are active right now.</div>`
+					}
         </section>
         <section class="detail-card">
           <h3>Today’s Prep</h3>
           <p class="subtle subtle--body">Meeting prep packets gather agenda, checklist, docs, and related work so the next move can be review instead of last-minute context gathering.</p>
           ${
-            topMeetingPrep
-              ? `
+						topMeetingPrep
+							? `
                 <article class="list-item">
                   <div class="list-item__top">
                     <h4>${escapeHtml(topMeetingPrep.label)}</h4>
@@ -3269,25 +3684,27 @@ function renderOverview(payload: ConsolePayload): string {
                   </div>
                 </article>
               `
-              : `<div class="empty">No meetings need a staged prep packet right now.</div>`
-          }
+							: `<div class="empty">No meetings need a staged prep packet right now.</div>`
+					}
         </section>
         <section class="detail-card">
           <h3>What to do right now</h3>
           <p class="subtle subtle--body">${escapeHtml(
-            focusIsRepair
-              ? "Repair owns the workspace right now, so this bundle is the next-up path once repair is clear."
-              : workflowTargetsTopOutboundGroup
-                ? "This bundle points to the same grouped handoff shown above, so use it as supporting context once you open the outbound flow."
-              : focusIsWorkflow
-                ? "This bundle currently owns the workspace focus and gives you one strongest next move plus a short backup path."
-                : "Use this focused bundle when you want one strongest next move plus a short backup path.",
-          )}</p>
+						focusIsRepair
+							? "Repair owns the workspace right now, so this bundle is the next-up path once repair is clear."
+							: workflowTargetsTopOutboundGroup
+								? "This bundle points to the same grouped handoff shown above, so use it as supporting context once you open the outbound flow."
+								: focusIsWorkflow
+									? "This bundle currently owns the workspace focus and gives you one strongest next move plus a short backup path."
+									: "Use this focused bundle when you want one strongest next move plus a short backup path.",
+					)}</p>
           ${renderWorkflowSections(nowNext, {
-            suppressPrimaryWhyNow: focusIsWorkflow || workflowTargetsTopOutboundGroup,
-            suppressPrimaryPersonalization: focusIsWorkflow || workflowTargetsTopOutboundGroup,
-            referential: focusIsRepair,
-          })}
+						suppressPrimaryWhyNow:
+							focusIsWorkflow || workflowTargetsTopOutboundGroup,
+						suppressPrimaryPersonalization:
+							focusIsWorkflow || workflowTargetsTopOutboundGroup,
+						referential: focusIsRepair,
+					})}
         </section>
         <section class="detail-card">
           <h3>Day-start workflow</h3>
@@ -3299,18 +3716,27 @@ function renderOverview(payload: ConsolePayload): string {
         <section class="detail-card">
           <h3>Assistant queue</h3>
           ${
-            assistantQueue.actions.length === 0
-              ? `<div class="empty">No assistant actions are queued right now.</div>`
-              : assistantQueue.actions.slice(0, 4).map((action) => renderAssistantActionCard(action, { compact: true })).join("")
-          }
+						assistantQueue.actions.length === 0
+							? `<div class="empty">No assistant actions are queued right now.</div>`
+							: assistantQueue.actions
+									.slice(0, 4)
+									.map((action) =>
+										renderAssistantActionCard(action, { compact: true }),
+									)
+									.join("")
+					}
         </section>
         <section class="detail-card">
           <h3>Next commands</h3>
           ${
-            nowNext.actions.length === 0
-              ? `<div class="empty">No immediate commands are queued right now.</div>`
-              : nowNext.actions.map((action, index) => workflowActionButton(nowNext.workflow, action, index)).join("")
-          }
+						nowNext.actions.length === 0
+							? `<div class="empty">No immediate commands are queued right now.</div>`
+							: nowNext.actions
+									.map((action, index) =>
+										workflowActionButton(nowNext.workflow, action, index),
+									)
+									.join("")
+					}
         </section>
       </div>
     </section>
@@ -3318,33 +3744,36 @@ function renderOverview(payload: ConsolePayload): string {
       <div class="panel">
         <h3>Primary move</h3>
         ${
-          primaryNowNext
-            ? `
+					primaryNowNext
+						? `
               <p>${escapeHtml(surfacedNoiseSummary(primaryNowNext) ?? primaryNowNext.summary)}</p>
               <div class="detail-list detail-list--spaced">
                 <div class="detail-row"><dt>Command</dt><dd>${escapeHtml(primaryNowNext.command)}</dd></div>
                 <div class="detail-row"><dt>Score band</dt><dd>${escapeHtml(primaryNowNext.score_band ?? "medium")}</dd></div>
                 ${
-                  primaryNowNext.surfaced_noise_reduction?.eligible && !primaryNowNext.surfaced_noise_reduction.show_why_now
-                    ? ""
-                    : `<div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
-                        workflowTargetsTopOutboundGroup
-                          ? "This matches the grouped handoff already staged in Outbound Finish-Work."
-                          : focusIsWorkflow
-                          ? workspaceHome.why_now ?? "This already owns the workspace focus."
-                          : focusIsRepair
-                            ? "Repair still comes first, so this is the next-up move after repair."
-                            : primaryNowNext.why_now ?? "This is the strongest current next move.",
-                      )}</dd></div>`
-                }
+									primaryNowNext.surfaced_noise_reduction?.eligible &&
+									!primaryNowNext.surfaced_noise_reduction.show_why_now
+										? ""
+										: `<div class="detail-row"><dt>Why now</dt><dd>${escapeHtml(
+												workflowTargetsTopOutboundGroup
+													? "This matches the grouped handoff already staged in Outbound Finish-Work."
+													: focusIsWorkflow
+														? (workspaceHome.why_now ??
+															"This already owns the workspace focus.")
+														: focusIsRepair
+															? "Repair still comes first, so this is the next-up move after repair."
+															: (primaryNowNext.why_now ??
+																"This is the strongest current next move."),
+											)}</dd></div>`
+								}
               </div>
               <div class="list-item__actions">
                 <button class="button button--primary" data-workflow="${escapeHtml(nowNext.workflow)}" data-workflow-action="0" type="button">Open related detail</button>
                 <button class="copy-button" data-copy="${escapeHtml(primaryNowNext.command)}" type="button">Copy CLI command</button>
               </div>
             `
-            : `<div class="empty">No current primary move is available.</div>`
-        }
+						: `<div class="empty">No current primary move is available.</div>`
+				}
       </div>
       <div class="panel">
         <h3>Backup action</h3>
@@ -3356,10 +3785,10 @@ function renderOverview(payload: ConsolePayload): string {
         <div class="list-item__actions">
           <button class="button button--primary" data-section-link="backups" type="button">Open Backups</button>
           ${
-            latestSnapshot
-              ? `<button class="button" data-open-snapshot="${escapeHtml(latestSnapshot.snapshot_id)}" type="button">Inspect latest snapshot</button>`
-              : ""
-          }
+						latestSnapshot
+							? `<button class="button" data-open-snapshot="${escapeHtml(latestSnapshot.snapshot_id)}" type="button">Inspect latest snapshot</button>`
+							: ""
+					}
         </div>
       </div>
       <div class="panel">
@@ -3387,12 +3816,12 @@ function renderOverview(payload: ConsolePayload): string {
 }
 
 function renderWorklistList(payload: ConsolePayload): string {
-  if (payload.worklist.items.length === 0) {
-    return `<div class="empty">No current worklist items. Run <span class="code">personal-ops status</span> for the fuller readiness summary.</div>`;
-  }
-  return payload.worklist.items
-    .map(
-      (item) => `
+	if (payload.worklist.items.length === 0) {
+		return `<div class="empty">No current worklist items. Run <span class="code">personal-ops status</span> for the fuller readiness summary.</div>`;
+	}
+	return payload.worklist.items
+		.map(
+			(item) => `
         <article class="list-item${selectedClass(item.item_id === state.selectedWorklistItemId)}">
           <div class="list-item__top">
             <h4>${escapeHtml(item.title)}</h4>
@@ -3405,18 +3834,20 @@ function renderWorklistList(payload: ConsolePayload): string {
           </div>
         </article>
       `,
-    )
-    .join("");
+		)
+		.join("");
 }
 
 function renderWorklistDetail(detail: WorklistDetail | null): string {
-  if (!detail) {
-    return `<div class="empty">Choose a worklist item to inspect the related task, thread, recommendation, approval, or snapshot.</div>`;
-  }
-  const payload = state.payload;
-  const intelligence = payload ? intelligenceForWorklistItem(payload, detail.item) : null;
-  const intelligenceBlock = intelligence
-    ? `
+	if (!detail) {
+		return `<div class="empty">Choose a worklist item to inspect the related task, thread, recommendation, approval, or snapshot.</div>`;
+	}
+	const payload = state.payload;
+	const intelligence = payload
+		? intelligenceForWorklistItem(payload, detail.item)
+		: null;
+	const intelligenceBlock = intelligence
+		? `
       <section class="panel">
         <h4>Why this matters now</h4>
         <p>${escapeHtml(intelligence.why_now ?? "This item is part of the current intelligence layer.")}</p>
@@ -3424,11 +3855,11 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         ${renderRelatedFiles(intelligence.related_files ?? intelligence.related_docs)}
       </section>
     `
-    : "";
+		: "";
 
-  if (detail.kind === "task") {
-    const task = detail.detail.task;
-    return `
+	if (detail.kind === "task") {
+		const task = detail.detail.task;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Task</dt><dd>${escapeHtml(task.title)}</dd></div>
         <div class="detail-row"><dt>State</dt><dd>${escapeHtml(task.state)}</dd></div>
@@ -3441,16 +3872,25 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         ${commandStack([`personal-ops task show ${task.task_id}`])}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "mail_thread") {
-    const thread = detail.detail;
-    const group = payload ? autopilotGroupForThread(payload, thread.thread.thread_id) : null;
-    const linkedDraft = payload && group
-      ? payload.drafts.find((draft) => draft.assistant_source_thread_id === thread.thread.thread_id) ?? null
-      : null;
-    const linkedReview = linkedDraft && payload ? reviewItemForArtifact(payload, linkedDraft.artifact_id) : null;
-    return `
+	if (detail.kind === "mail_thread") {
+		const thread = detail.detail;
+		const group = payload
+			? autopilotGroupForThread(payload, thread.thread.thread_id)
+			: null;
+		const linkedDraft =
+			payload && group
+				? (payload.drafts.find(
+						(draft) =>
+							draft.assistant_source_thread_id === thread.thread.thread_id,
+					) ?? null)
+				: null;
+		const linkedReview =
+			linkedDraft && payload
+				? reviewItemForArtifact(payload, linkedDraft.artifact_id)
+				: null;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Thread</dt><dd>${escapeHtml(truncateId(thread.thread.thread_id))}</dd></div>
         <div class="detail-row"><dt>Kind</dt><dd>${escapeHtml(thread.derived_kind)}</dd></div>
@@ -3459,40 +3899,40 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       </div>
       <p class="subtle subtle--body">${escapeHtml(thread.messages[0]?.subject ?? "No message preview available.")}</p>
       ${
-        group
-          ? `
+				group
+					? `
             <section class="panel">
               <h4>Inbox autopilot group</h4>
               <p>${escapeHtml(group.summary)}</p>
               <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
               <p class="subtle subtle--body">${escapeHtml(`Next action: ${group.review_required ? "review prepared draft" : "prepare grouped drafts"}`)}</p>
               ${
-                linkedDraft
-                  ? `<p class="subtle subtle--body">${escapeHtml(`Linked draft ${linkedDraft.artifact_id} · review ${linkedDraft.review_state}${linkedReview ? ` (${linkedReview.state})` : ""}`)}</p>`
-                  : `<p class="subtle subtle--body">No staged draft exists for this thread yet.</p>`
-              }
+								linkedDraft
+									? `<p class="subtle subtle--body">${escapeHtml(`Linked draft ${linkedDraft.artifact_id} · review ${linkedDraft.review_state}${linkedReview ? ` (${linkedReview.state})` : ""}`)}</p>`
+									: `<p class="subtle subtle--body">No staged draft exists for this thread yet.</p>`
+							}
               <div class="list-item__actions">
                 ${
-                  group.review_required
-                    ? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open draft review</button>`
-                    : `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Prepare grouped drafts</button>`
-                }
+									group.review_required
+										? `<button class="button button--primary" data-autopilot-open="${escapeHtml(group.group_id)}" type="button">Open draft review</button>`
+										: `<button class="button button--primary" data-autopilot-prepare="${escapeHtml(group.group_id)}" type="button">Prepare grouped drafts</button>`
+								}
                 <button class="copy-button" data-copy="${escapeHtml(groupPrimaryCommand(payload!, group))}" type="button">Copy next command</button>
               </div>
             </section>
           `
-          : ""
-      }
+					: ""
+			}
       ${intelligenceBlock}
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([thread.suggested_next_command])}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "meeting_packet") {
-    const packet = detail.detail;
-    return `
+	if (detail.kind === "meeting_packet") {
+		const packet = detail.detail;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Meeting</dt><dd>${escapeHtml(packet.meeting.summary ?? packet.event_id)}</dd></div>
         <div class="detail-row"><dt>State</dt><dd>${escapeHtml(packet.state)}</dd></div>
@@ -3516,18 +3956,19 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       <section class="panel">
         <h4>Related threads</h4>
         ${
-          packet.related_threads.length > 0
-            ? `<ul>${packet.related_threads.map((item) => `<li>${escapeHtml(item.subject)} · ${escapeHtml(item.counterparty_summary)}</li>`).join("")}</ul>`
-            : `<div class="empty">No related inbox threads were attached.</div>`
-        }
+					packet.related_threads.length > 0
+						? `<ul>${packet.related_threads.map((item) => `<li>${escapeHtml(item.subject)} · ${escapeHtml(item.counterparty_summary)}</li>`).join("")}</ul>`
+						: `<div class="empty">No related inbox threads were attached.</div>`
+				}
       </section>
       <section class="panel">
         <h4>Related tasks and recommendations</h4>
         ${
-          packet.related_tasks.length > 0 || packet.related_recommendations.length > 0
-            ? `<ul>${packet.related_tasks.map((item) => `<li>${escapeHtml(item.title)}</li>`).join("")}${packet.related_recommendations.map((item) => `<li>${escapeHtml(item.summary)}</li>`).join("")}</ul>`
-            : `<div class="empty">No directly linked prep work is attached.</div>`
-        }
+					packet.related_tasks.length > 0 ||
+					packet.related_recommendations.length > 0
+						? `<ul>${packet.related_tasks.map((item) => `<li>${escapeHtml(item.title)}</li>`).join("")}${packet.related_recommendations.map((item) => `<li>${escapeHtml(item.summary)}</li>`).join("")}</ul>`
+						: `<div class="empty">No directly linked prep work is attached.</div>`
+				}
       </section>
       <div class="list-item__actions">
         <button class="button button--primary" data-prepare-meeting-packet="${escapeHtml(packet.event_id)}" type="button">Prepare or refresh packet</button>
@@ -3537,22 +3978,35 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         ${commandStack(packet.next_commands)}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "outbound_autopilot_group") {
-    const group = detail.detail;
-    const drafts = payload
-      ? group.draft_artifact_ids
-          .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
-          .filter((draft): draft is DraftArtifact => Boolean(draft))
-      : [];
-    const approvals = payload
-      ? group.approval_ids
-          .map((approvalId) => payload.approvals.find((approval) => approval.approval_id === approvalId) ?? null)
-          .filter((approval): approval is ApprovalRequest => Boolean(approval))
-      : [];
-    const sendWindowBlocked = group.state === "blocked" && payload && !payload.outboundAutopilot.send_window.effective_send_enabled;
-    return `
+	if (detail.kind === "outbound_autopilot_group") {
+		const group = detail.detail;
+		const drafts = payload
+			? group.draft_artifact_ids
+					.map(
+						(artifactId) =>
+							payload.drafts.find(
+								(draft) => draft.artifact_id === artifactId,
+							) ?? null,
+					)
+					.filter((draft): draft is DraftArtifact => Boolean(draft))
+			: [];
+		const approvals = payload
+			? group.approval_ids
+					.map(
+						(approvalId) =>
+							payload.approvals.find(
+								(approval) => approval.approval_id === approvalId,
+							) ?? null,
+					)
+					.filter((approval): approval is ApprovalRequest => Boolean(approval))
+			: [];
+		const sendWindowBlocked =
+			group.state === "blocked" &&
+			payload &&
+			!payload.outboundAutopilot.send_window.effective_send_enabled;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(group.group_id)}</dd></div>
         <div class="detail-row"><dt>State</dt><dd>${escapeHtml(group.state)}</dd></div>
@@ -3561,25 +4015,25 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       </div>
       <p class="subtle subtle--body">${escapeHtml(group.why_now)}</p>
       ${
-        sendWindowBlocked
-          ? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
-          : ""
-      }
+				sendWindowBlocked
+					? `<p class="subtle subtle--body">${escapeHtml(`Send is blocked until the CLI enables a send window. Next: personal-ops send-window enable --reason "<reason>"`)}</p>`
+					: ""
+			}
       <section class="panel">
         <h4>Prepared drafts</h4>
         ${
-          drafts.length > 0
-            ? `<ul>${drafts.map((draft) => `<li>${escapeHtml(draft.subject || draft.artifact_id)} · ${escapeHtml(draft.status)}</li>`).join("")}</ul>`
-            : `<div class="empty">No drafts are attached to this outbound group.</div>`
-        }
+					drafts.length > 0
+						? `<ul>${drafts.map((draft) => `<li>${escapeHtml(draft.subject || draft.artifact_id)} · ${escapeHtml(draft.status)}</li>`).join("")}</ul>`
+						: `<div class="empty">No drafts are attached to this outbound group.</div>`
+				}
       </section>
       <section class="panel">
         <h4>Approvals</h4>
         ${
-          approvals.length > 0
-            ? `<ul>${approvals.map((approval) => `<li>${escapeHtml(approval.approval_id)} · ${escapeHtml(approval.state)}</li>`).join("")}</ul>`
-            : `<div class="empty">No approval requests are attached yet.</div>`
-        }
+					approvals.length > 0
+						? `<ul>${approvals.map((approval) => `<li>${escapeHtml(approval.approval_id)} · ${escapeHtml(approval.state)}</li>`).join("")}</ul>`
+						: `<div class="empty">No approval requests are attached yet.</div>`
+				}
       </section>
       ${intelligenceBlock}
       <div class="list-item__actions">
@@ -3590,18 +4044,23 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         ${commandStack(group.next_commands)}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "planning_autopilot_bundle") {
-    const bundle = detail.detail;
-    return renderPlanningBundleDetail(bundle);
-  }
+	if (detail.kind === "planning_autopilot_bundle") {
+		const bundle = detail.detail;
+		return renderPlanningBundleDetail(bundle);
+	}
 
-  if (detail.kind === "planning_recommendation") {
-    const recommendation = detail.detail.recommendation;
-    const payload = state.payload;
-    const bundle = payload ? planningBundleForRecommendation(payload, recommendation.recommendation_id) : null;
-    return `
+	if (detail.kind === "planning_recommendation") {
+		const recommendation = detail.detail.recommendation;
+		const payload = state.payload;
+		const bundle = payload
+			? planningBundleForRecommendation(
+					payload,
+					recommendation.recommendation_id,
+				)
+			: null;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(recommendation.status)}</dd></div>
         <div class="detail-row"><dt>Priority</dt><dd>${escapeHtml(recommendation.priority)}</dd></div>
@@ -3610,8 +4069,8 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       </div>
       <p class="subtle subtle--body">${escapeHtml(recommendation.reason_summary)}</p>
       ${
-        bundle
-          ? `
+				bundle
+					? `
             <section class="panel">
               <h4>Bundle context</h4>
               <p>${escapeHtml(bundle.summary)}</p>
@@ -3622,19 +4081,19 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
               </div>
             </section>
           `
-          : ""
-      }
+					: ""
+			}
       ${intelligenceBlock}
       <div class="list-item__actions">
         <button class="button button--primary" data-open-planning="${escapeHtml(recommendation.recommendation_id)}" type="button">Open in Planning</button>
         <button class="copy-button" data-copy="${escapeHtml(recommendationShowCommand(recommendation.recommendation_id))}" type="button">Copy CLI command</button>
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "planning_recommendation_group") {
-    const group = detail.detail;
-    return `
+	if (detail.kind === "planning_recommendation_group") {
+		const group = detail.detail;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Group</dt><dd>${escapeHtml(group.group_summary)}</dd></div>
         <div class="detail-row"><dt>Open</dt><dd>${escapeHtml(String(group.counts_by_status.pending ?? 0))}</dd></div>
@@ -3648,15 +4107,17 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         <button class="copy-button" data-copy="${escapeHtml(recommendationGroupShowCommand(group.group_key))}" type="button">Copy CLI command</button>
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "approval_request") {
-    const approval = detail.detail.approval_request;
-    const groupedContext = payload ? outboundGroupForApproval(payload, approval.approval_id) : null;
-    return `
+	if (detail.kind === "approval_request") {
+		const approval = detail.detail.approval_request;
+		const groupedContext = payload
+			? outboundGroupForApproval(payload, approval.approval_id)
+			: null;
+		return `
       ${
-        groupedContext
-          ? `
+				groupedContext
+					? `
             <section class="panel">
               <h4>Current grouped handoff</h4>
               <p>${escapeHtml("This approval belongs to the current grouped handoff.")}</p>
@@ -3668,8 +4129,8 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
               </div>
             </section>
           `
-          : ""
-      }
+					: ""
+			}
       <div class="detail-list">
         <div class="detail-row"><dt>Approval</dt><dd>${escapeHtml(approval.approval_id)}</dd></div>
         <div class="detail-row"><dt>State</dt><dd>${escapeHtml(approval.state)}</dd></div>
@@ -3681,27 +4142,31 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       <div class="list-item__actions">
         <button class="button" data-open-approval="${escapeHtml(approval.approval_id)}" type="button">Open in Approvals</button>
         ${
-          approval.state === "send_failed"
-            ? `<button class="button" data-approval-reopen="${escapeHtml(approval.approval_id)}" type="button">Reopen approval</button>`
-            : approval.state !== "rejected" && approval.state !== "sent" && approval.state !== "expired"
-              ? `<button class="button" data-approval-reject="${escapeHtml(approval.approval_id)}" type="button">Reject approval</button>`
-              : ""
-        }
+					approval.state === "send_failed"
+						? `<button class="button" data-approval-reopen="${escapeHtml(approval.approval_id)}" type="button">Reopen approval</button>`
+						: approval.state !== "rejected" &&
+								approval.state !== "sent" &&
+								approval.state !== "expired"
+							? `<button class="button" data-approval-reject="${escapeHtml(approval.approval_id)}" type="button">Reject approval</button>`
+							: ""
+				}
         ${
-          approval.state !== "rejected" && approval.state !== "sent" && approval.state !== "expired"
-            ? `<button class="button" data-approval-cancel="${escapeHtml(approval.approval_id)}" type="button">Cancel approval</button>`
-            : ""
-        }
+					approval.state !== "rejected" &&
+					approval.state !== "sent" &&
+					approval.state !== "expired"
+						? `<button class="button" data-approval-cancel="${escapeHtml(approval.approval_id)}" type="button">Cancel approval</button>`
+						: ""
+				}
       </div>
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack(approvalCommandList(approval.approval_id, { groupedContext }))}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "github_pull_request") {
-    const pullRequest = detail.detail;
-    return `
+	if (detail.kind === "github_pull_request") {
+		const pullRequest = detail.detail;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>PR</dt><dd>${escapeHtml(`${pullRequest.repository}#${pullRequest.number}`)}</dd></div>
         <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(pullRequest.title)}</dd></div>
@@ -3718,11 +4183,11 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
         ${commandStack([`personal-ops github pr ${pullRequest.pr_key}`])}
       </div>
     `;
-  }
+	}
 
-  if (detail.kind === "snapshot") {
-    const snapshot = detail.detail;
-    return `
+	if (detail.kind === "snapshot") {
+		const snapshot = detail.detail;
+		return `
       <div class="detail-list">
         <div class="detail-row"><dt>Snapshot</dt><dd>${escapeHtml(snapshot.manifest.snapshot_id)}</dd></div>
         <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(snapshot.manifest.created_at))}</dd></div>
@@ -3736,14 +4201,14 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
       </div>
       <div class="list-item__actions list-item__actions--stack">
         ${commandStack([
-          `personal-ops backup inspect ${snapshot.manifest.snapshot_id}`,
-          `personal-ops backup restore ${snapshot.manifest.snapshot_id} --yes`,
-        ])}
+					`personal-ops backup inspect ${snapshot.manifest.snapshot_id}`,
+					`personal-ops backup restore ${snapshot.manifest.snapshot_id} --yes`,
+				])}
       </div>
     `;
-  }
+	}
 
-  return `
+	return `
     <p>${escapeHtml(detail.message)}</p>
     ${intelligenceBlock}
     <div class="list-item__actions list-item__actions--stack">
@@ -3752,11 +4217,13 @@ function renderWorklistDetail(detail: WorklistDetail | null): string {
   `;
 }
 
-function renderPlanningBundleDetail(bundle: PlanningAutopilotBundle | null): string {
-  if (!bundle) {
-    return `<div class="empty">Choose a planning bundle to review the prepared execution path.</div>`;
-  }
-  return `
+function renderPlanningBundleDetail(
+	bundle: PlanningAutopilotBundle | null,
+): string {
+	if (!bundle) {
+		return `<div class="empty">Choose a planning bundle to review the prepared execution path.</div>`;
+	}
+	return `
     <div class="detail-list">
       <div class="detail-row"><dt>Kind</dt><dd>${escapeHtml(bundle.kind)}</dd></div>
       <div class="detail-row"><dt>State</dt><dd>${escapeHtml(bundle.state)}</dd></div>
@@ -3766,43 +4233,43 @@ function renderPlanningBundleDetail(bundle: PlanningAutopilotBundle | null): str
     </div>
     <p class="subtle subtle--body">${escapeHtml(bundle.why_now)}</p>
     ${
-      bundle.prepared_note
-        ? `<section class="panel"><h4>Prepared note</h4><p>${escapeHtml(bundle.prepared_note)}</p></section>`
-        : ""
-    }
+			bundle.prepared_note
+				? `<section class="panel"><h4>Prepared note</h4><p>${escapeHtml(bundle.prepared_note)}</p></section>`
+				: ""
+		}
     <section class="panel">
       <h4>Execution preview</h4>
       ${
-        bundle.execution_preview.length > 0
-          ? `<ul>${bundle.execution_preview.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-          : `<div class="empty">No execution preview is staged yet.</div>`
-      }
+				bundle.execution_preview.length > 0
+					? `<ul>${bundle.execution_preview.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+					: `<div class="empty">No execution preview is staged yet.</div>`
+			}
     </section>
     <section class="panel">
       <h4>Related artifacts</h4>
       ${
-        bundle.related_artifacts.length > 0
-          ? `<ul>${bundle.related_artifacts.map((artifact) => `<li>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.summary)}</li>`).join("")}</ul>`
-          : `<div class="empty">No related artifacts are linked.</div>`
-      }
+				bundle.related_artifacts.length > 0
+					? `<ul>${bundle.related_artifacts.map((artifact) => `<li>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.summary)}</li>`).join("")}</ul>`
+					: `<div class="empty">No related artifacts are linked.</div>`
+			}
     </section>
     ${
-      bundle.recommendations?.length
-        ? `
+			bundle.recommendations?.length
+				? `
           <section class="panel">
             <h4>Bundle members</h4>
             <ul>${bundle.recommendations.map((member) => `<li>${escapeHtml(member.title)} · ${escapeHtml(member.slot_state)}</li>`).join("")}</ul>
           </section>
         `
-        : ""
-    }
+				: ""
+		}
     <div class="list-item__actions">
       <button class="button" data-planning-bundle-prepare="${escapeHtml(bundle.bundle_id)}" type="button">Refresh bundle prep</button>
       ${
-        bundle.apply_ready
-          ? `<button class="button button--primary" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
-          : ""
-      }
+				bundle.apply_ready
+					? `<button class="button button--primary" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
+					: ""
+			}
       <button class="copy-button" data-copy="${escapeHtml(planningBundleShowCommand(bundle.bundle_id))}" type="button">Copy CLI command</button>
     </div>
     <div class="list-item__actions list-item__actions--stack">
@@ -3812,7 +4279,7 @@ function renderPlanningBundleDetail(bundle: PlanningAutopilotBundle | null): str
 }
 
 function renderWorklist(payload: ConsolePayload): string {
-  return `
+	return `
     ${renderAssistantSection(payload, "Assistant action queue", "worklist", "No assistant-prepared worklist actions are waiting right now.")}
     ${renderProfileFreshness(payload.autopilot, "day_start", "Day-start freshness")}
     <section class="columns">
@@ -3831,12 +4298,12 @@ function renderWorklist(payload: ConsolePayload): string {
 }
 
 function renderApprovals(payload: ConsolePayload): string {
-  const listHtml =
-    payload.approvals.length === 0
-      ? `<div class="empty">No approval requests are currently open.</div>`
-      : payload.approvals
-          .map(
-            (approval) => `
+	const listHtml =
+		payload.approvals.length === 0
+			? `<div class="empty">No approval requests are currently open.</div>`
+			: payload.approvals
+					.map(
+						(approval) => `
               <article class="list-item${selectedClass(approval.approval_id === state.selectedApprovalId)}">
                 <div class="list-item__top">
                   <h4>${escapeHtml(approval.approval_id)}</h4>
@@ -3844,27 +4311,29 @@ function renderApprovals(payload: ConsolePayload): string {
                 </div>
                 <p>Artifact ${escapeHtml(approval.artifact_id)} · requested ${escapeHtml(formatTime(approval.requested_at))}</p>
                 ${
-                  outboundGroupForApproval(payload, approval.approval_id)
-                    ? `<p class="subtle subtle--body">${escapeHtml(`Grouped handoff: ${outboundGroupForApproval(payload, approval.approval_id)?.group_id} · inspection and recovery stay here.`)}</p>`
-                    : ""
-                }
+									outboundGroupForApproval(payload, approval.approval_id)
+										? `<p class="subtle subtle--body">${escapeHtml(`Grouped handoff: ${outboundGroupForApproval(payload, approval.approval_id)?.group_id} · inspection and recovery stay here.`)}</p>`
+										: ""
+								}
                 <div class="list-item__actions">
                   <button class="button" data-approval="${escapeHtml(approval.approval_id)}" type="button">${escapeHtml(outboundGroupForApproval(payload, approval.approval_id) ? "Inspect recovery" : "Inspect")}</button>
                   <button class="copy-button" data-copy="${escapeHtml(`personal-ops approval show ${approval.approval_id}`)}" type="button">Copy show command</button>
                 </div>
               </article>
             `,
-          )
-          .join("");
+					)
+					.join("");
 
-  const detail = state.approvalDetail;
-  const groupedContext = detail ? outboundGroupForApproval(payload, detail.approval_request.approval_id) : null;
-  const detailHtml = !detail
-    ? `<div class="empty">Choose an approval to inspect it. Recovery and inspection stay here, while grouped review, approval, and send stay in Drafts and Outbound Finish-Work.</div>`
-    : `
+	const detail = state.approvalDetail;
+	const groupedContext = detail
+		? outboundGroupForApproval(payload, detail.approval_request.approval_id)
+		: null;
+	const detailHtml = !detail
+		? `<div class="empty">Choose an approval to inspect it. Recovery and inspection stay here, while grouped review, approval, and send stay in Drafts and Outbound Finish-Work.</div>`
+		: `
         ${
-          groupedContext
-            ? `
+					groupedContext
+						? `
               <section class="panel">
                 <h4>Current grouped handoff</h4>
                 <p>${escapeHtml("This approval belongs to the current grouped handoff.")}</p>
@@ -3876,8 +4345,8 @@ function renderApprovals(payload: ConsolePayload): string {
                 </div>
               </section>
             `
-            : ""
-        }
+						: ""
+				}
         <div class="detail-list">
           <div class="detail-row"><dt>State</dt><dd>${escapeHtml(detail.approval_request.state)}</dd></div>
           <div class="detail-row"><dt>Subject</dt><dd>${escapeHtml(detail.draft.subject)}</dd></div>
@@ -3888,24 +4357,28 @@ function renderApprovals(payload: ConsolePayload): string {
         <p class="subtle subtle--body">${escapeHtml(groupedContext ? groupedApprovalRecoveryCopy(groupedContext) : "Use this approval detail for direct approval and send work when no grouped handoff exists.")}</p>
         <div class="list-item__actions">
           ${
-            detail.approval_request.state === "send_failed"
-              ? `<button class="button" data-approval-reopen="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reopen approval</button>`
-              : detail.approval_request.state !== "rejected" && detail.approval_request.state !== "sent" && detail.approval_request.state !== "expired"
-                ? `<button class="button" data-approval-reject="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reject approval</button>`
-                : ""
-          }
+						detail.approval_request.state === "send_failed"
+							? `<button class="button" data-approval-reopen="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reopen approval</button>`
+							: detail.approval_request.state !== "rejected" &&
+									detail.approval_request.state !== "sent" &&
+									detail.approval_request.state !== "expired"
+								? `<button class="button" data-approval-reject="${escapeHtml(detail.approval_request.approval_id)}" type="button">Reject approval</button>`
+								: ""
+					}
           ${
-            detail.approval_request.state !== "rejected" && detail.approval_request.state !== "sent" && detail.approval_request.state !== "expired"
-              ? `<button class="button" data-approval-cancel="${escapeHtml(detail.approval_request.approval_id)}" type="button">Cancel approval</button>`
-              : ""
-          }
+						detail.approval_request.state !== "rejected" &&
+						detail.approval_request.state !== "sent" &&
+						detail.approval_request.state !== "expired"
+							? `<button class="button" data-approval-cancel="${escapeHtml(detail.approval_request.approval_id)}" type="button">Cancel approval</button>`
+							: ""
+					}
         </div>
         <div class="list-item__actions list-item__actions--stack">
           ${commandStack(approvalCommandList(detail.approval_request.approval_id, { groupedContext }))}
         </div>
       `;
 
-  return `
+	return `
     ${renderAssistantSection(payload, "Assistant-prepared approval work", "approvals", "No assistant-prepared approval review is waiting right now.")}
     ${renderProfileFreshness(payload.autopilot, "outbound", "Outbound freshness")}
     <section class="columns">
@@ -3922,43 +4395,63 @@ function renderApprovals(payload: ConsolePayload): string {
 }
 
 function renderDrafts(payload: ConsolePayload): string {
-  const assistantSection = renderAssistantSection(
-    payload,
-    "Assistant-prepared draft work",
-    "drafts",
-    "No assistant-prepared draft review is waiting right now.",
-  );
-  const outboundGroups = payload.outboundAutopilot.groups;
-  const groupedDrafts = payload.inboxAutopilot.groups.filter((group) => group.draft_artifact_ids.length > 0);
-  if (outboundGroups.length === 0 && groupedDrafts.length === 0 && payload.drafts.length === 0) {
-    return `${assistantSection}<section class="empty">No local draft artifacts are currently stored.</section>`;
-  }
-  return `
+	const assistantSection = renderAssistantSection(
+		payload,
+		"Assistant-prepared draft work",
+		"drafts",
+		"No assistant-prepared draft review is waiting right now.",
+	);
+	const outboundGroups = payload.outboundAutopilot.groups;
+	const groupedDrafts = payload.inboxAutopilot.groups.filter(
+		(group) => group.draft_artifact_ids.length > 0,
+	);
+	if (
+		outboundGroups.length === 0 &&
+		groupedDrafts.length === 0 &&
+		payload.drafts.length === 0
+	) {
+		return `${assistantSection}<section class="empty">No local draft artifacts are currently stored.</section>`;
+	}
+	return `
     ${assistantSection}
     ${renderProfileFreshness(payload.autopilot, "outbound", "Outbound freshness")}
     ${
-      outboundGroups.length > 0
-        ? `
+			outboundGroups.length > 0
+				? `
           <section class="detail-stack">
             ${outboundGroups
-              .map((group) => {
-                const linkedInboxGroup = group.source_group_id ? autopilotGroupForDraft(payload, group.draft_artifact_ids[0] ?? "") : null;
-                const drafts = group.draft_artifact_ids
-                  .map((artifactId) => payload.drafts.find((draft) => draft.artifact_id === artifactId) ?? null)
-                  .filter((draft): draft is DraftArtifact => Boolean(draft));
-                return `
+							.map((group) => {
+								const linkedInboxGroup = group.source_group_id
+									? autopilotGroupForDraft(
+											payload,
+											group.draft_artifact_ids[0] ?? "",
+										)
+									: null;
+								const drafts = group.draft_artifact_ids
+									.map(
+										(artifactId) =>
+											payload.drafts.find(
+												(draft) => draft.artifact_id === artifactId,
+											) ?? null,
+									)
+									.filter((draft): draft is DraftArtifact => Boolean(draft));
+								return `
                   <section class="panel">
                     ${renderOutboundGroupCard(payload, group)}
                     ${
-                      linkedInboxGroup
-                        ? `<p class="subtle subtle--body">${escapeHtml(`Source inbox group: ${linkedInboxGroup.summary}`)}</p>`
-                        : ""
-                    }
+											linkedInboxGroup
+												? `<p class="subtle subtle--body">${escapeHtml(`Source inbox group: ${linkedInboxGroup.summary}`)}</p>`
+												: ""
+										}
                     <p class="subtle subtle--body">${escapeHtml("This grouped handoff owns the forward path for review, approval, and send across the drafts below.")}</p>
                     <div class="list">
-                      ${drafts.map((draft, index) => {
-                        const review = reviewItemForArtifact(payload, draft.artifact_id);
-                        return `
+                      ${drafts
+												.map((draft, index) => {
+													const review = reviewItemForArtifact(
+														payload,
+														draft.artifact_id,
+													);
+													return `
                           <article class="list-item">
                             <div class="list-item__top">
                               <h4>${escapeHtml(`${index + 1}. ${draft.subject || "Prepared draft"}`)}</h4>
@@ -3969,30 +4462,31 @@ function renderDrafts(payload: ConsolePayload): string {
                             <p class="subtle subtle--body">${escapeHtml(groupedOutboundDraftSupportCopy(group))}</p>
                             <div class="list-item__actions list-item__actions--stack">
                               ${
-                                review && review.state === "pending"
-                                  ? `<button class="button" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
-                                  : review && review.state === "opened"
-                                    ? `<button class="button" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
-                                    : ""
-                              }
+																review && review.state === "pending"
+																	? `<button class="button" data-review-open="${escapeHtml(review.review_id)}" type="button">Open review</button>`
+																	: review && review.state === "opened"
+																		? `<button class="button" data-review-resolve="${escapeHtml(review.review_id)}" type="button">Resolve review</button>`
+																		: ""
+															}
                               <button class="button" data-outbound-open="${escapeHtml(group.group_id)}" type="button">Open grouped handoff</button>
                               <button class="copy-button" data-copy="${escapeHtml(draftCommand(draft.artifact_id))}" type="button">Copy draft command</button>
                             </div>
                           </article>
                         `;
-                      }).join("")}
+												})
+												.join("")}
                     </div>
                   </section>
                 `;
-              })
-              .join("")}
+							})
+							.join("")}
           </section>
         `
-        : `
+				: `
           <section class="list">
             ${payload.drafts
-              .map(
-                (draft) => `
+							.map(
+								(draft) => `
                   <article class="list-item">
                     <div class="list-item__top">
                       <h4>${escapeHtml(draft.subject)}</h4>
@@ -4004,17 +4498,19 @@ function renderDrafts(payload: ConsolePayload): string {
                     </div>
                   </article>
                 `,
-              )
-              .join("")}
+							)
+							.join("")}
           </section>
         `
-    }
+		}
   `;
 }
 
-function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail | null): string {
-  if (!detail) {
-    return `
+function renderPlanningRecommendationDetail(
+	detail: PlanningRecommendationDetail | null,
+): string {
+	if (!detail) {
+		return `
       <div class="empty">Pick the next recommendation or inspect a group to review the current browser-safe planning actions.</div>
       <div class="action-grid">
         <section class="action-card">
@@ -4036,10 +4532,11 @@ function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail
         </section>
       </div>
     `;
-  }
-  const recommendation = detail.recommendation;
-  const canAct = recommendation.status === "pending" || recommendation.status === "snoozed";
-  return `
+	}
+	const recommendation = detail.recommendation;
+	const canAct =
+		recommendation.status === "pending" || recommendation.status === "snoozed";
+	return `
     <div class="detail-list">
       <div class="detail-row"><dt>Title</dt><dd>${escapeHtml(maybe(recommendation.proposed_title, "untitled"))}</dd></div>
       <div class="detail-row"><dt>Status</dt><dd>${escapeHtml(recommendation.status)}</dd></div>
@@ -4050,15 +4547,15 @@ function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail
     <p class="subtle subtle--body">${escapeHtml(maybe(recommendation.rank_reason, recommendation.group_summary ?? "No extra ranking note recorded."))}</p>
     <div class="list-item__actions list-item__actions--stack">
       ${commandStack([
-        recommendationShowCommand(recommendation.recommendation_id),
-        recommendationApplyCommand(recommendation.recommendation_id),
-        recommendationSnoozeCommand(recommendation.recommendation_id),
-        recommendationRejectCommand(recommendation.recommendation_id),
-      ])}
+				recommendationShowCommand(recommendation.recommendation_id),
+				recommendationApplyCommand(recommendation.recommendation_id),
+				recommendationSnoozeCommand(recommendation.recommendation_id),
+				recommendationRejectCommand(recommendation.recommendation_id),
+			])}
     </div>
     ${
-      canAct
-        ? `
+			canAct
+				? `
           <div class="action-grid">
             <section class="action-card">
               <h4>Apply now</h4>
@@ -4108,19 +4605,21 @@ function renderPlanningRecommendationDetail(detail: PlanningRecommendationDetail
             </section>
           </div>
         `
-        : `
+				: `
           <div class="empty">This recommendation is currently ${escapeHtml(recommendation.status)}. Use the CLI if you need a different recovery path.</div>
         `
-    }
+		}
   `;
 }
 
-function renderPlanningGroupDetail(detail: PlanningRecommendationGroupDetail | null): string {
-  if (!detail) {
-    return `<div class="empty">Choose a planning group to see its backlog and group-wide actions.</div>`;
-  }
-  const pendingCount = detail.counts_by_status.pending ?? 0;
-  return `
+function renderPlanningGroupDetail(
+	detail: PlanningRecommendationGroupDetail | null,
+): string {
+	if (!detail) {
+		return `<div class="empty">Choose a planning group to see its backlog and group-wide actions.</div>`;
+	}
+	const pendingCount = detail.counts_by_status.pending ?? 0;
+	return `
     <div class="detail-list">
       <div class="detail-row"><dt>Summary</dt><dd>${escapeHtml(detail.group_summary)}</dd></div>
       <div class="detail-row"><dt>Open</dt><dd>${escapeHtml(String(pendingCount))}</dd></div>
@@ -4131,14 +4630,14 @@ function renderPlanningGroupDetail(detail: PlanningRecommendationGroupDetail | n
     <p class="subtle subtle--body">${escapeHtml(detail.closure_meaning_summary ?? "Group actions affect all pending recommendations in this group.")}</p>
     <div class="list-item__actions list-item__actions--stack">
       ${commandStack([
-        recommendationGroupShowCommand(detail.group_key),
-        recommendationGroupSnoozeCommand(detail.group_key),
-        recommendationGroupRejectCommand(detail.group_key),
-      ])}
+				recommendationGroupShowCommand(detail.group_key),
+				recommendationGroupSnoozeCommand(detail.group_key),
+				recommendationGroupRejectCommand(detail.group_key),
+			])}
     </div>
     ${
-      pendingCount > 0
-        ? `
+			pendingCount > 0
+				? `
           <div class="action-grid action-grid--compact">
             <section class="action-card">
               <h4>Group snooze</h4>
@@ -4173,21 +4672,24 @@ function renderPlanningGroupDetail(detail: PlanningRecommendationGroupDetail | n
             </section>
           </div>
         `
-        : `<div class="empty">This group has no pending recommendations left for browser-safe actions.</div>`
-    }
+				: `<div class="empty">This group has no pending recommendations left for browser-safe actions.</div>`
+		}
   `;
 }
 
 function renderPlanning(payload: ConsolePayload): string {
-  const next = payload.planningNext?.recommendation ?? null;
-  const bundles = payload.planningAutopilot.bundles;
-  const topBacklogSummary =
-    payload.planningSummary.most_backlogged_group?.summary ?? "No active planning groups";
-  const topReviewNeededSummary =
-    payload.planningSummary.top_review_needed_candidate?.summary ?? "No hygiene review needed";
-  const topClosureSummary =
-    payload.planningSummary.most_completed_group?.summary ?? "No recent closure summary";
-  return `
+	const next = payload.planningNext?.recommendation ?? null;
+	const bundles = payload.planningAutopilot.bundles;
+	const topBacklogSummary =
+		payload.planningSummary.most_backlogged_group?.summary ??
+		"No active planning groups";
+	const topReviewNeededSummary =
+		payload.planningSummary.top_review_needed_candidate?.summary ??
+		"No hygiene review needed";
+	const topClosureSummary =
+		payload.planningSummary.most_completed_group?.summary ??
+		"No recent closure summary";
+	return `
     ${renderAssistantSection(payload, "Assistant-prepared planning work", "planning", "No assistant-prepared planning review is waiting right now.")}
     ${renderProfileFreshness(payload.autopilot, "planning", "Planning freshness")}
     <section class="stats-grid">
@@ -4200,11 +4702,11 @@ function renderPlanning(payload: ConsolePayload): string {
         <h3>Prepared bundles and groups</h3>
         <div class="list">
           ${
-            bundles.length === 0
-              ? `<div class="empty">No planning bundles are active right now.</div>`
-              : bundles
-                  .map(
-                    (bundle) => `
+						bundles.length === 0
+							? `<div class="empty">No planning bundles are active right now.</div>`
+							: bundles
+									.map(
+										(bundle) => `
                       <article class="list-item${selectedClass(bundle.bundle_id === state.selectedPlanningBundleId)}">
                         <div class="list-item__top">
                           <h4>${escapeHtml(bundle.summary)}</h4>
@@ -4215,20 +4717,20 @@ function renderPlanning(payload: ConsolePayload): string {
                           <button class="button button--primary" data-planning-bundle="${escapeHtml(bundle.bundle_id)}" type="button">Inspect bundle</button>
                           <button class="button" data-planning-bundle-prepare="${escapeHtml(bundle.bundle_id)}" type="button">Refresh prep</button>
                           ${
-                            bundle.apply_ready
-                              ? `<button class="button" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
-                              : ""
-                          }
+														bundle.apply_ready
+															? `<button class="button" data-planning-bundle-apply="${escapeHtml(bundle.bundle_id)}" type="button">Apply bundle</button>`
+															: ""
+													}
                           <button class="copy-button" data-copy="${escapeHtml(planningBundleShowCommand(bundle.bundle_id))}" type="button">Copy CLI command</button>
                         </div>
                       </article>
                     `,
-                  )
-                  .join("")
-          }
+									)
+									.join("")
+					}
           ${
-            next
-              ? `
+						next
+							? `
                 <article class="list-item${selectedClass(next.recommendation_id === state.selectedPlanningRecommendationId)}">
                   <div class="list-item__top">
                     <h4>${escapeHtml(maybe(next.proposed_title, "untitled"))}</h4>
@@ -4241,14 +4743,14 @@ function renderPlanning(payload: ConsolePayload): string {
                   </div>
                 </article>
               `
-              : `<div class="empty">No next planning recommendation is currently available.</div>`
-          }
+							: `<div class="empty">No next planning recommendation is currently available.</div>`
+					}
           ${
-            payload.planningGroups.length === 0
-              ? `<div class="empty">No planning groups are currently open.</div>`
-              : payload.planningGroups
-                  .map(
-                    (group) => `
+						payload.planningGroups.length === 0
+							? `<div class="empty">No planning groups are currently open.</div>`
+							: payload.planningGroups
+									.map(
+										(group) => `
                       <article class="list-item${selectedClass(group.group_key === state.selectedPlanningGroupKey)}">
                         <div class="list-item__top">
                           <h4>${escapeHtml(group.group_summary)}</h4>
@@ -4261,9 +4763,9 @@ function renderPlanning(payload: ConsolePayload): string {
                         </div>
                       </article>
                     `,
-                  )
-                  .join("")
-          }
+									)
+									.join("")
+					}
         </div>
       </div>
       <div class="detail-stack">
@@ -4285,7 +4787,7 @@ function renderPlanning(payload: ConsolePayload): string {
 }
 
 function renderAudit(payload: ConsolePayload): string {
-  return `
+	return `
     <section class="panel">
       <div class="filter-row">
         <label class="field field--compact">
@@ -4307,11 +4809,11 @@ function renderAudit(payload: ConsolePayload): string {
     </section>
     <section class="list">
       ${
-        payload.audit.length === 0
-          ? `<div class="empty">No audit events matched the current filter.</div>`
-          : payload.audit
-              .map(
-                (event) => `
+				payload.audit.length === 0
+					? `<div class="empty">No audit events matched the current filter.</div>`
+					: payload.audit
+							.map(
+								(event) => `
                   <article class="list-item">
                     <div class="list-item__top">
                       <h4>${escapeHtml(event.action)}</h4>
@@ -4321,17 +4823,17 @@ function renderAudit(payload: ConsolePayload): string {
                     <p class="subtle subtle--body">${escapeHtml(formatTime(event.timestamp))}</p>
                   </article>
                 `,
-              )
-              .join("")
-      }
+							)
+							.join("")
+			}
     </section>
   `;
 }
 
 function renderBackups(payload: ConsolePayload): string {
-  const detail = state.snapshotInspection;
-  const snapshotList = !state.snapshotsLoaded
-    ? `
+	const detail = state.snapshotInspection;
+	const snapshotList = !state.snapshotsLoaded
+		? `
       <article class="list-item">
         <div class="list-item__top">
           <h4>Loading snapshots…</h4>
@@ -4340,11 +4842,11 @@ function renderBackups(payload: ConsolePayload): string {
         <p>${escapeHtml(String(new Date().getUTCFullYear()))}</p>
       </article>
     `
-    : payload.snapshots.length === 0
-      ? `<div class="empty">No recovery snapshots exist yet.</div>`
-      : payload.snapshots
-          .map(
-            (snapshot) => `
+		: payload.snapshots.length === 0
+			? `<div class="empty">No recovery snapshots exist yet.</div>`
+			: payload.snapshots
+					.map(
+						(snapshot) => `
               <article class="list-item${selectedClass(snapshot.snapshot_id === state.selectedSnapshotId)}">
                 <div class="list-item__top">
                   <h4>${escapeHtml(snapshot.snapshot_id)}</h4>
@@ -4357,17 +4859,17 @@ function renderBackups(payload: ConsolePayload): string {
                 </div>
               </article>
             `,
-          )
-          .join("");
-  const snapshotDetail = !detail
-    ? !state.snapshotsLoaded
-      ? `
+					)
+					.join("");
+	const snapshotDetail = !detail
+		? !state.snapshotsLoaded
+			? `
         <div class="detail-list">
           <div class="detail-row"><dt>Source machine</dt><dd>Loading…</dd></div>
         </div>
       `
-      : `<div class="empty">Choose a snapshot to inspect its provenance and CLI restore guidance.</div>`
-    : `
+			: `<div class="empty">Choose a snapshot to inspect its provenance and CLI restore guidance.</div>`
+		: `
         <div class="detail-list">
           <div class="detail-row"><dt>Snapshot id</dt><dd>${escapeHtml(detail.manifest.snapshot_id)}</dd></div>
           <div class="detail-row"><dt>Created</dt><dd>${escapeHtml(formatTime(detail.manifest.created_at))}</dd></div>
@@ -4377,12 +4879,12 @@ function renderBackups(payload: ConsolePayload): string {
         <p class="subtle subtle--body">Restore stays in the CLI. Cross-machine restore requires <span class="code">--allow-cross-machine</span> and does not merge state.</p>
         <div class="list-item__actions list-item__actions--stack">
           ${commandStack([
-            `personal-ops backup inspect ${detail.manifest.snapshot_id}`,
-            `personal-ops backup restore ${detail.manifest.snapshot_id} --yes`,
-          ])}
+						`personal-ops backup inspect ${detail.manifest.snapshot_id}`,
+						`personal-ops backup restore ${detail.manifest.snapshot_id} --yes`,
+					])}
         </div>
       `;
-  return `
+	return `
     ${renderAssistantSection(payload, "Assistant-prepared backup work", "backups", "No assistant-prepared backup actions are waiting right now.")}
     <section class="columns">
       <div class="list-card">
@@ -4404,78 +4906,78 @@ function renderBackups(payload: ConsolePayload): string {
 }
 
 function renderCurrentSection(payload: ConsolePayload): string {
-  switch (state.section) {
-    case "overview":
-      return renderOverview(payload);
-    case "review":
-      return renderReviewTrendsDashboard(payload);
-    case "worklist":
-      return renderWorklist(payload);
-    case "approvals":
-      return renderApprovals(payload);
-    case "drafts":
-      return renderDrafts(payload);
-    case "planning":
-      return renderPlanning(payload);
-    case "audit":
-      return renderAudit(payload);
-    case "backups":
-      return renderBackups(payload);
-    default:
-      return renderOverview(payload);
-  }
+	switch (state.section) {
+		case "overview":
+			return renderOverview(payload);
+		case "review":
+			return renderReviewTrendsDashboard(payload);
+		case "worklist":
+			return renderWorklist(payload);
+		case "approvals":
+			return renderApprovals(payload);
+		case "drafts":
+			return renderDrafts(payload);
+		case "planning":
+			return renderPlanning(payload);
+		case "audit":
+			return renderAudit(payload);
+		case "backups":
+			return renderBackups(payload);
+		default:
+			return renderOverview(payload);
+	}
 }
 
 export function buildConsolePayloadForTest(input: {
-  status: ServiceStatusReport;
-  worklist: WorklistReport;
-  nowNextWorkflow: WorkflowBundleReport;
-  prepDayWorkflow: WorkflowBundleReport;
-  deferred: Partial<ConsolePayload>;
+	status: ServiceStatusReport;
+	worklist: WorklistReport;
+	nowNextWorkflow: WorkflowBundleReport;
+	prepDayWorkflow: WorkflowBundleReport;
+	deferred: Partial<ConsolePayload>;
 }): ConsolePayload {
-  return {
-    ...buildCoreConsolePayload({
-      status: input.status,
-      worklist: input.worklist,
-      nowNextWorkflow: input.nowNextWorkflow,
-      prepDayWorkflow: input.prepDayWorkflow,
-    }),
-    ...input.deferred,
-  };
+	return {
+		...buildCoreConsolePayload({
+			status: input.status,
+			worklist: input.worklist,
+			nowNextWorkflow: input.nowNextWorkflow,
+			prepDayWorkflow: input.prepDayWorkflow,
+		}),
+		...input.deferred,
+	};
 }
 
 export function renderConsoleSectionForTest(input: {
-  section: SectionId;
-  payload: ConsolePayload;
-  selectedApprovalId?: string | null;
-  approvalDetail?: ApprovalDetail | null;
+	section: SectionId;
+	payload: ConsolePayload;
+	selectedApprovalId?: string | null;
+	approvalDetail?: ApprovalDetail | null;
 }): string {
-  const previous = {
-    section: state.section,
-    selectedApprovalId: state.selectedApprovalId,
-    approvalDetail: state.approvalDetail,
-  };
-  state.section = input.section;
-  if ("selectedApprovalId" in input) {
-    state.selectedApprovalId = input.selectedApprovalId ?? null;
-  }
-  if ("approvalDetail" in input) {
-    state.approvalDetail = input.approvalDetail ?? null;
-  }
-  try {
-    return renderCurrentSection(input.payload);
-  } finally {
-    state.section = previous.section;
-    state.selectedApprovalId = previous.selectedApprovalId;
-    state.approvalDetail = previous.approvalDetail;
-  }
+	const previous = {
+		section: state.section,
+		selectedApprovalId: state.selectedApprovalId,
+		approvalDetail: state.approvalDetail,
+	};
+	state.section = input.section;
+	if ("selectedApprovalId" in input) {
+		state.selectedApprovalId = input.selectedApprovalId ?? null;
+	}
+	if ("approvalDetail" in input) {
+		state.approvalDetail = input.approvalDetail ?? null;
+	}
+	try {
+		return renderCurrentSection(input.payload);
+	} finally {
+		state.section = previous.section;
+		state.selectedApprovalId = previous.selectedApprovalId;
+		state.approvalDetail = previous.approvalDetail;
+	}
 }
 
 function renderLoadingSection(): string {
-  if (state.section !== "overview") {
-    return `<section class="hero"><h3>Loading ${escapeHtml(SECTIONS[state.section])}…</h3><p>The daemon is gathering local operator state.</p></section>`;
-  }
-  return `
+	if (state.section !== "overview") {
+		return `<section class="hero"><h3>Loading ${escapeHtml(SECTIONS[state.section])}…</h3><p>The daemon is gathering local operator state.</p></section>`;
+	}
+	return `
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
       <div class="list-item__top">
@@ -4506,1504 +5008,2261 @@ function renderLoadingSection(): string {
 }
 
 function syncNav(): void {
-  const { sectionTitle } = getShellElements();
-  sectionTitle.textContent = SECTIONS[state.section];
-  for (const button of document.querySelectorAll<HTMLButtonElement>(".nav__item")) {
-    button.classList.toggle("is-active", button.dataset.section === state.section);
-  }
+	const { sectionTitle } = getShellElements();
+	sectionTitle.textContent = SECTIONS[state.section];
+	for (const button of document.querySelectorAll<HTMLButtonElement>(
+		".nav__item",
+	)) {
+		button.classList.toggle(
+			"is-active",
+			button.dataset.section === state.section,
+		);
+	}
 }
 
 function render(): void {
-  const { content } = getShellElements();
-  syncNav();
-  if (!state.payload) {
-    const cards: Array<{ message: string; tone: BannerTone }> = [];
-    if (state.flash) {
-      cards.push(state.flash);
-    }
-    renderBannerCards(cards);
-    content.innerHTML = renderLoadingSection();
-    return;
-  }
-  const payload = state.payload;
-  const cards: Array<{ message: string; tone: BannerTone }> = [];
-  if (state.flash) {
-    cards.push(state.flash);
-  }
-  if (payload.status.machine.state_origin === "restored_cross_machine") {
-    cards.push({
-      message:
-        "This machine is operating on state restored from a different machine. Re-run local auth checks before trusting live provider access.",
-      tone: "warn",
-    });
-  } else if (payload.status.machine.state_origin === "unknown_legacy_restore") {
-    cards.push({
-      message:
-        "This state came from a legacy snapshot without machine provenance. Treat restore history as unknown until revalidated locally.",
-      tone: "warn",
-    });
-  } else if (state.lockedHint) {
-    cards.push({
-      message: "This page can show a locked state after an expired launch link. Re-run `personal-ops console` if needed.",
-      tone: "warn",
-    });
-  }
-  renderBannerCards(cards);
-  content.innerHTML = renderCurrentSection(payload);
+	const { content } = getShellElements();
+	syncNav();
+	if (!state.payload) {
+		const cards: Array<{ message: string; tone: BannerTone }> = [];
+		if (state.flash) {
+			cards.push(state.flash);
+		}
+		renderBannerCards(cards);
+		content.innerHTML = renderLoadingSection();
+		return;
+	}
+	const payload = state.payload;
+	const cards: Array<{ message: string; tone: BannerTone }> = [];
+	if (state.flash) {
+		cards.push(state.flash);
+	}
+	if (payload.status.machine.state_origin === "restored_cross_machine") {
+		cards.push({
+			message:
+				"This machine is operating on state restored from a different machine. Re-run local auth checks before trusting live provider access.",
+			tone: "warn",
+		});
+	} else if (payload.status.machine.state_origin === "unknown_legacy_restore") {
+		cards.push({
+			message:
+				"This state came from a legacy snapshot without machine provenance. Treat restore history as unknown until revalidated locally.",
+			tone: "warn",
+		});
+	} else if (state.lockedHint) {
+		cards.push({
+			message:
+				"This page can show a locked state after an expired launch link. Re-run `personal-ops console` if needed.",
+			tone: "warn",
+		});
+	}
+	renderBannerCards(cards);
+	content.innerHTML = renderCurrentSection(payload);
 }
 
 async function hydrateDeferredPayload(): Promise<void> {
-  const payload = state.payload;
-  if (!payload || state.deferredPayloadLoaded) {
-    return;
-  }
-  const deferred = await loadDeferredPayload();
-  if (!state.payload) {
-    return;
-  }
-  state.payload = {
-    ...state.payload,
-    ...deferred,
-  };
-  state.deferredPayloadLoaded = true;
-  resolveSelections(state.payload);
-  await loadSelectedDetails();
-  render();
+	const payload = state.payload;
+	if (!payload || state.deferredPayloadLoaded) {
+		return;
+	}
+	const deferred = await loadDeferredPayload();
+	if (!state.payload) {
+		return;
+	}
+	state.payload = {
+		...state.payload,
+		...deferred,
+	};
+	state.deferredPayloadLoaded = true;
+	resolveSelections(state.payload);
+	await loadSelectedDetails();
+	render();
 }
 
 async function mergePayload(update: Partial<ConsolePayload>): Promise<void> {
-  if (!state.payload) {
-    return;
-  }
-  state.payload = {
-    ...state.payload,
-    ...update,
-  };
-  resolveSelections(state.payload);
-  await loadSelectedDetails();
-  render();
+	if (!state.payload) {
+		return;
+	}
+	state.payload = {
+		...state.payload,
+		...update,
+	};
+	resolveSelections(state.payload);
+	await loadSelectedDetails();
+	render();
 }
 
 async function ensureDeferredPayloadLoaded(): Promise<void> {
-  if (state.deferredPayloadLoaded) {
-    return;
-  }
-  if (!deferredPayloadPromise) {
-    deferredPayloadPromise = hydrateDeferredPayload()
-      .catch((error) => {
-        setFlash(error instanceof Error ? error.message : String(error), "critical");
-        render();
-      })
-      .finally(() => {
-        deferredPayloadPromise = null;
-      });
-  }
-  await deferredPayloadPromise;
+	if (state.deferredPayloadLoaded) {
+		return;
+	}
+	if (!deferredPayloadPromise) {
+		deferredPayloadPromise = hydrateDeferredPayload()
+			.catch((error) => {
+				setFlash(
+					error instanceof Error ? error.message : String(error),
+					"critical",
+				);
+				render();
+			})
+			.finally(() => {
+				deferredPayloadPromise = null;
+			});
+	}
+	await deferredPayloadPromise;
 }
 
 async function ensurePlanningPayloadLoaded(): Promise<void> {
-  const payload = state.payload;
-  if (!payload) {
-    return;
-  }
-  if (
-    payload.planningGroups.length > 0 ||
-    payload.planningAutopilot.bundles.length > 0 ||
-    payload.planningNext !== null ||
-    payload.planningSummary.open_count > 0
-  ) {
-    return;
-  }
-  const [planningSummaryResponse, planningAutopilotResponse, planningGroupsResponse, planningNextResponse] = await Promise.all([
-    fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
-    fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
-    fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
-    fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next"),
-  ]);
-  await mergePayload({
-    planningSummary: planningSummaryResponse.planning_recommendation_summary,
-    planningAutopilot: planningAutopilotResponse.planning_autopilot,
-    planningGroups: planningGroupsResponse.planning_recommendation_groups,
-    planningNext: planningNextResponse.planning_recommendation,
-  });
+	const payload = state.payload;
+	if (!payload) {
+		return;
+	}
+	if (
+		payload.planningGroups.length > 0 ||
+		payload.planningAutopilot.bundles.length > 0 ||
+		payload.planningNext !== null ||
+		payload.planningSummary.open_count > 0
+	) {
+		return;
+	}
+	const [
+		planningSummaryResponse,
+		planningAutopilotResponse,
+		planningGroupsResponse,
+		planningNextResponse,
+	] = await Promise.all([
+		fetchJson<PlanningSummaryResponse>("/v1/planning-recommendations/summary"),
+		fetchJson<PlanningAutopilotResponse>("/v1/planning/autopilot"),
+		fetchJson<PlanningGroupsResponse>("/v1/planning-recommendation-groups"),
+		fetchJson<PlanningRecommendationDetailResponse>(
+			"/v1/planning-recommendations/next",
+		),
+	]);
+	await mergePayload({
+		planningSummary: planningSummaryResponse.planning_recommendation_summary,
+		planningAutopilot: planningAutopilotResponse.planning_autopilot,
+		planningGroups: planningGroupsResponse.planning_recommendation_groups,
+		planningNext: planningNextResponse.planning_recommendation,
+	});
 }
 
-async function ensurePlanningActionTargetLoaded(renderAfterLoad = false): Promise<void> {
-  if (state.selectedPlanningRecommendationId) {
-    if (renderAfterLoad && state.section === "planning") {
-      render();
-    }
-    return;
-  }
-  if (!planningActionTargetPromise) {
-    planningActionTargetPromise = (async () => {
-      const response = await fetchJson<PlanningRecommendationDetailResponse>("/v1/planning-recommendations/next");
-      const detail = response.planning_recommendation;
-      if (!detail) {
-        return;
-      }
-      state.selectedPlanningRecommendationId = detail.recommendation.recommendation_id;
-      state.selectedPlanningGroupKey = detail.recommendation.group_key ?? null;
-      state.planningRecommendationDetail = detail;
-    })().finally(() => {
-      planningActionTargetPromise = null;
-    });
-  }
-  await planningActionTargetPromise;
-  if (renderAfterLoad && state.section === "planning") {
-    render();
-  }
+async function ensurePlanningActionTargetLoaded(
+	renderAfterLoad = false,
+): Promise<void> {
+	if (state.selectedPlanningRecommendationId) {
+		if (renderAfterLoad && state.section === "planning") {
+			render();
+		}
+		return;
+	}
+	if (!planningActionTargetPromise) {
+		planningActionTargetPromise = (async () => {
+			const response = await fetchJson<PlanningRecommendationDetailResponse>(
+				"/v1/planning-recommendations/next",
+			);
+			const detail = response.planning_recommendation;
+			if (!detail) {
+				return;
+			}
+			state.selectedPlanningRecommendationId =
+				detail.recommendation.recommendation_id;
+			state.selectedPlanningGroupKey = detail.recommendation.group_key ?? null;
+			state.planningRecommendationDetail = detail;
+		})().finally(() => {
+			planningActionTargetPromise = null;
+		});
+	}
+	await planningActionTargetPromise;
+	if (renderAfterLoad && state.section === "planning") {
+		render();
+	}
 }
 
 async function ensureSnapshotsLoaded(): Promise<void> {
-  const payload = state.payload;
-  if (!payload) {
-    return;
-  }
-  if (payload.snapshots.length > 0) {
-    state.snapshotsLoaded = true;
-    return;
-  }
-  const response = await fetchJson<SnapshotListResponse>("/v1/snapshots");
-  state.snapshotsLoaded = true;
-  await mergePayload({ snapshots: response.snapshots });
+	const payload = state.payload;
+	if (!payload) {
+		return;
+	}
+	if (payload.snapshots.length > 0) {
+		state.snapshotsLoaded = true;
+		return;
+	}
+	const response = await fetchJson<SnapshotListResponse>("/v1/snapshots");
+	state.snapshotsLoaded = true;
+	await mergePayload({ snapshots: response.snapshots });
 }
 
 async function ensureAuditLoaded(): Promise<void> {
-  const payload = state.payload;
-  if (!payload) {
-    return;
-  }
-  if (payload.audit.length > 0) {
-    return;
-  }
-  const response = await fetchAudit(state.auditLimit, state.auditCategory);
-  await mergePayload({ audit: response.events });
+	const payload = state.payload;
+	if (!payload) {
+		return;
+	}
+	if (payload.audit.length > 0) {
+		return;
+	}
+	const response = await fetchAudit(state.auditLimit, state.auditCategory);
+	await mergePayload({ audit: response.events });
 }
 
 async function ensureReviewLoaded(): Promise<void> {
-  const payload = state.payload;
-  if (!payload) {
-    return;
-  }
-  if (payload.reviewCalibration.surfaces.length > 0 || payload.reviewImpact.comparisons.length > 0 || payload.reviewTrends.points.length > 0) {
-    return;
-  }
-  const [reviewCalibrationResponse, reviewReportResponse, reviewTrendsResponse, reviewImpactResponse, reviewWeeklyResponse] = await Promise.all([
-    fetchJson<ReviewCalibrationResponse>("/v1/review/calibration"),
-    fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
-    fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
-    fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
-    fetchJson<ReviewWeeklyResponse>("/v1/review/weekly?days=14"),
-  ]);
-  await mergePayload({
-    reviewCalibration: reviewCalibrationResponse.review_calibration,
-    reviewReport: reviewReportResponse.review_report,
-    reviewTrends: reviewTrendsResponse.review_trends,
-    reviewImpact: reviewImpactResponse.review_impact,
-    reviewWeekly: reviewWeeklyResponse.review_weekly,
-  });
+	const payload = state.payload;
+	if (!payload) {
+		return;
+	}
+	if (
+		payload.reviewCalibration.surfaces.length > 0 ||
+		payload.reviewImpact.comparisons.length > 0 ||
+		payload.reviewTrends.points.length > 0
+	) {
+		return;
+	}
+	const [
+		reviewCalibrationResponse,
+		reviewReportResponse,
+		reviewTrendsResponse,
+		reviewImpactResponse,
+		reviewWeeklyResponse,
+	] = await Promise.all([
+		fetchJson<ReviewCalibrationResponse>("/v1/review/calibration"),
+		fetchJson<ReviewReportResponse>("/v1/review/report?window_days=14"),
+		fetchJson<ReviewTrendsResponse>("/v1/review/trends?days=30"),
+		fetchJson<ReviewImpactResponse>("/v1/review/impact?days=30"),
+		fetchJson<ReviewWeeklyResponse>("/v1/review/weekly?days=14"),
+	]);
+	await mergePayload({
+		reviewCalibration: reviewCalibrationResponse.review_calibration,
+		reviewReport: reviewReportResponse.review_report,
+		reviewTrends: reviewTrendsResponse.review_trends,
+		reviewImpact: reviewImpactResponse.review_impact,
+		reviewWeekly: reviewWeeklyResponse.review_weekly,
+	});
 }
 
 async function refreshAll(): Promise<void> {
-  corePayloadGeneration += 1;
-  corePayloadLoaded = false;
-  corePayloadPromise = null;
-  if (corePayloadTimer !== null) {
-    window.clearTimeout(corePayloadTimer);
-    corePayloadTimer = null;
-  }
-  planningActionTargetPromise = null;
-  state.payload = buildBootstrapConsolePayload();
-  state.deferredPayloadLoaded = false;
-  state.snapshotsLoaded = false;
-  deferredPayloadPromise = null;
-  resolveSelections(state.payload);
-  render();
-  scheduleCorePayloadHydration();
+	corePayloadGeneration += 1;
+	corePayloadLoaded = false;
+	corePayloadPromise = null;
+	if (corePayloadTimer !== null) {
+		window.clearTimeout(corePayloadTimer);
+		corePayloadTimer = null;
+	}
+	planningActionTargetPromise = null;
+	state.payload = buildBootstrapConsolePayload();
+	state.deferredPayloadLoaded = false;
+	state.snapshotsLoaded = false;
+	deferredPayloadPromise = null;
+	resolveSelections(state.payload);
+	render();
+	scheduleCorePayloadHydration();
 }
 
 async function refreshAuditOnly(): Promise<void> {
-  if (!state.payload) {
-    return;
-  }
-  try {
-    const audit = await fetchAudit(state.auditLimit, state.auditCategory);
-    state.payload.audit = audit.events;
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	if (!state.payload) {
+		return;
+	}
+	try {
+		const audit = await fetchAudit(state.auditLimit, state.auditCategory);
+		state.payload.audit = audit.events;
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function selectSnapshot(snapshotId: string): Promise<void> {
-  state.selectedSnapshotId = snapshotId;
-  state.section = "backups";
-  try {
-    await loadSelectedSnapshotInspection();
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedSnapshotId = snapshotId;
+	state.section = "backups";
+	try {
+		await loadSelectedSnapshotInspection();
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function selectApproval(approvalId: string): Promise<void> {
-  state.selectedApprovalId = approvalId;
-  if (state.payload) {
-    state.selectedOutboundGroupId = outboundGroupForApproval(state.payload, approvalId)?.group_id ?? state.selectedOutboundGroupId;
-  }
-  state.section = "approvals";
-  try {
-    await loadSelectedApprovalDetail();
-    await loadSelectedOutboundGroupDetail();
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedApprovalId = approvalId;
+	if (state.payload) {
+		state.selectedOutboundGroupId =
+			outboundGroupForApproval(state.payload, approvalId)?.group_id ??
+			state.selectedOutboundGroupId;
+	}
+	state.section = "approvals";
+	try {
+		await loadSelectedApprovalDetail();
+		await loadSelectedOutboundGroupDetail();
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
-async function selectPlanningRecommendation(recommendationId: string): Promise<void> {
-  state.selectedPlanningRecommendationId = recommendationId;
-  state.section = "planning";
-  try {
-    await loadSelectedPlanningRecommendationDetail();
-    if (state.payload) {
-      const bundle = planningBundleForRecommendation(state.payload, recommendationId);
-      if (bundle) {
-        state.selectedPlanningBundleId = bundle.bundle_id;
-        await loadSelectedPlanningBundleDetail();
-      }
-    }
-    if (state.planningRecommendationDetail?.recommendation.group_key) {
-      state.selectedPlanningGroupKey = state.planningRecommendationDetail.recommendation.group_key;
-      await loadSelectedPlanningGroupDetail();
-    }
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+async function selectPlanningRecommendation(
+	recommendationId: string,
+): Promise<void> {
+	state.selectedPlanningRecommendationId = recommendationId;
+	state.section = "planning";
+	try {
+		await loadSelectedPlanningRecommendationDetail();
+		if (state.payload) {
+			const bundle = planningBundleForRecommendation(
+				state.payload,
+				recommendationId,
+			);
+			if (bundle) {
+				state.selectedPlanningBundleId = bundle.bundle_id;
+				await loadSelectedPlanningBundleDetail();
+			}
+		}
+		if (state.planningRecommendationDetail?.recommendation.group_key) {
+			state.selectedPlanningGroupKey =
+				state.planningRecommendationDetail.recommendation.group_key;
+			await loadSelectedPlanningGroupDetail();
+		}
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function selectPlanningBundle(bundleId: string): Promise<void> {
-  state.selectedPlanningBundleId = bundleId;
-  state.section = "planning";
-  try {
-    await loadSelectedPlanningBundleDetail();
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedPlanningBundleId = bundleId;
+	state.section = "planning";
+	try {
+		await loadSelectedPlanningBundleDetail();
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function selectPlanningGroup(groupKey: string): Promise<void> {
-  state.selectedPlanningGroupKey = groupKey;
-  state.section = "planning";
-  try {
-    await loadSelectedPlanningGroupDetail();
-    const nextRecommendationId = state.planningGroupDetail?.next_actionable_recommendation?.recommendation_id;
-    if (nextRecommendationId) {
-      state.selectedPlanningRecommendationId = nextRecommendationId;
-      await loadSelectedPlanningRecommendationDetail();
-    }
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedPlanningGroupKey = groupKey;
+	state.section = "planning";
+	try {
+		await loadSelectedPlanningGroupDetail();
+		const nextRecommendationId =
+			state.planningGroupDetail?.next_actionable_recommendation
+				?.recommendation_id;
+		if (nextRecommendationId) {
+			state.selectedPlanningRecommendationId = nextRecommendationId;
+			await loadSelectedPlanningRecommendationDetail();
+		}
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function selectWorklistItem(itemId: string): Promise<void> {
-  state.selectedWorklistItemId = itemId;
-  state.section = "worklist";
-  try {
-    await loadSelectedWorklistDetail();
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedWorklistItemId = itemId;
+	state.section = "worklist";
+	try {
+		await loadSelectedWorklistDetail();
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
 async function openAutopilotGroup(groupId: string): Promise<void> {
-  const payload = state.payload;
-  const group = payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ?? null;
-  if (!payload || !group) {
-    setFlash("That inbox autopilot group is no longer available. Refresh the console and try again.", "warn");
-    render();
-    return;
-  }
-  const matchingWorklistItem = payload.worklist.items.find(
-    (item) => item.target_type === "mail_thread" && group.threads.some((thread) => thread.thread_id === item.target_id),
-  );
-  if (group.review_required || group.draft_artifact_ids.length > 0) {
-    state.section = "drafts";
-    if (matchingWorklistItem) {
-      state.selectedWorklistItemId = matchingWorklistItem.item_id;
-    }
-    location.hash = state.section;
-    render();
-    return;
-  }
-  if (matchingWorklistItem) {
-    await selectWorklistItem(matchingWorklistItem.item_id);
-    return;
-  }
-  state.section = "worklist";
-  location.hash = state.section;
-  render();
+	const payload = state.payload;
+	const group =
+		payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ??
+		null;
+	if (!payload || !group) {
+		setFlash(
+			"That inbox autopilot group is no longer available. Refresh the console and try again.",
+			"warn",
+		);
+		render();
+		return;
+	}
+	const matchingWorklistItem = payload.worklist.items.find(
+		(item) =>
+			item.target_type === "mail_thread" &&
+			group.threads.some((thread) => thread.thread_id === item.target_id),
+	);
+	if (group.review_required || group.draft_artifact_ids.length > 0) {
+		state.section = "drafts";
+		if (matchingWorklistItem) {
+			state.selectedWorklistItemId = matchingWorklistItem.item_id;
+		}
+		location.hash = state.section;
+		render();
+		return;
+	}
+	if (matchingWorklistItem) {
+		await selectWorklistItem(matchingWorklistItem.item_id);
+		return;
+	}
+	state.section = "worklist";
+	location.hash = state.section;
+	render();
 }
 
 async function openOutboundGroup(groupId: string): Promise<void> {
-  state.selectedOutboundGroupId = groupId;
-  try {
-    await loadSelectedOutboundGroupDetail();
-    const group = state.outboundGroupDetail;
-    if (!group) {
-      setFlash("That outbound group is no longer available. Refresh the console and try again.", "warn");
-      render();
-      return;
-    }
-    const firstApprovalId = group.approval_ids[0];
-    if (firstApprovalId) {
-      state.selectedApprovalId = firstApprovalId;
-      await loadSelectedApprovalDetail();
-    }
-    state.section = group.state === "approval_pending" || group.state === "blocked" ? "approvals" : "drafts";
-    location.hash = state.section;
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(error instanceof Error ? error.message : String(error), "critical");
-    render();
-  }
+	state.selectedOutboundGroupId = groupId;
+	try {
+		await loadSelectedOutboundGroupDetail();
+		const group = state.outboundGroupDetail;
+		if (!group) {
+			setFlash(
+				"That outbound group is no longer available. Refresh the console and try again.",
+				"warn",
+			);
+			render();
+			return;
+		}
+		const firstApprovalId = group.approval_ids[0];
+		if (firstApprovalId) {
+			state.selectedApprovalId = firstApprovalId;
+			await loadSelectedApprovalDetail();
+		}
+		state.section =
+			group.state === "approval_pending" || group.state === "blocked"
+				? "approvals"
+				: "drafts";
+		location.hash = state.section;
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			error instanceof Error ? error.message : String(error),
+			"critical",
+		);
+		render();
+	}
 }
 
-async function openWorkflowAction(workflowName: WorkflowBundleReport["workflow"], actionIndex: number): Promise<void> {
-  const payload = state.payload;
-  const action = payload ? workflowByName(payload, workflowName).actions[actionIndex] : null;
-  if (!payload || !action) {
-    setFlash("That workflow action is no longer available. Refresh the console and try again.", "warn");
-    render();
-    return;
-  }
+async function openWorkflowAction(
+	workflowName: WorkflowBundleReport["workflow"],
+	actionIndex: number,
+): Promise<void> {
+	const payload = state.payload;
+	const action = payload
+		? workflowByName(payload, workflowName).actions[actionIndex]
+		: null;
+	if (!payload || !action) {
+		setFlash(
+			"That workflow action is no longer available. Refresh the console and try again.",
+			"warn",
+		);
+		render();
+		return;
+	}
 
-  const matchingWorklistItem = payload.worklist.items.find(
-    (item) => item.target_type === action.target_type && item.target_id === action.target_id,
-  );
-  if (matchingWorklistItem) {
-    await selectWorklistItem(matchingWorklistItem.item_id);
-    return;
-  }
+	const matchingWorklistItem = payload.worklist.items.find(
+		(item) =>
+			item.target_type === action.target_type &&
+			item.target_id === action.target_id,
+	);
+	if (matchingWorklistItem) {
+		await selectWorklistItem(matchingWorklistItem.item_id);
+		return;
+	}
 
-  if (action.target_type && action.target_id) {
-    state.section = "worklist";
-    location.hash = state.section;
-    state.worklistDetail = await buildWorklistDetail(
-      syntheticAttentionItem(action.target_type, action.target_id, action.label, action.summary, action.command),
-    );
-    render();
-    return;
-  }
+	if (action.target_type && action.target_id) {
+		state.section = "worklist";
+		location.hash = state.section;
+		state.worklistDetail = await buildWorklistDetail(
+			syntheticAttentionItem(
+				action.target_type,
+				action.target_id,
+				action.label,
+				action.summary,
+				action.command,
+			),
+		);
+		render();
+		return;
+	}
 
-  if (action.target_type === "planning_recommendation" && action.target_id) {
-    await selectPlanningRecommendation(action.target_id);
-    return;
-  }
-  if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
-    await selectPlanningBundle(action.target_id);
-    return;
-  }
-  if (action.target_type === "inbox_autopilot_group" && action.target_id) {
-    await openAutopilotGroup(action.target_id);
-    return;
-  }
-  if (action.target_type === "outbound_autopilot_group" && action.target_id) {
-    await openOutboundGroup(action.target_id);
-    return;
-  }
-  if (action.target_type === "planning_recommendation_group" && action.target_id) {
-    await selectPlanningGroup(action.target_id);
-    return;
-  }
-  if (action.target_type === "snapshot" && action.target_id) {
-    await selectSnapshot(action.target_id);
-    return;
-  }
-  if (action.target_type === "approval_request" && action.target_id) {
-    await selectApproval(action.target_id);
-    return;
-  }
-  if (action.target_type === "calendar_event" && action.target_id) {
-    state.section = "worklist";
-    location.hash = state.section;
-    state.worklistDetail = await buildWorklistDetail(
-      syntheticAttentionItem(
-        "calendar_event",
-        action.target_id,
-        action.label,
-        action.summary,
-        action.command,
-      ),
-    );
-    render();
-    return;
-  }
+	if (action.target_type === "planning_recommendation" && action.target_id) {
+		await selectPlanningRecommendation(action.target_id);
+		return;
+	}
+	if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
+		await selectPlanningBundle(action.target_id);
+		return;
+	}
+	if (action.target_type === "inbox_autopilot_group" && action.target_id) {
+		await openAutopilotGroup(action.target_id);
+		return;
+	}
+	if (action.target_type === "outbound_autopilot_group" && action.target_id) {
+		await openOutboundGroup(action.target_id);
+		return;
+	}
+	if (
+		action.target_type === "planning_recommendation_group" &&
+		action.target_id
+	) {
+		await selectPlanningGroup(action.target_id);
+		return;
+	}
+	if (action.target_type === "snapshot" && action.target_id) {
+		await selectSnapshot(action.target_id);
+		return;
+	}
+	if (action.target_type === "approval_request" && action.target_id) {
+		await selectApproval(action.target_id);
+		return;
+	}
+	if (action.target_type === "calendar_event" && action.target_id) {
+		state.section = "worklist";
+		location.hash = state.section;
+		state.worklistDetail = await buildWorklistDetail(
+			syntheticAttentionItem(
+				"calendar_event",
+				action.target_id,
+				action.label,
+				action.summary,
+				action.command,
+			),
+		);
+		render();
+		return;
+	}
 
-  await navigator.clipboard.writeText(action.command);
-  setFlash("No in-console detail exists for that action yet. The CLI command has been copied instead.", "warn");
-  render();
+	await navigator.clipboard.writeText(action.command);
+	setFlash(
+		"No in-console detail exists for that action yet. The CLI command has been copied instead.",
+		"warn",
+	);
+	render();
 }
 
 async function openAssistantAction(actionId: string): Promise<void> {
-  const payload = state.payload;
-  const action = payload?.assistantQueue.actions.find((item) => item.action_id === actionId) ?? null;
-  if (!payload || !action) {
-    setFlash("That assistant action is no longer available. Refresh the console and try again.", "warn");
-    render();
-    return;
-  }
+	const payload = state.payload;
+	const action =
+		payload?.assistantQueue.actions.find(
+			(item) => item.action_id === actionId,
+		) ?? null;
+	if (!payload || !action) {
+		setFlash(
+			"That assistant action is no longer available. Refresh the console and try again.",
+			"warn",
+		);
+		render();
+		return;
+	}
 
-  const matchingWorklistItem = payload.worklist.items.find(
-    (item) => item.target_type === action.target_type && item.target_id === action.target_id,
-  );
-  if (matchingWorklistItem) {
-    await selectWorklistItem(matchingWorklistItem.item_id);
-    return;
-  }
-  if (action.target_type === "planning_recommendation" && action.target_id) {
-    await selectPlanningRecommendation(action.target_id);
-    return;
-  }
-  if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
-    await selectPlanningBundle(action.target_id);
-    return;
-  }
-  if (action.target_type === "inbox_autopilot_group" && action.target_id) {
-    await openAutopilotGroup(action.target_id);
-    return;
-  }
-  if (action.target_type === "outbound_autopilot_group" && action.target_id) {
-    await openOutboundGroup(action.target_id);
-    return;
-  }
-  if (action.target_type === "approval_request" && action.target_id) {
-    await selectApproval(action.target_id);
-    return;
-  }
-  if (action.target_type === "snapshot" && action.target_id) {
-    await selectSnapshot(action.target_id);
-    return;
-  }
-  if (action.target_type === "calendar_event" && action.target_id) {
-    state.section = "worklist";
-    location.hash = state.section;
-    state.worklistDetail = await buildWorklistDetail(
-      syntheticAttentionItem(
-        "calendar_event",
-        action.target_id,
-        action.title,
-        action.summary,
-        action.command ?? `personal-ops workflow prep-meetings --event ${action.target_id}`,
-      ),
-    );
-    render();
-    return;
-  }
-  if (action.section === "drafts") {
-    state.section = "drafts";
-    location.hash = state.section;
-    render();
-    return;
-  }
-  if (action.command) {
-    await navigator.clipboard.writeText(action.command);
-    setFlash("No deeper in-console detail exists for that action yet. The CLI command has been copied instead.", "warn");
-    render();
-    return;
-  }
-  state.section = action.section === "overview" ? "overview" : action.section;
-  location.hash = state.section;
-  render();
+	const matchingWorklistItem = payload.worklist.items.find(
+		(item) =>
+			item.target_type === action.target_type &&
+			item.target_id === action.target_id,
+	);
+	if (matchingWorklistItem) {
+		await selectWorklistItem(matchingWorklistItem.item_id);
+		return;
+	}
+	if (action.target_type === "planning_recommendation" && action.target_id) {
+		await selectPlanningRecommendation(action.target_id);
+		return;
+	}
+	if (action.target_type === "planning_autopilot_bundle" && action.target_id) {
+		await selectPlanningBundle(action.target_id);
+		return;
+	}
+	if (action.target_type === "inbox_autopilot_group" && action.target_id) {
+		await openAutopilotGroup(action.target_id);
+		return;
+	}
+	if (action.target_type === "outbound_autopilot_group" && action.target_id) {
+		await openOutboundGroup(action.target_id);
+		return;
+	}
+	if (action.target_type === "approval_request" && action.target_id) {
+		await selectApproval(action.target_id);
+		return;
+	}
+	if (action.target_type === "snapshot" && action.target_id) {
+		await selectSnapshot(action.target_id);
+		return;
+	}
+	if (action.target_type === "calendar_event" && action.target_id) {
+		state.section = "worklist";
+		location.hash = state.section;
+		state.worklistDetail = await buildWorklistDetail(
+			syntheticAttentionItem(
+				"calendar_event",
+				action.target_id,
+				action.title,
+				action.summary,
+				action.command ??
+					`personal-ops workflow prep-meetings --event ${action.target_id}`,
+			),
+		);
+		render();
+		return;
+	}
+	if (action.section === "drafts") {
+		state.section = "drafts";
+		location.hash = state.section;
+		render();
+		return;
+	}
+	if (action.command) {
+		await navigator.clipboard.writeText(action.command);
+		setFlash(
+			"No deeper in-console detail exists for that action yet. The CLI command has been copied instead.",
+			"warn",
+		);
+		render();
+		return;
+	}
+	state.section = action.section === "overview" ? "overview" : action.section;
+	location.hash = state.section;
+	render();
 }
 
-async function prepareInboxAutopilotGroupFromConsole(groupId: string): Promise<void> {
-  const payload = state.payload;
-  const group = payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ?? null;
-  if (!group) {
-    setFlash("That inbox autopilot group is no longer available. Refresh the console and try again.", "warn");
-    render();
-    return;
-  }
-  if (!confirm(`Prepare or refresh drafts for this ${group.kind === "needs_reply" ? "reply" : "follow-up"} block now?`)) {
-    return;
-  }
-  try {
-    const response = await postJson<{
-      inbox_autopilot_group: {
-        summary: string;
-        group: InboxAutopilotGroup;
-        failed_thread_ids: string[];
-      };
-    }>(`/v1/inbox/autopilot/groups/${encodeURIComponent(groupId)}/prepare`, {});
-    state.section = response.inbox_autopilot_group.group.review_required ? "drafts" : "worklist";
-    location.hash = state.section;
-    setFlash(
-      response.inbox_autopilot_group.failed_thread_ids.length > 0
-        ? `${response.inbox_autopilot_group.summary} Some threads still need manual follow-up.`
-        : response.inbox_autopilot_group.summary,
-      response.inbox_autopilot_group.failed_thread_ids.length > 0 ? "warn" : "good",
-    );
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run personal-ops inbox autopilot for the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+async function prepareInboxAutopilotGroupFromConsole(
+	groupId: string,
+): Promise<void> {
+	const payload = state.payload;
+	const group =
+		payload?.inboxAutopilot.groups.find((item) => item.group_id === groupId) ??
+		null;
+	if (!group) {
+		setFlash(
+			"That inbox autopilot group is no longer available. Refresh the console and try again.",
+			"warn",
+		);
+		render();
+		return;
+	}
+	if (
+		!confirm(
+			`Prepare or refresh drafts for this ${group.kind === "needs_reply" ? "reply" : "follow-up"} block now?`,
+		)
+	) {
+		return;
+	}
+	try {
+		const response = await postJson<{
+			inbox_autopilot_group: {
+				summary: string;
+				group: InboxAutopilotGroup;
+				failed_thread_ids: string[];
+			};
+		}>(`/v1/inbox/autopilot/groups/${encodeURIComponent(groupId)}/prepare`, {});
+		state.section = response.inbox_autopilot_group.group.review_required
+			? "drafts"
+			: "worklist";
+		location.hash = state.section;
+		setFlash(
+			response.inbox_autopilot_group.failed_thread_ids.length > 0
+				? `${response.inbox_autopilot_group.summary} Some threads still need manual follow-up.`
+				: response.inbox_autopilot_group.summary,
+			response.inbox_autopilot_group.failed_thread_ids.length > 0
+				? "warn"
+				: "good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops inbox autopilot for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function prepareMeetingPacketFromConsole(eventId: string): Promise<void> {
-  if (!confirm("Prepare or refresh this meeting packet now? This only stages local prep and does not contact attendees.")) {
-    return;
-  }
-  try {
-    const response = await postJson<{
-      meeting_prep_packet: {
-        summary: string;
-        packet: MeetingPrepPacket;
-      };
-    }>(`/v1/workflows/prep-meetings/${encodeURIComponent(eventId)}/prepare`, {});
-    setFlash(response.meeting_prep_packet.summary, "good");
-    state.section = "worklist";
-    location.hash = state.section;
-    await refreshAll();
-    state.worklistDetail = {
-      kind: "meeting_packet",
-      item: syntheticAttentionItem(
-        "calendar_event",
-        eventId,
-        response.meeting_prep_packet.packet.meeting.summary ?? eventId,
-        response.meeting_prep_packet.packet.summary,
-        `personal-ops workflow prep-meetings --event ${eventId}`,
-      ),
-      detail: response.meeting_prep_packet.packet,
-    };
-    render();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run personal-ops workflow prep-meetings --event ${eventId} --prepare if you need the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+	if (
+		!confirm(
+			"Prepare or refresh this meeting packet now? This only stages local prep and does not contact attendees.",
+		)
+	) {
+		return;
+	}
+	try {
+		const response = await postJson<{
+			meeting_prep_packet: {
+				summary: string;
+				packet: MeetingPrepPacket;
+			};
+		}>(
+			`/v1/workflows/prep-meetings/${encodeURIComponent(eventId)}/prepare`,
+			{},
+		);
+		setFlash(response.meeting_prep_packet.summary, "good");
+		state.section = "worklist";
+		location.hash = state.section;
+		await refreshAll();
+		state.worklistDetail = {
+			kind: "meeting_packet",
+			item: syntheticAttentionItem(
+				"calendar_event",
+				eventId,
+				response.meeting_prep_packet.packet.meeting.summary ?? eventId,
+				response.meeting_prep_packet.packet.summary,
+				`personal-ops workflow prep-meetings --event ${eventId}`,
+			),
+			detail: response.meeting_prep_packet.packet,
+		};
+		render();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops workflow prep-meetings --event ${eventId} --prepare if you need the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function preparePlanningBundleFromConsole(bundleId: string): Promise<void> {
-  if (!confirm("Refresh this planning bundle now? This only prepares grouped execution work and does not apply anything.")) {
-    return;
-  }
-  try {
-    const response = await postJson<PlanningAutopilotBundleResponse>(
-      `/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/prepare`,
-      {},
-    );
-    const bundle = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
-      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
-    state.selectedPlanningBundleId = bundle.bundle_id;
-    state.section = "planning";
-    location.hash = state.section;
-    setFlash("Planning bundle refreshed and ready for review.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run ${planningBundlePrepareCommand(bundleId)} if you need the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+async function preparePlanningBundleFromConsole(
+	bundleId: string,
+): Promise<void> {
+	if (
+		!confirm(
+			"Refresh this planning bundle now? This only prepares grouped execution work and does not apply anything.",
+		)
+	) {
+		return;
+	}
+	try {
+		const response = await postJson<PlanningAutopilotBundleResponse>(
+			`/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/prepare`,
+			{},
+		);
+		const bundle =
+			(
+				response.planning_autopilot_bundle as {
+					bundle?: PlanningAutopilotBundle;
+				}
+			).bundle ??
+			(response.planning_autopilot_bundle as PlanningAutopilotBundle);
+		state.selectedPlanningBundleId = bundle.bundle_id;
+		state.section = "planning";
+		location.hash = state.section;
+		setFlash("Planning bundle refreshed and ready for review.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run ${planningBundlePrepareCommand(bundleId)} if you need the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function applyPlanningBundleFromConsole(bundleId: string): Promise<void> {
-  const note = window.prompt("Add a short operator note before applying this bundle.", "Apply reviewed planning bundle");
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before applying this planning bundle.", "warn");
-    render();
-    return;
-  }
-  if (!confirm("Apply this prepared planning bundle now? This will create or update the underlying work.")) {
-    return;
-  }
-  try {
-    const response = await postJson<PlanningAutopilotBundleResponse>(
-      `/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/apply`,
-      { note: note.trim(), confirmed: true },
-    );
-    const bundle = (response.planning_autopilot_bundle as { bundle?: PlanningAutopilotBundle }).bundle
-      ?? (response.planning_autopilot_bundle as PlanningAutopilotBundle);
-    state.selectedPlanningBundleId = bundle.bundle_id;
-    state.section = "planning";
-    location.hash = state.section;
-    setFlash("Planning bundle applied.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run ${planningBundleApplyCommand(bundleId)} if you need the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+	const note = window.prompt(
+		"Add a short operator note before applying this bundle.",
+		"Apply reviewed planning bundle",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before applying this planning bundle.", "warn");
+		render();
+		return;
+	}
+	if (
+		!confirm(
+			"Apply this prepared planning bundle now? This will create or update the underlying work.",
+		)
+	) {
+		return;
+	}
+	try {
+		const response = await postJson<PlanningAutopilotBundleResponse>(
+			`/v1/planning/autopilot/bundles/${encodeURIComponent(bundleId)}/apply`,
+			{ note: note.trim(), confirmed: true },
+		);
+		const bundle =
+			(
+				response.planning_autopilot_bundle as {
+					bundle?: PlanningAutopilotBundle;
+				}
+			).bundle ??
+			(response.planning_autopilot_bundle as PlanningAutopilotBundle);
+		state.selectedPlanningBundleId = bundle.bundle_id;
+		state.section = "planning";
+		location.hash = state.section;
+		setFlash("Planning bundle applied.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run ${planningBundleApplyCommand(bundleId)} if you need the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function openReviewFromConsole(reviewId: string): Promise<void> {
-  try {
-    await postJson<{ review_item: ReviewItem; gmail_review_url: string }>(
-      `/v1/review-queue/${encodeURIComponent(reviewId)}/open`,
-      {},
-    );
-    setFlash("Draft review opened. Gmail review guidance has been opened separately if available.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops review open ${reviewId} if needed.`, "critical");
-    render();
-  }
+	try {
+		await postJson<{ review_item: ReviewItem; gmail_review_url: string }>(
+			`/v1/review-queue/${encodeURIComponent(reviewId)}/open`,
+			{},
+		);
+		setFlash(
+			"Draft review opened. Gmail review guidance has been opened separately if available.",
+			"good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops review open ${reviewId} if needed.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function resolveReviewFromConsole(reviewId: string): Promise<void> {
-  const note = window.prompt("Add a short review note before resolving this draft review.", "Reviewed");
-  if (note === null) {
-    return;
-  }
-  try {
-    await postJson<{ review_item: ReviewItem }>(`/v1/review-queue/${encodeURIComponent(reviewId)}/resolve`, {
-      note,
-    });
-    setFlash("Draft review resolved.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops review resolve ${reviewId} if needed.`, "critical");
-    render();
-  }
+	const note = window.prompt(
+		"Add a short review note before resolving this draft review.",
+		"Reviewed",
+	);
+	if (note === null) {
+		return;
+	}
+	try {
+		await postJson<{ review_item: ReviewItem }>(
+			`/v1/review-queue/${encodeURIComponent(reviewId)}/resolve`,
+			{
+				note,
+			},
+		);
+		setFlash("Draft review resolved.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops review resolve ${reviewId} if needed.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function requestApprovalFromConsole(artifactId: string): Promise<void> {
-  const note = window.prompt("Optional approval note for this prepared draft.", "Prepared for operator review");
-  if (note === null) {
-    return;
-  }
-  if (!confirm("Request approval for this prepared draft now? Send will still remain gated.")) {
-    return;
-  }
-  try {
-    await postJson<{ approval_request: ApprovalRequest }>(
-      `/v1/mail/drafts/${encodeURIComponent(artifactId)}/request-approval`,
-      { note },
-    );
-    state.section = "approvals";
-    location.hash = state.section;
-    setFlash("Approval requested. Decisions and send still stay in the gated approval flow.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run personal-ops approval show or personal-ops review commands if needed.`,
-      "critical",
-    );
-    render();
-  }
+	const note = window.prompt(
+		"Optional approval note for this prepared draft.",
+		"Prepared for operator review",
+	);
+	if (note === null) {
+		return;
+	}
+	if (
+		!confirm(
+			"Request approval for this prepared draft now? Send will still remain gated.",
+		)
+	) {
+		return;
+	}
+	try {
+		await postJson<{ approval_request: ApprovalRequest }>(
+			`/v1/mail/drafts/${encodeURIComponent(artifactId)}/request-approval`,
+			{ note },
+		);
+		state.section = "approvals";
+		location.hash = state.section;
+		setFlash(
+			"Approval requested. Decisions and send still stay in the gated approval flow.",
+			"good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops approval show or personal-ops review commands if needed.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function requestOutboundApprovalFromConsole(groupId: string): Promise<void> {
-  const note = window.prompt("Add a short operator note before requesting grouped approval.", "Ready for grouped approval");
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before requesting grouped approval.", "warn");
-    render();
-    return;
-  }
-  if (!confirm("Request approval for every reviewed draft in this outbound group now?")) {
-    return;
-  }
-  try {
-    await postJson<OutboundAutopilotGroupResponse>(
-      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/request-approval`,
-      { note: note.trim() },
-    );
-    state.selectedOutboundGroupId = groupId;
-    state.section = "drafts";
-    location.hash = state.section;
-    setFlash("Grouped approval requested.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
-    render();
-  }
+async function requestOutboundApprovalFromConsole(
+	groupId: string,
+): Promise<void> {
+	const note = window.prompt(
+		"Add a short operator note before requesting grouped approval.",
+		"Ready for grouped approval",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before requesting grouped approval.", "warn");
+		render();
+		return;
+	}
+	if (
+		!confirm(
+			"Request approval for every reviewed draft in this outbound group now?",
+		)
+	) {
+		return;
+	}
+	try {
+		await postJson<OutboundAutopilotGroupResponse>(
+			`/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/request-approval`,
+			{ note: note.trim() },
+		);
+		state.selectedOutboundGroupId = groupId;
+		state.section = "drafts";
+		location.hash = state.section;
+		setFlash("Grouped approval requested.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function approveOutboundGroupFromConsole(groupId: string): Promise<void> {
-  const note = window.prompt("Add a short operator note before approving this outbound group.", "Approve grouped outbound work");
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before approving this outbound group.", "warn");
-    render();
-    return;
-  }
-  if (!confirm("Approve every pending approval in this outbound group now?")) {
-    return;
-  }
-  try {
-    await postJson<OutboundAutopilotGroupResponse>(
-      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/approve`,
-      { note: note.trim(), confirmed: true },
-    );
-    state.selectedOutboundGroupId = groupId;
-    state.section = "drafts";
-    location.hash = state.section;
-    setFlash("Outbound group approved.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
-    render();
-  }
+	const note = window.prompt(
+		"Add a short operator note before approving this outbound group.",
+		"Approve grouped outbound work",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before approving this outbound group.", "warn");
+		render();
+		return;
+	}
+	if (!confirm("Approve every pending approval in this outbound group now?")) {
+		return;
+	}
+	try {
+		await postJson<OutboundAutopilotGroupResponse>(
+			`/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/approve`,
+			{ note: note.trim(), confirmed: true },
+		);
+		state.selectedOutboundGroupId = groupId;
+		state.section = "drafts";
+		location.hash = state.section;
+		setFlash("Outbound group approved.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function sendOutboundGroupFromConsole(groupId: string): Promise<void> {
-  const note = window.prompt("Add a short operator note before sending this outbound group.", "Send grouped outbound work");
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before sending this outbound group.", "warn");
-    render();
-    return;
-  }
-  if (!confirm("Send every approved draft in this outbound group now? This is a live outbound action.")) {
-    return;
-  }
-  try {
-    await postJson<OutboundAutopilotGroupResponse>(
-      `/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/send`,
-      { note: note.trim(), confirmed: true },
-    );
-    state.selectedOutboundGroupId = groupId;
-    state.section = "drafts";
-    location.hash = state.section;
-    setFlash("Outbound group sent.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`, "critical");
-    render();
-  }
+	const note = window.prompt(
+		"Add a short operator note before sending this outbound group.",
+		"Send grouped outbound work",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before sending this outbound group.", "warn");
+		render();
+		return;
+	}
+	if (
+		!confirm(
+			"Send every approved draft in this outbound group now? This is a live outbound action.",
+		)
+	) {
+		return;
+	}
+	try {
+		await postJson<OutboundAutopilotGroupResponse>(
+			`/v1/outbound/autopilot/groups/${encodeURIComponent(groupId)}/send`,
+			{ note: note.trim(), confirmed: true },
+		);
+		state.selectedOutboundGroupId = groupId;
+		state.section = "drafts";
+		location.hash = state.section;
+		setFlash("Outbound group sent.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops outbound autopilot --group ${groupId} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function performApprovalRecoveryAction(action: "reject" | "reopen" | "cancel", approvalId: string): Promise<void> {
-  const note = window.prompt(
-    action === "reject"
-      ? "Add a short operator note before rejecting this approval."
-      : action === "reopen"
-        ? "Add a short operator note before reopening this approval."
-        : "Add a short operator note before canceling this approval.",
-    action === "reject" ? "Reject approval" : action === "reopen" ? "Reopen approval" : "Cancel approval",
-  );
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash(`Add a note before choosing ${action}.`, "warn");
-    render();
-    return;
-  }
-  if (!confirm(`Run ${action} for approval ${approvalId} now?`)) {
-    return;
-  }
-  try {
-    await postJson<ApprovalDetailResponse>(`/v1/approval-queue/${encodeURIComponent(approvalId)}/${action}`, {
-      note: note.trim(),
-    });
-    state.selectedApprovalId = approvalId;
-    state.section = "approvals";
-    location.hash = state.section;
-    setFlash(`Approval ${action} completed.`, "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(`${error instanceof Error ? error.message : String(error)} Run personal-ops approval ${action} ${approvalId} --note "<reason>" for the CLI path.`, "critical");
-    render();
-  }
+async function performApprovalRecoveryAction(
+	action: "reject" | "reopen" | "cancel",
+	approvalId: string,
+): Promise<void> {
+	const note = window.prompt(
+		action === "reject"
+			? "Add a short operator note before rejecting this approval."
+			: action === "reopen"
+				? "Add a short operator note before reopening this approval."
+				: "Add a short operator note before canceling this approval.",
+		action === "reject"
+			? "Reject approval"
+			: action === "reopen"
+				? "Reopen approval"
+				: "Cancel approval",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash(`Add a note before choosing ${action}.`, "warn");
+		render();
+		return;
+	}
+	if (!confirm(`Run ${action} for approval ${approvalId} now?`)) {
+		return;
+	}
+	try {
+		await postJson<ApprovalDetailResponse>(
+			`/v1/approval-queue/${encodeURIComponent(approvalId)}/${action}`,
+			{
+				note: note.trim(),
+			},
+		);
+		state.selectedApprovalId = approvalId;
+		state.section = "approvals";
+		location.hash = state.section;
+		setFlash(`Approval ${action} completed.`, "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops approval ${action} ${approvalId} --note "<reason>" for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function runAssistantActionFromConsole(actionId: string): Promise<void> {
-  const payload = state.payload;
-  const action = payload?.assistantQueue.actions.find((item) => item.action_id === actionId) ?? null;
-  if (!action) {
-    setFlash("That assistant action is no longer available. Refresh the console and try again.", "warn");
-    render();
-    return;
-  }
-  const confirmation = action.title === "Refresh local context"
-    ? "Refresh mailbox, calendar, GitHub, and Drive context where available?"
-    : `Run "${action.title}" now?`;
-  if (!confirm(confirmation)) {
-    return;
-  }
-  if (actionId.startsWith("assistant.prepare-reply-group:") || actionId.startsWith("assistant.prepare-followup-group:")) {
-    const groupId = actionId.split(":").slice(1).join(":");
-    await prepareInboxAutopilotGroupFromConsole(groupId);
-    return;
-  }
-  if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
-    const eventId = actionId.split(":").slice(1).join(":");
-    await prepareMeetingPacketFromConsole(eventId);
-    return;
-  }
-  if (actionId.startsWith("assistant.prepare-planning-bundle:")) {
-    const bundleId = actionId.split(":").slice(1).join(":");
-    await preparePlanningBundleFromConsole(bundleId);
-    return;
-  }
-  try {
-    const response = await postJson<AssistantRunResponse>(
-      `/v1/assistant/actions/${encodeURIComponent(actionId)}/run`,
-      {},
-    );
-    state.section = action.section === "overview" ? "overview" : action.section;
-    setFlash(response.assistant_run.summary, response.assistant_run.state === "failed" ? "critical" : "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)}${action.command ? ` Run ${action.command} if you need the CLI path.` : ""}`,
-      "critical",
-    );
-    render();
-  }
+	const payload = state.payload;
+	const action =
+		payload?.assistantQueue.actions.find(
+			(item) => item.action_id === actionId,
+		) ?? null;
+	if (!action) {
+		setFlash(
+			"That assistant action is no longer available. Refresh the console and try again.",
+			"warn",
+		);
+		render();
+		return;
+	}
+	const confirmation =
+		action.title === "Refresh local context"
+			? "Refresh mailbox, calendar, GitHub, and Drive context where available?"
+			: `Run "${action.title}" now?`;
+	if (!confirm(confirmation)) {
+		return;
+	}
+	if (
+		actionId.startsWith("assistant.prepare-reply-group:") ||
+		actionId.startsWith("assistant.prepare-followup-group:")
+	) {
+		const groupId = actionId.split(":").slice(1).join(":");
+		await prepareInboxAutopilotGroupFromConsole(groupId);
+		return;
+	}
+	if (actionId.startsWith("assistant.prepare-meeting-packet:")) {
+		const eventId = actionId.split(":").slice(1).join(":");
+		await prepareMeetingPacketFromConsole(eventId);
+		return;
+	}
+	if (actionId.startsWith("assistant.prepare-planning-bundle:")) {
+		const bundleId = actionId.split(":").slice(1).join(":");
+		await preparePlanningBundleFromConsole(bundleId);
+		return;
+	}
+	try {
+		const response = await postJson<AssistantRunResponse>(
+			`/v1/assistant/actions/${encodeURIComponent(actionId)}/run`,
+			{},
+		);
+		state.section = action.section === "overview" ? "overview" : action.section;
+		setFlash(
+			response.assistant_run.summary,
+			response.assistant_run.state === "failed" ? "critical" : "good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)}${action.command ? ` Run ${action.command} if you need the CLI path.` : ""}`,
+			"critical",
+		);
+		render();
+	}
 }
 
 function requireValue(selector: string, message: string): string {
-  const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
-  const value = input?.value.trim() ?? "";
-  if (!value) {
-    throw new Error(message);
-  }
-  return value;
+	const input = document.querySelector<
+		HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+	>(selector);
+	const value = input?.value.trim() ?? "";
+	if (!value) {
+		throw new Error(message);
+	}
+	return value;
 }
 
 async function createSnapshotFromConsole(): Promise<void> {
-  if (!confirm("Create a fresh recovery snapshot now? Restore still stays in the CLI.")) {
-    return;
-  }
-  try {
-    const response = await postJson<SnapshotCreateResponse>("/v1/snapshots", {});
-    state.selectedSnapshotId = response.snapshot.snapshot_id;
-    state.section = "backups";
-    setFlash(`Created snapshot ${response.snapshot.snapshot_id}.`, "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run personal-ops backup create if you need to retry from the CLI.`,
-      "critical",
-    );
-    render();
-  }
+	if (
+		!confirm(
+			"Create a fresh recovery snapshot now? Restore still stays in the CLI.",
+		)
+	) {
+		return;
+	}
+	try {
+		const response = await postJson<SnapshotCreateResponse>(
+			"/v1/snapshots",
+			{},
+		);
+		state.selectedSnapshotId = response.snapshot.snapshot_id;
+		state.section = "backups";
+		setFlash(`Created snapshot ${response.snapshot.snapshot_id}.`, "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops backup create if you need to retry from the CLI.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 async function submitReviewPackageFeedbackFromConsole(
-  packageId: string,
-  reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
-  packageItemId?: string,
+	packageId: string,
+	reason: "useful" | "wrong_priority" | "bad_timing" | "not_useful",
+	packageItemId?: string,
 ): Promise<void> {
-  const note = window.prompt(
-    `Add a short operator note for the "${reason.replaceAll("_", " ")}" feedback.`,
-    packageItemId ? `Review item ${reason}` : `Review package ${reason}`,
-  );
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before sending review feedback.", "warn");
-    render();
-    return;
-  }
-  try {
-    await postJson(`/v1/review/packages/${encodeURIComponent(packageId)}/feedback`, {
-      reason,
-      note: note.trim(),
-      ...(packageItemId ? { package_item_id: packageItemId } : {}),
-    });
-    setFlash("Review feedback saved.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run ${reviewPackageFeedbackCommand(packageId, reason, packageItemId)} for the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+	const note = window.prompt(
+		`Add a short operator note for the "${reason.replaceAll("_", " ")}" feedback.`,
+		packageItemId ? `Review item ${reason}` : `Review package ${reason}`,
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before sending review feedback.", "warn");
+		render();
+		return;
+	}
+	try {
+		await postJson(
+			`/v1/review/packages/${encodeURIComponent(packageId)}/feedback`,
+			{
+				reason,
+				note: note.trim(),
+				...(packageItemId ? { package_item_id: packageItemId } : {}),
+			},
+		);
+		setFlash("Review feedback saved.", "good");
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run ${reviewPackageFeedbackCommand(packageId, reason, packageItemId)} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function decideReviewTuningProposalFromConsole(action: "approve" | "dismiss", proposalId: string): Promise<void> {
-  const note = window.prompt(
-    action === "approve"
-      ? "Add a short operator note before approving this tuning proposal."
-      : "Add a short operator note before dismissing this tuning proposal.",
-    action === "approve" ? "Approve review tuning" : "Dismiss review tuning",
-  );
-  if (note === null) {
-    return;
-  }
-  if (!note.trim()) {
-    setFlash("Add a note before deciding this tuning proposal.", "warn");
-    render();
-    return;
-  }
-  if (!confirm(`${action === "approve" ? "Approve" : "Dismiss"} this review tuning proposal now?`)) {
-    return;
-  }
-  try {
-    await postJson(`/v1/review/tuning/${encodeURIComponent(proposalId)}/${action}`, { note: note.trim() });
-    setFlash(action === "approve" ? "Review tuning approved." : "Review tuning dismissed.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run personal-ops review tuning ${proposalId} ${action} --note "<reason>" for the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+async function decideReviewTuningProposalFromConsole(
+	action: "approve" | "dismiss",
+	proposalId: string,
+): Promise<void> {
+	const note = window.prompt(
+		action === "approve"
+			? "Add a short operator note before approving this tuning proposal."
+			: "Add a short operator note before dismissing this tuning proposal.",
+		action === "approve" ? "Approve review tuning" : "Dismiss review tuning",
+	);
+	if (note === null) {
+		return;
+	}
+	if (!note.trim()) {
+		setFlash("Add a note before deciding this tuning proposal.", "warn");
+		render();
+		return;
+	}
+	if (
+		!confirm(
+			`${action === "approve" ? "Approve" : "Dismiss"} this review tuning proposal now?`,
+		)
+	) {
+		return;
+	}
+	try {
+		await postJson(
+			`/v1/review/tuning/${encodeURIComponent(proposalId)}/${action}`,
+			{ note: note.trim() },
+		);
+		setFlash(
+			action === "approve"
+				? "Review tuning approved."
+				: "Review tuning dismissed.",
+			"good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run personal-ops review tuning ${proposalId} ${action} --note "<reason>" for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function performPlanningAction(action: "apply" | "snooze" | "reject"): Promise<void> {
-  const recommendationId = state.selectedPlanningRecommendationId;
-  if (!recommendationId) {
-    setFlash("Choose a recommendation before running a planning action.", "warn");
-    render();
-    return;
-  }
-  try {
-    let requestPath = "";
-    let body: Record<string, string> = {};
-    let confirmation = "";
-    if (action === "apply") {
-      body = { note: requireValue("#planning-apply-note", "Add a note before applying this recommendation.") };
-      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/apply`;
-      confirmation = "Apply this recommendation now? This will create the underlying work.";
-    } else if (action === "snooze") {
-      body = {
-        preset: requireValue("#planning-snooze-preset", "Choose a snooze preset."),
-        note: requireValue("#planning-snooze-note", "Add a note before snoozing this recommendation."),
-      };
-      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/snooze`;
-      confirmation = "Snooze this recommendation using the selected preset?";
-    } else {
-      const reason = document.querySelector<HTMLSelectElement>("#planning-reject-reason")?.value.trim() ?? "";
-      body = { note: requireValue("#planning-reject-note", "Add a note before rejecting this recommendation.") };
-      if (reason) {
-        body.reason_code = reason;
-      }
-      requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/reject`;
-      confirmation = "Reject this recommendation? This will close it from the active queue.";
-    }
-    if (!confirm(confirmation)) {
-      return;
-    }
-    await postJson<PlanningRecommendationDetailResponse>(requestPath, body);
-    setFlash(
-      action === "apply"
-        ? "Recommendation applied."
-        : action === "snooze"
-          ? "Recommendation snoozed."
-          : "Recommendation rejected.",
-      "good",
-    );
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run ${recommendationShowCommand(recommendationId)} for the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+async function performPlanningAction(
+	action: "apply" | "snooze" | "reject",
+): Promise<void> {
+	const recommendationId = state.selectedPlanningRecommendationId;
+	if (!recommendationId) {
+		setFlash(
+			"Choose a recommendation before running a planning action.",
+			"warn",
+		);
+		render();
+		return;
+	}
+	try {
+		let requestPath = "";
+		let body: Record<string, string> = {};
+		let confirmation = "";
+		if (action === "apply") {
+			body = {
+				note: requireValue(
+					"#planning-apply-note",
+					"Add a note before applying this recommendation.",
+				),
+			};
+			requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/apply`;
+			confirmation =
+				"Apply this recommendation now? This will create the underlying work.";
+		} else if (action === "snooze") {
+			body = {
+				preset: requireValue(
+					"#planning-snooze-preset",
+					"Choose a snooze preset.",
+				),
+				note: requireValue(
+					"#planning-snooze-note",
+					"Add a note before snoozing this recommendation.",
+				),
+			};
+			requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/snooze`;
+			confirmation = "Snooze this recommendation using the selected preset?";
+		} else {
+			const reason =
+				document
+					.querySelector<HTMLSelectElement>("#planning-reject-reason")
+					?.value.trim() ?? "";
+			body = {
+				note: requireValue(
+					"#planning-reject-note",
+					"Add a note before rejecting this recommendation.",
+				),
+			};
+			if (reason) {
+				body.reason_code = reason;
+			}
+			requestPath = `/v1/planning-recommendations/${encodeURIComponent(recommendationId)}/reject`;
+			confirmation =
+				"Reject this recommendation? This will close it from the active queue.";
+		}
+		if (!confirm(confirmation)) {
+			return;
+		}
+		await postJson<PlanningRecommendationDetailResponse>(requestPath, body);
+		setFlash(
+			action === "apply"
+				? "Recommendation applied."
+				: action === "snooze"
+					? "Recommendation snoozed."
+					: "Recommendation rejected.",
+			"good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run ${recommendationShowCommand(recommendationId)} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
-async function performPlanningGroupAction(action: "snooze" | "reject"): Promise<void> {
-  const groupKey = state.selectedPlanningGroupKey;
-  if (!groupKey) {
-    setFlash("Choose a planning group before running a group action.", "warn");
-    render();
-    return;
-  }
-  try {
-    let requestPath = "";
-    let body: Record<string, string> = {};
-    let confirmation = "";
-    if (action === "snooze") {
-      body = {
-        preset: requireValue("#planning-group-snooze-preset", "Choose a group snooze preset."),
-        note: requireValue("#planning-group-snooze-note", "Add a note before snoozing this group."),
-      };
-      requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/snooze`;
-      confirmation = "Snooze every pending recommendation in this group?";
-    } else {
-      body = {
-        reason_code: requireValue("#planning-group-reject-reason", "Choose a group reject reason."),
-        note: requireValue("#planning-group-reject-note", "Add a note before rejecting this group."),
-      };
-      requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/reject`;
-      confirmation = "Reject every pending recommendation in this group?";
-    }
-    if (!confirm(confirmation)) {
-      return;
-    }
-    await postJson<PlanningRecommendationGroupDetailResponse>(requestPath, body);
-    setFlash(action === "snooze" ? "Planning group snoozed." : "Planning group rejected.", "good");
-    await refreshAll();
-  } catch (error) {
-    if (error instanceof SessionLockedError) {
-      renderLocked();
-      return;
-    }
-    setFlash(
-      `${error instanceof Error ? error.message : String(error)} Run ${recommendationGroupShowCommand(groupKey)} for the CLI path.`,
-      "critical",
-    );
-    render();
-  }
+async function performPlanningGroupAction(
+	action: "snooze" | "reject",
+): Promise<void> {
+	const groupKey = state.selectedPlanningGroupKey;
+	if (!groupKey) {
+		setFlash("Choose a planning group before running a group action.", "warn");
+		render();
+		return;
+	}
+	try {
+		let requestPath = "";
+		let body: Record<string, string> = {};
+		let confirmation = "";
+		if (action === "snooze") {
+			body = {
+				preset: requireValue(
+					"#planning-group-snooze-preset",
+					"Choose a group snooze preset.",
+				),
+				note: requireValue(
+					"#planning-group-snooze-note",
+					"Add a note before snoozing this group.",
+				),
+			};
+			requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/snooze`;
+			confirmation = "Snooze every pending recommendation in this group?";
+		} else {
+			body = {
+				reason_code: requireValue(
+					"#planning-group-reject-reason",
+					"Choose a group reject reason.",
+				),
+				note: requireValue(
+					"#planning-group-reject-note",
+					"Add a note before rejecting this group.",
+				),
+			};
+			requestPath = `/v1/planning-recommendation-groups/${encodeURIComponent(groupKey)}/reject`;
+			confirmation = "Reject every pending recommendation in this group?";
+		}
+		if (!confirm(confirmation)) {
+			return;
+		}
+		await postJson<PlanningRecommendationGroupDetailResponse>(
+			requestPath,
+			body,
+		);
+		setFlash(
+			action === "snooze"
+				? "Planning group snoozed."
+				: "Planning group rejected.",
+			"good",
+		);
+		await refreshAll();
+	} catch (error) {
+		if (error instanceof SessionLockedError) {
+			renderLocked();
+			return;
+		}
+		setFlash(
+			`${error instanceof Error ? error.message : String(error)} Run ${recommendationGroupShowCommand(groupKey)} for the CLI path.`,
+			"critical",
+		);
+		render();
+	}
 }
 
 if (hasBrowserDocument && hasBrowserWindow && hasBrowserLocation) {
-document.addEventListener("click", async (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-  const navButton = target.closest<HTMLButtonElement>(".nav__item");
-  if (navButton?.dataset.section) {
-    state.section = navButton.dataset.section as SectionId;
-    location.hash = state.section;
-    if (state.section === "planning") {
-      render();
-      void ensurePlanningActionTargetLoaded(true).catch((error) => {
-        setFlash(error instanceof Error ? error.message : String(error), "critical");
-        render();
-      });
-      return;
-    } else if (state.section === "backups") {
-      render();
-      void ensureSnapshotsLoaded().catch((error) => {
-        setFlash(error instanceof Error ? error.message : String(error), "critical");
-        render();
-      });
-      return;
-    } else if (state.section === "audit") {
-      await ensureAuditLoaded();
-    } else if (state.section === "review") {
-      await ensureReviewLoaded();
-    }
-    render();
-    return;
-  }
+	document.addEventListener("click", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+		const navButton = target.closest<HTMLButtonElement>(".nav__item");
+		if (navButton?.dataset.section) {
+			state.section = navButton.dataset.section as SectionId;
+			location.hash = state.section;
+			if (state.section === "planning") {
+				render();
+				void ensurePlanningActionTargetLoaded(true).catch((error) => {
+					setFlash(
+						error instanceof Error ? error.message : String(error),
+						"critical",
+					);
+					render();
+				});
+				return;
+			} else if (state.section === "backups") {
+				render();
+				void ensureSnapshotsLoaded().catch((error) => {
+					setFlash(
+						error instanceof Error ? error.message : String(error),
+						"critical",
+					);
+					render();
+				});
+				return;
+			} else if (state.section === "audit") {
+				await ensureAuditLoaded();
+			} else if (state.section === "review") {
+				await ensureReviewLoaded();
+			}
+			render();
+			return;
+		}
 
-  const copyButton = target.closest<HTMLButtonElement>("[data-copy]");
-  if (copyButton?.dataset.copy) {
-    await navigator.clipboard.writeText(copyButton.dataset.copy);
-    setFlash("Command copied to the clipboard.", "good");
-    render();
-    return;
-  }
+		const copyButton = target.closest<HTMLButtonElement>("[data-copy]");
+		if (copyButton?.dataset.copy) {
+			await navigator.clipboard.writeText(copyButton.dataset.copy);
+			setFlash("Command copied to the clipboard.", "good");
+			render();
+			return;
+		}
 
-  const workflowAction = target.closest<HTMLButtonElement>("[data-workflow-action]");
-  if (workflowAction?.dataset.workflowAction && workflowAction.dataset.workflow) {
-    await openWorkflowAction(workflowAction.dataset.workflow as WorkflowBundleReport["workflow"], Number(workflowAction.dataset.workflowAction));
-    return;
-  }
+		const workflowAction = target.closest<HTMLButtonElement>(
+			"[data-workflow-action]",
+		);
+		if (
+			workflowAction?.dataset.workflowAction &&
+			workflowAction.dataset.workflow
+		) {
+			await openWorkflowAction(
+				workflowAction.dataset.workflow as WorkflowBundleReport["workflow"],
+				Number(workflowAction.dataset.workflowAction),
+			);
+			return;
+		}
 
-  const assistantRunButton = target.closest<HTMLButtonElement>("[data-assistant-run]");
-  if (assistantRunButton?.dataset.assistantRun) {
-    await runAssistantActionFromConsole(assistantRunButton.dataset.assistantRun);
-    return;
-  }
+		const assistantRunButton = target.closest<HTMLButtonElement>(
+			"[data-assistant-run]",
+		);
+		if (assistantRunButton?.dataset.assistantRun) {
+			await runAssistantActionFromConsole(
+				assistantRunButton.dataset.assistantRun,
+			);
+			return;
+		}
 
-  const assistantOpenButton = target.closest<HTMLButtonElement>("[data-assistant-open]");
-  if (assistantOpenButton?.dataset.assistantOpen) {
-    await openAssistantAction(assistantOpenButton.dataset.assistantOpen);
-    return;
-  }
+		const assistantOpenButton = target.closest<HTMLButtonElement>(
+			"[data-assistant-open]",
+		);
+		if (assistantOpenButton?.dataset.assistantOpen) {
+			await openAssistantAction(assistantOpenButton.dataset.assistantOpen);
+			return;
+		}
 
-  const sectionButton = target.closest<HTMLButtonElement>("[data-section-link]");
-  if (sectionButton?.dataset.sectionLink) {
-    state.section = sectionButton.dataset.sectionLink as SectionId;
-    location.hash = state.section;
-    render();
-    return;
-  }
+		const sectionButton = target.closest<HTMLButtonElement>(
+			"[data-section-link]",
+		);
+		if (sectionButton?.dataset.sectionLink) {
+			state.section = sectionButton.dataset.sectionLink as SectionId;
+			location.hash = state.section;
+			render();
+			return;
+		}
 
-  const snapshotButton = target.closest<HTMLButtonElement>("[data-snapshot]");
-  if (snapshotButton?.dataset.snapshot) {
-    await selectSnapshot(snapshotButton.dataset.snapshot);
-    return;
-  }
+		const snapshotButton = target.closest<HTMLButtonElement>("[data-snapshot]");
+		if (snapshotButton?.dataset.snapshot) {
+			await selectSnapshot(snapshotButton.dataset.snapshot);
+			return;
+		}
 
-  const approvalButton = target.closest<HTMLButtonElement>("[data-approval]");
-  if (approvalButton?.dataset.approval) {
-    await selectApproval(approvalButton.dataset.approval);
-    return;
-  }
+		const approvalButton = target.closest<HTMLButtonElement>("[data-approval]");
+		if (approvalButton?.dataset.approval) {
+			await selectApproval(approvalButton.dataset.approval);
+			return;
+		}
 
-  const planningButton = target.closest<HTMLButtonElement>("[data-planning-recommendation]");
-  if (planningButton?.dataset.planningRecommendation) {
-    await selectPlanningRecommendation(planningButton.dataset.planningRecommendation);
-    return;
-  }
+		const planningButton = target.closest<HTMLButtonElement>(
+			"[data-planning-recommendation]",
+		);
+		if (planningButton?.dataset.planningRecommendation) {
+			await selectPlanningRecommendation(
+				planningButton.dataset.planningRecommendation,
+			);
+			return;
+		}
 
-  const planningBundleButton = target.closest<HTMLButtonElement>("[data-planning-bundle]");
-  if (planningBundleButton?.dataset.planningBundle) {
-    await selectPlanningBundle(planningBundleButton.dataset.planningBundle);
-    return;
-  }
+		const planningBundleButton = target.closest<HTMLButtonElement>(
+			"[data-planning-bundle]",
+		);
+		if (planningBundleButton?.dataset.planningBundle) {
+			await selectPlanningBundle(planningBundleButton.dataset.planningBundle);
+			return;
+		}
 
-  const planningGroupButton = target.closest<HTMLButtonElement>("[data-planning-group]");
-  if (planningGroupButton?.dataset.planningGroup) {
-    await selectPlanningGroup(planningGroupButton.dataset.planningGroup);
-    return;
-  }
+		const planningGroupButton = target.closest<HTMLButtonElement>(
+			"[data-planning-group]",
+		);
+		if (planningGroupButton?.dataset.planningGroup) {
+			await selectPlanningGroup(planningGroupButton.dataset.planningGroup);
+			return;
+		}
 
-  const worklistButton = target.closest<HTMLButtonElement>("[data-worklist-item]");
-  if (worklistButton?.dataset.worklistItem) {
-    await selectWorklistItem(worklistButton.dataset.worklistItem);
-    return;
-  }
+		const worklistButton = target.closest<HTMLButtonElement>(
+			"[data-worklist-item]",
+		);
+		if (worklistButton?.dataset.worklistItem) {
+			await selectWorklistItem(worklistButton.dataset.worklistItem);
+			return;
+		}
 
-  const autopilotPrepareButton = target.closest<HTMLButtonElement>("[data-autopilot-prepare]");
-  if (autopilotPrepareButton?.dataset.autopilotPrepare) {
-    await prepareInboxAutopilotGroupFromConsole(autopilotPrepareButton.dataset.autopilotPrepare);
-    return;
-  }
+		const autopilotPrepareButton = target.closest<HTMLButtonElement>(
+			"[data-autopilot-prepare]",
+		);
+		if (autopilotPrepareButton?.dataset.autopilotPrepare) {
+			await prepareInboxAutopilotGroupFromConsole(
+				autopilotPrepareButton.dataset.autopilotPrepare,
+			);
+			return;
+		}
 
-  const autopilotOpenButton = target.closest<HTMLButtonElement>("[data-autopilot-open]");
-  if (autopilotOpenButton?.dataset.autopilotOpen) {
-    await openAutopilotGroup(autopilotOpenButton.dataset.autopilotOpen);
-    return;
-  }
+		const autopilotOpenButton = target.closest<HTMLButtonElement>(
+			"[data-autopilot-open]",
+		);
+		if (autopilotOpenButton?.dataset.autopilotOpen) {
+			await openAutopilotGroup(autopilotOpenButton.dataset.autopilotOpen);
+			return;
+		}
 
-  const outboundOpenButton = target.closest<HTMLButtonElement>("[data-outbound-open]");
-  if (outboundOpenButton?.dataset.outboundOpen) {
-    await openOutboundGroup(outboundOpenButton.dataset.outboundOpen);
-    return;
-  }
+		const outboundOpenButton = target.closest<HTMLButtonElement>(
+			"[data-outbound-open]",
+		);
+		if (outboundOpenButton?.dataset.outboundOpen) {
+			await openOutboundGroup(outboundOpenButton.dataset.outboundOpen);
+			return;
+		}
 
-  const outboundRequestApprovalButton = target.closest<HTMLButtonElement>("[data-outbound-request-approval]");
-  if (outboundRequestApprovalButton?.dataset.outboundRequestApproval) {
-    await requestOutboundApprovalFromConsole(outboundRequestApprovalButton.dataset.outboundRequestApproval);
-    return;
-  }
+		const outboundRequestApprovalButton = target.closest<HTMLButtonElement>(
+			"[data-outbound-request-approval]",
+		);
+		if (outboundRequestApprovalButton?.dataset.outboundRequestApproval) {
+			await requestOutboundApprovalFromConsole(
+				outboundRequestApprovalButton.dataset.outboundRequestApproval,
+			);
+			return;
+		}
 
-  const outboundApproveButton = target.closest<HTMLButtonElement>("[data-outbound-approve]");
-  if (outboundApproveButton?.dataset.outboundApprove) {
-    await approveOutboundGroupFromConsole(outboundApproveButton.dataset.outboundApprove);
-    return;
-  }
+		const outboundApproveButton = target.closest<HTMLButtonElement>(
+			"[data-outbound-approve]",
+		);
+		if (outboundApproveButton?.dataset.outboundApprove) {
+			await approveOutboundGroupFromConsole(
+				outboundApproveButton.dataset.outboundApprove,
+			);
+			return;
+		}
 
-  const outboundSendButton = target.closest<HTMLButtonElement>("[data-outbound-send]");
-  if (outboundSendButton?.dataset.outboundSend) {
-    await sendOutboundGroupFromConsole(outboundSendButton.dataset.outboundSend);
-    return;
-  }
+		const outboundSendButton = target.closest<HTMLButtonElement>(
+			"[data-outbound-send]",
+		);
+		if (outboundSendButton?.dataset.outboundSend) {
+			await sendOutboundGroupFromConsole(
+				outboundSendButton.dataset.outboundSend,
+			);
+			return;
+		}
 
-  const prepareMeetingPacketButton = target.closest<HTMLButtonElement>("[data-prepare-meeting-packet]");
-  if (prepareMeetingPacketButton?.dataset.prepareMeetingPacket) {
-    await prepareMeetingPacketFromConsole(prepareMeetingPacketButton.dataset.prepareMeetingPacket);
-    return;
-  }
+		const prepareMeetingPacketButton = target.closest<HTMLButtonElement>(
+			"[data-prepare-meeting-packet]",
+		);
+		if (prepareMeetingPacketButton?.dataset.prepareMeetingPacket) {
+			await prepareMeetingPacketFromConsole(
+				prepareMeetingPacketButton.dataset.prepareMeetingPacket,
+			);
+			return;
+		}
 
-  const planningBundlePrepareButton = target.closest<HTMLButtonElement>("[data-planning-bundle-prepare]");
-  if (planningBundlePrepareButton?.dataset.planningBundlePrepare) {
-    await preparePlanningBundleFromConsole(planningBundlePrepareButton.dataset.planningBundlePrepare);
-    return;
-  }
+		const planningBundlePrepareButton = target.closest<HTMLButtonElement>(
+			"[data-planning-bundle-prepare]",
+		);
+		if (planningBundlePrepareButton?.dataset.planningBundlePrepare) {
+			await preparePlanningBundleFromConsole(
+				planningBundlePrepareButton.dataset.planningBundlePrepare,
+			);
+			return;
+		}
 
-  const planningBundleApplyButton = target.closest<HTMLButtonElement>("[data-planning-bundle-apply]");
-  if (planningBundleApplyButton?.dataset.planningBundleApply) {
-    await applyPlanningBundleFromConsole(planningBundleApplyButton.dataset.planningBundleApply);
-    return;
-  }
+		const planningBundleApplyButton = target.closest<HTMLButtonElement>(
+			"[data-planning-bundle-apply]",
+		);
+		if (planningBundleApplyButton?.dataset.planningBundleApply) {
+			await applyPlanningBundleFromConsole(
+				planningBundleApplyButton.dataset.planningBundleApply,
+			);
+			return;
+		}
 
-  const reviewOpenButton = target.closest<HTMLButtonElement>("[data-review-open]");
-  if (reviewOpenButton?.dataset.reviewOpen) {
-    await openReviewFromConsole(reviewOpenButton.dataset.reviewOpen);
-    return;
-  }
+		const reviewOpenButton =
+			target.closest<HTMLButtonElement>("[data-review-open]");
+		if (reviewOpenButton?.dataset.reviewOpen) {
+			await openReviewFromConsole(reviewOpenButton.dataset.reviewOpen);
+			return;
+		}
 
-  const reviewResolveButton = target.closest<HTMLButtonElement>("[data-review-resolve]");
-  if (reviewResolveButton?.dataset.reviewResolve) {
-    await resolveReviewFromConsole(reviewResolveButton.dataset.reviewResolve);
-    return;
-  }
+		const reviewResolveButton = target.closest<HTMLButtonElement>(
+			"[data-review-resolve]",
+		);
+		if (reviewResolveButton?.dataset.reviewResolve) {
+			await resolveReviewFromConsole(reviewResolveButton.dataset.reviewResolve);
+			return;
+		}
 
-  const reviewPackageFeedbackButton = target.closest<HTMLButtonElement>("[data-review-package-feedback]");
-  if (reviewPackageFeedbackButton?.dataset.reviewPackageFeedback && reviewPackageFeedbackButton.dataset.reviewFeedbackReason) {
-    await submitReviewPackageFeedbackFromConsole(
-      reviewPackageFeedbackButton.dataset.reviewPackageFeedback,
-      reviewPackageFeedbackButton.dataset.reviewFeedbackReason as "useful" | "wrong_priority" | "bad_timing" | "not_useful",
-      reviewPackageFeedbackButton.dataset.reviewPackageItem,
-    );
-    return;
-  }
+		const reviewPackageFeedbackButton = target.closest<HTMLButtonElement>(
+			"[data-review-package-feedback]",
+		);
+		if (
+			reviewPackageFeedbackButton?.dataset.reviewPackageFeedback &&
+			reviewPackageFeedbackButton.dataset.reviewFeedbackReason
+		) {
+			await submitReviewPackageFeedbackFromConsole(
+				reviewPackageFeedbackButton.dataset.reviewPackageFeedback,
+				reviewPackageFeedbackButton.dataset.reviewFeedbackReason as
+					| "useful"
+					| "wrong_priority"
+					| "bad_timing"
+					| "not_useful",
+				reviewPackageFeedbackButton.dataset.reviewPackageItem,
+			);
+			return;
+		}
 
-  const reviewTuningApproveButton = target.closest<HTMLButtonElement>("[data-review-tuning-approve]");
-  if (reviewTuningApproveButton?.dataset.reviewTuningApprove) {
-    await decideReviewTuningProposalFromConsole("approve", reviewTuningApproveButton.dataset.reviewTuningApprove);
-    return;
-  }
+		const reviewTuningApproveButton = target.closest<HTMLButtonElement>(
+			"[data-review-tuning-approve]",
+		);
+		if (reviewTuningApproveButton?.dataset.reviewTuningApprove) {
+			await decideReviewTuningProposalFromConsole(
+				"approve",
+				reviewTuningApproveButton.dataset.reviewTuningApprove,
+			);
+			return;
+		}
 
-  const reviewTuningDismissButton = target.closest<HTMLButtonElement>("[data-review-tuning-dismiss]");
-  if (reviewTuningDismissButton?.dataset.reviewTuningDismiss) {
-    await decideReviewTuningProposalFromConsole("dismiss", reviewTuningDismissButton.dataset.reviewTuningDismiss);
-    return;
-  }
+		const reviewTuningDismissButton = target.closest<HTMLButtonElement>(
+			"[data-review-tuning-dismiss]",
+		);
+		if (reviewTuningDismissButton?.dataset.reviewTuningDismiss) {
+			await decideReviewTuningProposalFromConsole(
+				"dismiss",
+				reviewTuningDismissButton.dataset.reviewTuningDismiss,
+			);
+			return;
+		}
 
-  const draftApprovalButton = target.closest<HTMLButtonElement>("[data-draft-approval]");
-  if (draftApprovalButton?.dataset.draftApproval) {
-    await requestApprovalFromConsole(draftApprovalButton.dataset.draftApproval);
-    return;
-  }
+		const draftApprovalButton = target.closest<HTMLButtonElement>(
+			"[data-draft-approval]",
+		);
+		if (draftApprovalButton?.dataset.draftApproval) {
+			await requestApprovalFromConsole(
+				draftApprovalButton.dataset.draftApproval,
+			);
+			return;
+		}
 
-  const approvalRejectButton = target.closest<HTMLButtonElement>("[data-approval-reject]");
-  if (approvalRejectButton?.dataset.approvalReject) {
-    await performApprovalRecoveryAction("reject", approvalRejectButton.dataset.approvalReject);
-    return;
-  }
+		const approvalRejectButton = target.closest<HTMLButtonElement>(
+			"[data-approval-reject]",
+		);
+		if (approvalRejectButton?.dataset.approvalReject) {
+			await performApprovalRecoveryAction(
+				"reject",
+				approvalRejectButton.dataset.approvalReject,
+			);
+			return;
+		}
 
-  const approvalReopenButton = target.closest<HTMLButtonElement>("[data-approval-reopen]");
-  if (approvalReopenButton?.dataset.approvalReopen) {
-    await performApprovalRecoveryAction("reopen", approvalReopenButton.dataset.approvalReopen);
-    return;
-  }
+		const approvalReopenButton = target.closest<HTMLButtonElement>(
+			"[data-approval-reopen]",
+		);
+		if (approvalReopenButton?.dataset.approvalReopen) {
+			await performApprovalRecoveryAction(
+				"reopen",
+				approvalReopenButton.dataset.approvalReopen,
+			);
+			return;
+		}
 
-  const approvalCancelButton = target.closest<HTMLButtonElement>("[data-approval-cancel]");
-  if (approvalCancelButton?.dataset.approvalCancel) {
-    await performApprovalRecoveryAction("cancel", approvalCancelButton.dataset.approvalCancel);
-    return;
-  }
+		const approvalCancelButton = target.closest<HTMLButtonElement>(
+			"[data-approval-cancel]",
+		);
+		if (approvalCancelButton?.dataset.approvalCancel) {
+			await performApprovalRecoveryAction(
+				"cancel",
+				approvalCancelButton.dataset.approvalCancel,
+			);
+			return;
+		}
 
-  const openPlanningButton = target.closest<HTMLButtonElement>("[data-open-planning]");
-  if (openPlanningButton?.dataset.openPlanning) {
-    await selectPlanningRecommendation(openPlanningButton.dataset.openPlanning);
-    return;
-  }
+		const openPlanningButton = target.closest<HTMLButtonElement>(
+			"[data-open-planning]",
+		);
+		if (openPlanningButton?.dataset.openPlanning) {
+			await selectPlanningRecommendation(
+				openPlanningButton.dataset.openPlanning,
+			);
+			return;
+		}
 
-  const openPlanningGroupButton = target.closest<HTMLButtonElement>("[data-open-planning-group]");
-  if (openPlanningGroupButton?.dataset.openPlanningGroup) {
-    await selectPlanningGroup(openPlanningGroupButton.dataset.openPlanningGroup);
-    return;
-  }
+		const openPlanningGroupButton = target.closest<HTMLButtonElement>(
+			"[data-open-planning-group]",
+		);
+		if (openPlanningGroupButton?.dataset.openPlanningGroup) {
+			await selectPlanningGroup(
+				openPlanningGroupButton.dataset.openPlanningGroup,
+			);
+			return;
+		}
 
-  const openApprovalButton = target.closest<HTMLButtonElement>("[data-open-approval]");
-  if (openApprovalButton?.dataset.openApproval) {
-    await selectApproval(openApprovalButton.dataset.openApproval);
-    return;
-  }
+		const openApprovalButton = target.closest<HTMLButtonElement>(
+			"[data-open-approval]",
+		);
+		if (openApprovalButton?.dataset.openApproval) {
+			await selectApproval(openApprovalButton.dataset.openApproval);
+			return;
+		}
 
-  const openSnapshotButton = target.closest<HTMLButtonElement>("[data-open-snapshot]");
-  if (openSnapshotButton?.dataset.openSnapshot) {
-    await selectSnapshot(openSnapshotButton.dataset.openSnapshot);
-    return;
-  }
+		const openSnapshotButton = target.closest<HTMLButtonElement>(
+			"[data-open-snapshot]",
+		);
+		if (openSnapshotButton?.dataset.openSnapshot) {
+			await selectSnapshot(openSnapshotButton.dataset.openSnapshot);
+			return;
+		}
 
-  const createSnapshotButton = target.closest<HTMLButtonElement>("[data-create-snapshot]");
-  if (createSnapshotButton) {
-    await createSnapshotFromConsole();
-    return;
-  }
+		const createSnapshotButton = target.closest<HTMLButtonElement>(
+			"[data-create-snapshot]",
+		);
+		if (createSnapshotButton) {
+			await createSnapshotFromConsole();
+			return;
+		}
 
-  const planningLoadingSnoozeButton = target.closest<HTMLButtonElement>("[data-planning-loading-snooze]");
-  if (planningLoadingSnoozeButton) {
-    const pendingSnoozePreset = document.querySelector<HTMLSelectElement>("#planning-snooze-preset")?.value ?? "";
-    const pendingSnoozeNote = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note")?.value ?? "";
-    try {
-      await ensurePlanningActionTargetLoaded(false);
-      if (!state.selectedPlanningRecommendationId) {
-        await ensurePlanningPayloadLoaded();
-      }
-    } catch (error) {
-      if (error instanceof SessionLockedError) {
-        renderLocked();
-        return;
-      }
-      setFlash(
-        `${error instanceof Error ? error.message : String(error)} Run personal-ops planning recommendation next for the CLI path.`,
-        "critical",
-      );
-      render();
-      return;
-    }
-    const snoozePreset = document.querySelector<HTMLSelectElement>("#planning-snooze-preset");
-    if (snoozePreset && pendingSnoozePreset) {
-      snoozePreset.value = pendingSnoozePreset;
-    }
-    const snoozeNote = document.querySelector<HTMLTextAreaElement>("#planning-snooze-note");
-    if (snoozeNote && pendingSnoozeNote && !snoozeNote.value.trim()) {
-      snoozeNote.value = pendingSnoozeNote;
-      snoozeNote.dispatchEvent(new Event("input", { bubbles: true }));
-      snoozeNote.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-    await performPlanningAction("snooze");
-    return;
-  }
+		const planningLoadingSnoozeButton = target.closest<HTMLButtonElement>(
+			"[data-planning-loading-snooze]",
+		);
+		if (planningLoadingSnoozeButton) {
+			const pendingSnoozePreset =
+				document.querySelector<HTMLSelectElement>("#planning-snooze-preset")
+					?.value ?? "";
+			const pendingSnoozeNote =
+				document.querySelector<HTMLTextAreaElement>("#planning-snooze-note")
+					?.value ?? "";
+			try {
+				await ensurePlanningActionTargetLoaded(false);
+				if (!state.selectedPlanningRecommendationId) {
+					await ensurePlanningPayloadLoaded();
+				}
+			} catch (error) {
+				if (error instanceof SessionLockedError) {
+					renderLocked();
+					return;
+				}
+				setFlash(
+					`${error instanceof Error ? error.message : String(error)} Run personal-ops planning recommendation next for the CLI path.`,
+					"critical",
+				);
+				render();
+				return;
+			}
+			const snoozePreset = document.querySelector<HTMLSelectElement>(
+				"#planning-snooze-preset",
+			);
+			if (snoozePreset && pendingSnoozePreset) {
+				snoozePreset.value = pendingSnoozePreset;
+			}
+			const snoozeNote = document.querySelector<HTMLTextAreaElement>(
+				"#planning-snooze-note",
+			);
+			if (snoozeNote && pendingSnoozeNote && !snoozeNote.value.trim()) {
+				snoozeNote.value = pendingSnoozeNote;
+				snoozeNote.dispatchEvent(new Event("input", { bubbles: true }));
+				snoozeNote.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+			await performPlanningAction("snooze");
+			return;
+		}
 
-  const planningActionButton = target.closest<HTMLButtonElement>("[data-planning-action]");
-  if (planningActionButton?.dataset.planningAction === "apply") {
-    await performPlanningAction("apply");
-    return;
-  }
-  if (planningActionButton?.dataset.planningAction === "snooze") {
-    await performPlanningAction("snooze");
-    return;
-  }
-  if (planningActionButton?.dataset.planningAction === "reject") {
-    await performPlanningAction("reject");
-    return;
-  }
+		const planningActionButton = target.closest<HTMLButtonElement>(
+			"[data-planning-action]",
+		);
+		if (planningActionButton?.dataset.planningAction === "apply") {
+			await performPlanningAction("apply");
+			return;
+		}
+		if (planningActionButton?.dataset.planningAction === "snooze") {
+			await performPlanningAction("snooze");
+			return;
+		}
+		if (planningActionButton?.dataset.planningAction === "reject") {
+			await performPlanningAction("reject");
+			return;
+		}
 
-  const planningGroupActionButton = target.closest<HTMLButtonElement>("[data-planning-group-action]");
-  if (planningGroupActionButton?.dataset.planningGroupAction === "snooze") {
-    await performPlanningGroupAction("snooze");
-    return;
-  }
-  if (planningGroupActionButton?.dataset.planningGroupAction === "reject") {
-    await performPlanningGroupAction("reject");
-    return;
-  }
+		const planningGroupActionButton = target.closest<HTMLButtonElement>(
+			"[data-planning-group-action]",
+		);
+		if (planningGroupActionButton?.dataset.planningGroupAction === "snooze") {
+			await performPlanningGroupAction("snooze");
+			return;
+		}
+		if (planningGroupActionButton?.dataset.planningGroupAction === "reject") {
+			await performPlanningGroupAction("reject");
+			return;
+		}
 
-  if (target.id === "audit-refresh") {
-    const category = document.querySelector<HTMLSelectElement>("#audit-category");
-    const limit = document.querySelector<HTMLInputElement>("#audit-limit");
-    state.auditCategory = (category?.value ?? "") as AuditEventCategory | "";
-    state.auditLimit = Math.max(1, Math.min(200, Number(limit?.value ?? 20) || 20));
-    await refreshAuditOnly();
-  }
-});
+		if (target.id === "audit-refresh") {
+			const category =
+				document.querySelector<HTMLSelectElement>("#audit-category");
+			const limit = document.querySelector<HTMLInputElement>("#audit-limit");
+			state.auditCategory = (category?.value ?? "") as AuditEventCategory | "";
+			state.auditLimit = Math.max(
+				1,
+				Math.min(200, Number(limit?.value ?? 20) || 20),
+			);
+			await refreshAuditOnly();
+		}
+	});
 
-window.addEventListener("hashchange", () => {
-  const next = location.hash.replace(/^#/, "") as SectionId;
-  if (next && next in SECTIONS) {
-    state.section = next;
-    render();
-  }
-});
+	window.addEventListener("hashchange", () => {
+		const next = location.hash.replace(/^#/, "") as SectionId;
+		if (next && next in SECTIONS) {
+			state.section = next;
+			render();
+		}
+	});
 
-getShellElements().refreshButton.addEventListener("click", () => {
-  void refreshAll();
-});
+	getShellElements().refreshButton.addEventListener("click", () => {
+		void refreshAll();
+	});
 
-if (!(state.section in SECTIONS)) {
-  state.section = "overview";
-}
+	if (!(state.section in SECTIONS)) {
+		state.section = "overview";
+	}
 
-document.documentElement.dataset.consoleReady = "1";
+	// ── Command Palette ───────────────────────────────────────────────────────────
 
-void refreshAll();
+	type PaletteCommand = {
+		id: string;
+		label: string;
+		group: string;
+		icon: string;
+		keywords?: string[];
+		action: () => void;
+	};
+
+	let paletteOpen = false;
+	let paletteQuery = "";
+	let paletteSelectedIndex = 0;
+
+	function buildPaletteCommands(): PaletteCommand[] {
+		const navCommands: PaletteCommand[] = (
+			Object.entries(SECTIONS) as Array<[SectionId, string]>
+		).map(([id, label]) => ({
+			id: `nav:${id}`,
+			label: `Go to ${label}`,
+			group: "Navigate",
+			icon: "→",
+			action: () => {
+				state.section = id;
+				render();
+				closePalette();
+			},
+		}));
+
+		const workflowCommands: PaletteCommand[] = [
+			{
+				id: "wf:refresh",
+				label: "Refresh all data",
+				group: "Actions",
+				icon: "↺",
+				keywords: ["reload", "sync"],
+				action: () => {
+					closePalette();
+					void refreshAll();
+				},
+			},
+			{
+				id: "wf:morning",
+				label: "View Morning Briefing",
+				group: "Workflows",
+				icon: "☀",
+				keywords: ["brief", "morning", "digest"],
+				action: () => {
+					closePalette();
+					window.open("/v1/workflows/morning", "_blank");
+				},
+			},
+			{
+				id: "wf:end-of-day",
+				label: "View End-of-Day Digest",
+				group: "Workflows",
+				icon: "🌙",
+				keywords: ["eod", "digest", "evening", "end"],
+				action: () => {
+					closePalette();
+					window.open("/v1/workflows/end-of-day", "_blank");
+				},
+			},
+			{
+				id: "wf:meeting-brief",
+				label: "View Meeting Contact Brief",
+				group: "Workflows",
+				icon: "👤",
+				keywords: ["meeting", "attendee", "contact", "brief"],
+				action: () => {
+					closePalette();
+					window.open("/v1/workflows/meeting-brief", "_blank");
+				},
+			},
+			{
+				id: "wf:inbox",
+				label: "View Inbox Status",
+				group: "Workflows",
+				icon: "📬",
+				keywords: ["inbox", "mail", "email"],
+				action: () => {
+					closePalette();
+					window.open("/v1/inbox/status", "_blank");
+				},
+			},
+			{
+				id: "wf:portfolio",
+				label: "View Portfolio Health",
+				group: "Data",
+				icon: "📊",
+				keywords: ["portfolio", "github", "repos"],
+				action: () => {
+					closePalette();
+					window.open("/v1/portfolio/health", "_blank");
+				},
+			},
+			{
+				id: "wf:security",
+				label: "View Security Posture",
+				group: "Data",
+				icon: "🔒",
+				keywords: ["security", "mcp", "audit"],
+				action: () => {
+					closePalette();
+					window.open("/v1/security/posture", "_blank");
+				},
+			},
+			{
+				id: "wf:evals",
+				label: "View Agent Performance",
+				group: "Data",
+				icon: "🤖",
+				keywords: ["evals", "agent", "performance", "ai"],
+				action: () => {
+					closePalette();
+					window.open("/v1/evals/summary", "_blank");
+				},
+			},
+			{
+				id: "wf:notifications",
+				label: "View Notification Feed",
+				group: "Data",
+				icon: "🔔",
+				keywords: ["hub", "notifications", "feed"],
+				action: () => {
+					closePalette();
+					window.open("/v1/hub/feed", "_blank");
+				},
+			},
+		];
+
+		return [...navCommands, ...workflowCommands];
+	}
+
+	function fuzzyMatch(query: string, cmd: PaletteCommand): boolean {
+		if (!query) return true;
+		const haystack = [cmd.label, cmd.group, ...(cmd.keywords ?? [])]
+			.join(" ")
+			.toLowerCase();
+		const needle = query.toLowerCase();
+		let hi = 0;
+		for (const char of needle) {
+			const idx = haystack.indexOf(char, hi);
+			if (idx === -1) return false;
+			hi = idx + 1;
+		}
+		return true;
+	}
+
+	function filteredPaletteCommands(): PaletteCommand[] {
+		const all = buildPaletteCommands();
+		if (!paletteQuery) return all;
+		return all.filter((cmd) => fuzzyMatch(paletteQuery, cmd));
+	}
+
+	function getPaletteEl(): HTMLElement | null {
+		return document.getElementById("command-palette");
+	}
+
+	function getPaletteInputEl(): HTMLInputElement | null {
+		return document.getElementById("palette-input") as HTMLInputElement | null;
+	}
+
+	function getPaletteResultsEl(): HTMLElement | null {
+		return document.getElementById("palette-results");
+	}
+
+	function renderPaletteResults(): void {
+		const results = getPaletteResultsEl();
+		if (!results) return;
+		const cmds = filteredPaletteCommands();
+		if (cmds.length === 0) {
+			results.innerHTML = `<li class="palette__group-label">No commands match</li>`;
+			return;
+		}
+		paletteSelectedIndex = Math.min(paletteSelectedIndex, cmds.length - 1);
+
+		const groups: string[] = [];
+		const grouped = cmds.reduce<Record<string, PaletteCommand[]>>(
+			(acc, cmd) => {
+				if (!acc[cmd.group]) {
+					acc[cmd.group] = [];
+					groups.push(cmd.group);
+				}
+				acc[cmd.group]!.push(cmd);
+				return acc;
+			},
+			{},
+		);
+
+		let globalIdx = 0;
+		const parts: string[] = [];
+		for (const group of groups) {
+			parts.push(`<li class="palette__group-label">${escapeHtml(group)}</li>`);
+			for (const cmd of grouped[group] ?? []) {
+				const selected = globalIdx === paletteSelectedIndex;
+				parts.push(
+					`<li class="palette__item" role="option" aria-selected="${selected}" data-palette-cmd="${escapeHtml(cmd.id)}">` +
+						`<span class="palette__item-icon">${escapeHtml(cmd.icon)}</span>` +
+						`<span class="palette__item-label">${escapeHtml(cmd.label)}</span>` +
+						`</li>`,
+				);
+				globalIdx++;
+			}
+		}
+		results.innerHTML = parts.join("");
+	}
+
+	function openPalette(): void {
+		const el = getPaletteEl();
+		if (!el) return;
+		paletteOpen = true;
+		paletteQuery = "";
+		paletteSelectedIndex = 0;
+		el.setAttribute("aria-hidden", "false");
+		renderPaletteResults();
+		const input = getPaletteInputEl();
+		if (input) {
+			input.value = "";
+			input.focus();
+		}
+	}
+
+	function closePalette(): void {
+		const el = getPaletteEl();
+		if (!el) return;
+		paletteOpen = false;
+		el.setAttribute("aria-hidden", "true");
+	}
+
+	function executePaletteCommand(id: string): void {
+		const cmd = buildPaletteCommands().find((c) => c.id === id);
+		cmd?.action();
+	}
+
+	// Keyboard: Cmd+K / Ctrl+K opens palette; Esc closes
+	document.addEventListener("keydown", (e) => {
+		if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+			e.preventDefault();
+			if (paletteOpen) {
+				closePalette();
+			} else {
+				openPalette();
+			}
+			return;
+		}
+		if (!paletteOpen) return;
+		if (e.key === "Escape") {
+			e.preventDefault();
+			closePalette();
+			return;
+		}
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			paletteSelectedIndex = Math.min(
+				paletteSelectedIndex + 1,
+				filteredPaletteCommands().length - 1,
+			);
+			renderPaletteResults();
+			return;
+		}
+		if (e.key === "ArrowUp") {
+			e.preventDefault();
+			paletteSelectedIndex = Math.max(paletteSelectedIndex - 1, 0);
+			renderPaletteResults();
+			return;
+		}
+		if (e.key === "Enter") {
+			e.preventDefault();
+			const cmds = filteredPaletteCommands();
+			const cmd = cmds[paletteSelectedIndex];
+			if (cmd) cmd.action();
+			return;
+		}
+	});
+
+	// Input: filter as user types
+	const paletteInputEl = getPaletteInputEl();
+	if (paletteInputEl) {
+		paletteInputEl.addEventListener("input", () => {
+			paletteQuery = paletteInputEl.value;
+			paletteSelectedIndex = 0;
+			renderPaletteResults();
+		});
+	}
+
+	// Click: backdrop closes; item executes
+	const paletteEl = getPaletteEl();
+	if (paletteEl) {
+		paletteEl.addEventListener("click", (e) => {
+			const target = e.target;
+			if (!(target instanceof HTMLElement)) return;
+			const backdrop = target.closest(".palette__backdrop");
+			if (backdrop) {
+				closePalette();
+				return;
+			}
+			const item = target.closest<HTMLElement>("[data-palette-cmd]");
+			if (
+				item?.dataset.paletteCmdValue !== undefined ||
+				item?.dataset.paletteCmd
+			) {
+				const id = item.dataset.paletteCmd ?? "";
+				executePaletteCommand(id);
+			}
+		});
+	}
+
+	document.documentElement.dataset.consoleReady = "1";
+
+	void refreshAll();
 }

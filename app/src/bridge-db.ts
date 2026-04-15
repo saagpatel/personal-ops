@@ -187,6 +187,101 @@ export class BridgeDbClient {
 		}
 	}
 
+	/**
+	 * Query activity_log with optional filters for AI session memory.
+	 */
+	searchActivity(options: {
+		query?: string;
+		project?: string;
+		days?: number;
+		limit?: number;
+	}): Array<{
+		id: number;
+		source: string;
+		timestamp: string;
+		project_name: string;
+		summary: string;
+		branch: string | null;
+		tags: string[];
+	}> {
+		if (!this.isAvailable()) return [];
+		const db = new DatabaseSync(this.dbPath, { open: true });
+		try {
+			const days = options.days ?? 30;
+			const limit = Math.min(options.limit ?? 50, 200);
+			const cutoff = new Date(
+				Date.now() - days * 24 * 60 * 60 * 1000,
+			).toISOString();
+			const conditions: string[] = ["timestamp >= ?"];
+			const params: (string | number)[] = [cutoff];
+			if (options.project) {
+				conditions.push("project_name LIKE ?");
+				params.push(`%${options.project}%`);
+			}
+			if (options.query) {
+				conditions.push("(summary LIKE ? OR project_name LIKE ?)");
+				params.push(`%${options.query}%`, `%${options.query}%`);
+			}
+			params.push(limit);
+			const rows = db
+				.prepare(
+					`SELECT id, source, timestamp, project_name, summary, branch, tags
+					 FROM activity_log
+					 WHERE ${conditions.join(" AND ")}
+					 ORDER BY timestamp DESC
+					 LIMIT ?`,
+				)
+				.all(...params) as Array<{
+				id: number;
+				source: string;
+				timestamp: string;
+				project_name: string;
+				summary: string;
+				branch: string | null;
+				tags: string;
+			}>;
+			return rows.map((r) => ({
+				...r,
+				tags: JSON.parse(r.tags || "[]") as string[],
+			}));
+		} finally {
+			db.close();
+		}
+	}
+
+	/**
+	 * Aggregate activity_log by project for the morning briefing AI yesterday section.
+	 */
+	getProjectSummary(days: number): Array<{
+		project_name: string;
+		session_count: number;
+		latest: string;
+	}> {
+		if (!this.isAvailable()) return [];
+		const db = new DatabaseSync(this.dbPath, { open: true });
+		try {
+			const cutoff = new Date(
+				Date.now() - days * 24 * 60 * 60 * 1000,
+			).toISOString();
+			return db
+				.prepare(
+					`SELECT project_name, COUNT(*) AS session_count, MAX(timestamp) AS latest
+					 FROM activity_log
+					 WHERE timestamp >= ?
+					 GROUP BY project_name
+					 ORDER BY latest DESC
+					 LIMIT 20`,
+				)
+				.all(cutoff) as Array<{
+				project_name: string;
+				session_count: number;
+				latest: string;
+			}>;
+		} finally {
+			db.close();
+		}
+	}
+
 	private buildBriefingLine(
 		costs: Array<{ system: string; month: string; amount_usd: number }>,
 		activity: BridgeActivityEntry[],

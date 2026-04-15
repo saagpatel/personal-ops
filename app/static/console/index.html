@@ -41,6 +41,23 @@
         <section id="content" class="content" aria-live="polite"></section>
       </main>
     </div>
+    <div id="command-palette" class="palette" aria-hidden="true" role="dialog" aria-label="Command palette">
+      <div class="palette__backdrop"></div>
+      <div class="palette__modal">
+        <div class="palette__search">
+          <input
+            id="palette-input"
+            class="palette__input"
+            type="text"
+            placeholder="Search commands…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <kbd class="palette__hint">esc</kbd>
+        </div>
+        <ul id="palette-results" class="palette__results" role="listbox"></ul>
+      </div>
+    </div>
     <script type="module" src="/console/assets/app.js"></script>
   </body>
 </html>
