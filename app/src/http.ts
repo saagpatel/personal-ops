@@ -1221,6 +1221,16 @@ export function createHttpServer(
 				return;
 			}
 
+			if (request.method === "GET" && url.pathname === "/v1/bridge/summary") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const rawDays = url.searchParams.get("days");
+				const days = rawDays
+					? Math.min(Math.max(1, parseInt(rawDays, 10) || 7), 90)
+					: 7;
+				sendJson(response, 200, service.getAiActivitySummary(days));
+				return;
+			}
+
 			if (
 				request.method === "POST" &&
 				url.pathname === "/v1/auth/gmail/start"

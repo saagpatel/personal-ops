@@ -11,6 +11,7 @@ import {
 	startGmailAuth,
 	startGoogleAuth,
 } from "./auth.js";
+import { BridgeDbClient } from "./bridge-db.js";
 import {
 	cancelGoogleCalendarEvent,
 	createGoogleCalendarEvent,
@@ -894,6 +895,7 @@ export class PersonalOpsService {
 	private reviewReadModelRefreshInFlight: Promise<void> | null = null;
 	private reviewReadModelRefreshDepth = 0;
 	private readonly hub: NotificationHubClient;
+	private readonly bridgeDb: BridgeDbClient;
 
 	constructor(
 		private readonly paths: Paths,
@@ -908,6 +910,7 @@ export class PersonalOpsService {
 			...dependencies,
 		};
 		this.hub = new NotificationHubClient(logger);
+		this.bridgeDb = new BridgeDbClient();
 		fs.mkdirSync(this.paths.snapshotsDir, { recursive: true });
 	}
 
@@ -1545,6 +1548,10 @@ export class PersonalOpsService {
 			followup_thread_count: followups,
 			total_thread_count: this.db.countMailThreads(),
 		};
+	}
+
+	getAiActivitySummary(activityDays = 7) {
+		return this.bridgeDb.getActivitySummary(activityDays);
 	}
 
 	getCalendarStatusReport(): CalendarStatusReport {
