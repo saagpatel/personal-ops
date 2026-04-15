@@ -109,7 +109,7 @@ import {
 	type TaskSuggestionStatus,
 } from "./types.js";
 
-export const CURRENT_SCHEMA_VERSION = 29;
+export const CURRENT_SCHEMA_VERSION = 31;
 const SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 function nowIso(): string {
@@ -3183,6 +3183,262 @@ export class PersonalOpsDb {
 			.prepare(`SELECT COUNT(*) AS count FROM mail_threads`)
 			.get() as { count: number };
 		return Number(row.count ?? 0);
+	}
+
+	// ── Contacts ──────────────────────────────────────────────────────────────
+
+	upsertContact(contact: {
+		email: string;
+		display_name?: string | null;
+		first_seen_at: string;
+		last_contact_at: string;
+		last_inbound_at?: string | null;
+		last_outbound_at?: string | null;
+		message_count: number;
+		meeting_count: number;
+		open_thread_count: number;
+		warmth_score: number;
+		updated_at: string;
+	}): void {
+		this.db
+			.prepare(
+				`INSERT INTO contacts
+					(email, display_name, first_seen_at, last_contact_at, last_inbound_at,
+					 last_outbound_at, message_count, meeting_count, open_thread_count,
+					 warmth_score, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT(email) DO UPDATE SET
+					display_name       = excluded.display_name,
+					first_seen_at      = MIN(first_seen_at, excluded.first_seen_at),
+					last_contact_at    = MAX(last_contact_at, excluded.last_contact_at),
+					last_inbound_at    = CASE WHEN excluded.last_inbound_at IS NOT NULL
+					                      THEN MAX(COALESCE(last_inbound_at, ''), excluded.last_inbound_at)
+					                      ELSE last_inbound_at END,
+					last_outbound_at   = CASE WHEN excluded.last_outbound_at IS NOT NULL
+					                      THEN MAX(COALESCE(last_outbound_at, ''), excluded.last_outbound_at)
+					                      ELSE last_outbound_at END,
+					message_count      = excluded.message_count,
+					meeting_count      = excluded.meeting_count,
+					open_thread_count  = excluded.open_thread_count,
+					warmth_score       = excluded.warmth_score,
+					updated_at         = excluded.updated_at`,
+			)
+			.run(
+				contact.email,
+				contact.display_name ?? null,
+				contact.first_seen_at,
+				contact.last_contact_at,
+				contact.last_inbound_at ?? null,
+				contact.last_outbound_at ?? null,
+				contact.message_count,
+				contact.meeting_count,
+				contact.open_thread_count,
+				contact.warmth_score,
+				contact.updated_at,
+			);
+	}
+
+	getTopContacts(limit: number): Array<{
+		email: string;
+		display_name: string | null;
+		first_seen_at: string;
+		last_contact_at: string;
+		last_inbound_at: string | null;
+		last_outbound_at: string | null;
+		message_count: number;
+		meeting_count: number;
+		open_thread_count: number;
+		warmth_score: number;
+		updated_at: string;
+	}> {
+		return this.db
+			.prepare(
+				`SELECT email, display_name, first_seen_at, last_contact_at,
+				        last_inbound_at, last_outbound_at, message_count, meeting_count,
+				        open_thread_count, warmth_score, updated_at
+				 FROM contacts
+				 ORDER BY warmth_score DESC
+				 LIMIT ?`,
+			)
+			.all(Math.max(1, limit)) as ReturnType<typeof this.getTopContacts>;
+	}
+
+	getContactDetail(
+		email: string,
+	): ReturnType<typeof this.getTopContacts>[number] | null {
+		const row = this.db
+			.prepare(
+				`SELECT email, display_name, first_seen_at, last_contact_at,
+				        last_inbound_at, last_outbound_at, message_count, meeting_count,
+				        open_thread_count, warmth_score, updated_at
+				 FROM contacts WHERE email = ?`,
+			)
+			.get(email) as ReturnType<typeof this.getTopContacts>[number] | undefined;
+		return row ?? null;
+	}
+
+	searchContacts(
+		query: string,
+		limit: number,
+	): ReturnType<typeof this.getTopContacts> {
+		const pattern = `%${query}%`;
+		return this.db
+			.prepare(
+				`SELECT email, display_name, first_seen_at, last_contact_at,
+				        last_inbound_at, last_outbound_at, message_count, meeting_count,
+				        open_thread_count, warmth_score, updated_at
+				 FROM contacts
+				 WHERE email LIKE ? OR display_name LIKE ?
+				 ORDER BY warmth_score DESC
+				 LIMIT ?`,
+			)
+			.all(pattern, pattern, Math.max(1, limit)) as ReturnType<
+			typeof this.getTopContacts
+		>;
+	}
+
+	/** Aggregate inbound mail per sender, excluding myEmail. */
+	aggregateInboundContacts(myEmail: string): Array<{
+		email: string;
+		first_seen: number;
+		last_seen: number;
+		msg_count: number;
+	}> {
+		const pattern = `%${myEmail}%`;
+		return this.db
+			.prepare(
+				`SELECT from_header AS email,
+				        MIN(internal_date) AS first_seen,
+				        MAX(internal_date) AS last_seen,
+				        COUNT(*) AS msg_count
+				 FROM mail_messages
+				 WHERE from_header IS NOT NULL
+				   AND from_header NOT LIKE ?
+				 GROUP BY from_header`,
+			)
+			.all(pattern) as Array<{
+			email: string;
+			first_seen: number;
+			last_seen: number;
+			msg_count: number;
+		}>;
+	}
+
+	/** Aggregate outbound mail per recipient, excluding myEmail. */
+	aggregateOutboundContacts(myEmail: string): Array<{
+		email: string;
+		first_seen: number;
+		last_seen: number;
+		msg_count: number;
+	}> {
+		const pattern = `%${myEmail}%`;
+		return this.db
+			.prepare(
+				`SELECT to_header AS email,
+				        MIN(internal_date) AS first_seen,
+				        MAX(internal_date) AS last_seen,
+				        COUNT(*) AS msg_count
+				 FROM mail_messages
+				 WHERE to_header IS NOT NULL
+				   AND to_header NOT LIKE ?
+				   AND is_sent = 1
+				 GROUP BY to_header`,
+			)
+			.all(pattern) as Array<{
+			email: string;
+			first_seen: number;
+			last_seen: number;
+			msg_count: number;
+		}>;
+	}
+
+	// ── FTS5 Email Search ─────────────────────────────────────────────────────
+
+	hasFts5(): boolean {
+		try {
+			this.db.prepare(`SELECT * FROM mail_fts LIMIT 0`).all();
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	searchMailFts(
+		query: string,
+		fromFilter?: string,
+		limit = 20,
+	): Array<{
+		message_id: string;
+		thread_id: string;
+		subject: string | null;
+		from_header: string | null;
+		rank: number;
+	}> {
+		if (!this.hasFts5()) {
+			// Fallback: LIKE search on subject
+			const pattern = `%${query}%`;
+			const rows = this.db
+				.prepare(
+					`SELECT message_id, thread_id, subject, from_header, 0 AS rank
+					 FROM mail_messages
+					 WHERE subject LIKE ?
+					   ${fromFilter ? "AND from_header LIKE ?" : ""}
+					 ORDER BY CAST(internal_date AS INTEGER) DESC
+					 LIMIT ?`,
+				)
+				.all(
+					...(fromFilter
+						? [pattern, `%${fromFilter}%`, limit]
+						: [pattern, limit]),
+				) as Array<{
+				message_id: string;
+				thread_id: string;
+				subject: string | null;
+				from_header: string | null;
+				rank: number;
+			}>;
+			return rows;
+		}
+
+		// FTS5 — escape each token as a quoted phrase
+		const ftsQuery = query
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean)
+			.map((t) => `"${t.replace(/"/g, '""')}"`)
+			.join(" ");
+
+		const sql = fromFilter
+			? `SELECT m.message_id, m.thread_id, m.subject, m.from_header, f.rank
+			   FROM mail_fts f
+			   JOIN mail_messages m ON m.rowid = f.rowid
+			   WHERE mail_fts MATCH ?
+			     AND m.from_header LIKE ?
+			   ORDER BY f.rank
+			   LIMIT ?`
+			: `SELECT m.message_id, m.thread_id, m.subject, m.from_header, f.rank
+			   FROM mail_fts f
+			   JOIN mail_messages m ON m.rowid = f.rowid
+			   WHERE mail_fts MATCH ?
+			   ORDER BY f.rank
+			   LIMIT ?`;
+
+		const params = fromFilter
+			? [ftsQuery, `%${fromFilter}%`, limit]
+			: [ftsQuery, limit];
+
+		try {
+			return this.db.prepare(sql).all(...params) as Array<{
+				message_id: string;
+				thread_id: string;
+				subject: string | null;
+				from_header: string | null;
+				rank: number;
+			}>;
+		} catch {
+			// FTS5 query parse error — return empty
+			return [];
+		}
 	}
 
 	getMailActivityToday(
@@ -6435,6 +6691,14 @@ export class PersonalOpsDb {
 				this.migrateToV29();
 				version = 29;
 				this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+			} else if (version === 29) {
+				this.migrateToV30();
+				version = 30;
+				this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
+			} else if (version === 30) {
+				this.migrateToV31();
+				version = 31;
+				this.db.prepare(`UPDATE schema_meta SET version = ?`).run(version);
 			} else {
 				throw new Error(`Unsupported personal-ops schema version: ${version}`);
 			}
@@ -7676,6 +7940,74 @@ export class PersonalOpsDb {
 
 	private migrateToV29() {
 		this.addColumnIfMissing("calendar_events", "attendees_json", "TEXT");
+	}
+
+	private migrateToV30() {
+		this.db.exec(`
+			CREATE TABLE IF NOT EXISTS contacts (
+				email TEXT PRIMARY KEY,
+				display_name TEXT,
+				first_seen_at TEXT NOT NULL,
+				last_contact_at TEXT NOT NULL,
+				last_inbound_at TEXT,
+				last_outbound_at TEXT,
+				message_count INTEGER NOT NULL DEFAULT 0,
+				meeting_count INTEGER NOT NULL DEFAULT 0,
+				open_thread_count INTEGER NOT NULL DEFAULT 0,
+				warmth_score REAL NOT NULL DEFAULT 0,
+				updated_at TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_contacts_warmth
+				ON contacts(warmth_score DESC);
+			CREATE INDEX IF NOT EXISTS idx_contacts_last_contact
+				ON contacts(last_contact_at DESC);
+		`);
+	}
+
+	private migrateToV31() {
+		// Check FTS5 is available — skip gracefully if not compiled in
+		try {
+			this.db.exec(`SELECT fts5()`);
+		} catch (e) {
+			// FTS5 available — the error above is expected (wrong arg count),
+			// but if it throws "no such function" then FTS5 is absent
+			const msg = e instanceof Error ? e.message : String(e);
+			if (msg.includes("no such function")) {
+				return;
+			}
+		}
+		this.db.exec(`
+			CREATE VIRTUAL TABLE IF NOT EXISTS mail_fts USING fts5(
+				message_id UNINDEXED,
+				thread_id UNINDEXED,
+				subject,
+				from_header,
+				content='mail_messages',
+				content_rowid='rowid'
+			);
+			CREATE TRIGGER IF NOT EXISTS mail_fts_insert
+				AFTER INSERT ON mail_messages BEGIN
+				INSERT INTO mail_fts(rowid, message_id, thread_id, subject, from_header)
+					VALUES (new.rowid, new.message_id, new.thread_id, new.subject, new.from_header);
+			END;
+			CREATE TRIGGER IF NOT EXISTS mail_fts_delete
+				BEFORE DELETE ON mail_messages BEGIN
+				INSERT INTO mail_fts(mail_fts, rowid, message_id, thread_id, subject, from_header)
+					VALUES ('delete', old.rowid, old.message_id, old.thread_id, old.subject, old.from_header);
+			END;
+			CREATE TRIGGER IF NOT EXISTS mail_fts_update
+				AFTER UPDATE ON mail_messages BEGIN
+				INSERT INTO mail_fts(mail_fts, rowid, message_id, thread_id, subject, from_header)
+					VALUES ('delete', old.rowid, old.message_id, old.thread_id, old.subject, old.from_header);
+				INSERT INTO mail_fts(rowid, message_id, thread_id, subject, from_header)
+					VALUES (new.rowid, new.message_id, new.thread_id, new.subject, new.from_header);
+			END;
+		`);
+		// Backfill existing rows
+		this.db.exec(`
+			INSERT INTO mail_fts(rowid, message_id, thread_id, subject, from_header)
+				SELECT rowid, message_id, thread_id, subject, from_header FROM mail_messages;
+		`);
 	}
 
 	private tableExists(name: string): boolean {
