@@ -336,6 +336,18 @@ const tools = [
 		},
 	},
 	{
+		name: "notion_project_status",
+		description:
+			"Notion project state — overdue reviews, operating queue, needs-review projects. " +
+			"Read from local snapshot (not live Notion API). " +
+			"Sourced from ~/.local/share/notion-os/project-snapshot.json.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "agent_performance_summary",
 		description:
 			"Read eval harness results comparing Claude Code vs Codex performance by task category. " +
@@ -1126,6 +1138,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 	if (name === "portfolio_health") {
 		assertAllowedToolArgs(args, [], "portfolio_health");
 		const response = await requestJson("GET", "/v1/portfolio/health");
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "notion_project_status") {
+		assertAllowedToolArgs(args, [], "notion_project_status");
+		const response = await requestJson("GET", "/v1/notion/snapshot");
+		if (
+			typeof response === "object" &&
+			response !== null &&
+			"error" in response
+		) {
+			return {
+				content: [
+					{ type: "text", text: "Notion project snapshot not available" },
+				],
+			};
+		}
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
 		};

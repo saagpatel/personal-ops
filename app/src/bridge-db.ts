@@ -1,16 +1,13 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const BRIDGE_DB_PATH = path.join(
-	os.homedir(),
-	".local/share/bridge-db/bridge.db",
-);
+// ---------------------------------------------------------------------------
+// Types (unchanged public API)
+// ---------------------------------------------------------------------------
 
 export interface BridgeActivityEntry {
 	id: number;
-	source: "cc" | "codex" | "claude_ai";
+	source: "cc" | "codex" | "claude_ai" | "personal_ops";
 	timestamp: string;
 	project_name: string;
 	summary: string;
@@ -54,108 +51,227 @@ export interface AiActivitySummary {
 	briefing_line: string;
 }
 
-/**
- * Read-only client for the bridge-db SQLite database.
- * Opens a fresh connection per query — bridge-db is written by other processes
- * so we never hold a long-lived connection.
- */
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function parseJsonSafe<T>(text: unknown, fallback: T): T {
+	if (typeof text !== "string") return fallback;
+	try {
+		return JSON.parse(text) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+function extractText(result: {
+	content: Array<{ type: string; text?: string }>;
+}): string {
+	const first = result.content.find((c) => c.type === "text");
+	return first?.text ?? "[]";
+}
+
+function currentMonth(): string {
+	const now = new Date();
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function sinceDate(days: number): string {
+	const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+	return d.toISOString().slice(0, 10);
+}
+
+function buildBriefingLine(
+	costs: Array<{ system: string; month: string; amount_usd: number }>,
+	activity: BridgeActivityEntry[],
+	handoffs: BridgeHandoff[],
+	month: string,
+): string {
+	const parts: string[] = [];
+	const thisMonthCosts = costs.filter((c) => c.month === month);
+	if (thisMonthCosts.length > 0) {
+		const total = thisMonthCosts.reduce((sum, c) => sum + c.amount_usd, 0);
+		parts.push(`AI ${month}: $${total.toFixed(0)}`);
+	}
+	if (activity.length > 0) {
+		const projectSet = new Set(activity.map((a) => a.project_name));
+		parts.push(
+			`${activity.length} sessions · ${projectSet.size} projects this week`,
+		);
+	}
+	if (handoffs.length > 0) {
+		parts.push(
+			`${handoffs.length} handoff${handoffs.length === 1 ? "" : "s"} pending`,
+		);
+	}
+	return parts.length > 0 ? parts.join(" · ") : "No AI activity recorded";
+}
+
+function unavailableSummary(): AiActivitySummary {
+	const month = currentMonth();
+	return {
+		current_month: month,
+		monthly_costs: [],
+		recent_activity: [],
+		open_handoffs: [],
+		briefing_line: "bridge-db not available",
+	};
+}
+
+// ---------------------------------------------------------------------------
+// BridgeDbClient — long-lived MCP subprocess, one connection per daemon
+// ---------------------------------------------------------------------------
+
 export class BridgeDbClient {
-	private readonly dbPath: string;
+	private mcpClient: Client | null = null;
+	private connectPromise: Promise<Client> | null = null;
 
-	constructor(dbPath: string = BRIDGE_DB_PATH) {
-		this.dbPath = dbPath;
+	protected async ensureConnected(): Promise<Client> {
+		if (this.mcpClient) return this.mcpClient;
+		if (this.connectPromise) return this.connectPromise;
+
+		this.connectPromise = (async () => {
+			const bridgeDbDir =
+				process.env["BRIDGE_DB_DIR"] ?? "/Users/d/Projects/bridge-db";
+			const transport = new StdioClientTransport({
+				command: "uv",
+				args: ["run", "--directory", bridgeDbDir, "python", "-m", "bridge_db"],
+			});
+			const client = new Client(
+				{ name: "personal-ops", version: "1.0" },
+				{ capabilities: {} },
+			);
+			await client.connect(transport);
+			this.mcpClient = client;
+			this.connectPromise = null;
+			return client;
+		})();
+
+		try {
+			return await this.connectPromise;
+		} catch (error) {
+			this.connectPromise = null;
+			throw error;
+		}
 	}
 
-	isAvailable(): boolean {
-		return fs.existsSync(this.dbPath);
+	async isAvailable(): Promise<boolean> {
+		try {
+			await this.ensureConnected();
+			return true;
+		} catch {
+			return false;
+		}
 	}
+
+	async close(): Promise<void> {
+		if (this.mcpClient) {
+			try {
+				await this.mcpClient.close();
+			} finally {
+				this.mcpClient = null;
+			}
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Read methods
+	// -------------------------------------------------------------------------
 
 	/**
 	 * Summarise AI session activity for the current and previous month,
 	 * recent activity log entries, and open handoffs.
 	 */
-	getActivitySummary(activityDays = 7): AiActivitySummary {
-		if (!this.isAvailable()) {
-			return this.unavailableSummary();
-		}
-
-		const db = new DatabaseSync(this.dbPath, { open: true });
+	async getActivitySummary(activityDays = 7): Promise<AiActivitySummary> {
 		try {
-			const now = new Date();
-			const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-			const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-			const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, "0")}`;
+			const client = await this.ensureConnected();
+			const month = currentMonth();
+			const prevMonthDate = new Date();
+			prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+			const prevMonth = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
 
-			// Monthly costs — current and previous month
-			const costRows = db
-				.prepare(
-					"SELECT id, system, month, amount, notes, recorded_at FROM cost_records WHERE month IN (?, ?) ORDER BY month DESC",
-				)
-				.all(currentMonth, prevMonthStr) as Array<{
-				id: number;
-				system: string;
-				month: string;
-				amount: number;
-				notes: string | null;
-				recorded_at: string;
-			}>;
+			const [costsResult, activityResult, handoffsResult] = await Promise.all([
+				client.callTool({ name: "get_cost_history", arguments: { limit: 24 } }),
+				client.callTool({
+					name: "get_recent_activity",
+					arguments: { since: sinceDate(activityDays), limit: 50 },
+				}),
+				client.callTool({ name: "get_pending_handoffs", arguments: {} }),
+			]);
 
-			const monthly_costs = costRows.map((r) => ({
-				system: r.system,
-				month: r.month,
-				amount_usd: r.amount,
-			}));
+			const costsRaw = parseJsonSafe<
+				Array<{
+					system: string;
+					month: string;
+					amount: number;
+					notes: string | null;
+					recorded_at: string;
+				}>
+			>(
+				extractText(
+					costsResult as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
+			);
 
-			// Recent activity
-			const cutoff = new Date(now);
-			cutoff.setDate(cutoff.getDate() - activityDays);
-			const cutoffStr = cutoff.toISOString().slice(0, 10); // YYYY-MM-DD
+			const monthly_costs = costsRaw
+				.filter((r) => r.month === month || r.month === prevMonth)
+				.map((r) => ({
+					system: r.system,
+					month: r.month,
+					amount_usd: r.amount,
+				}));
 
-			const activityRows = db
-				.prepare(
-					"SELECT id, source, timestamp, project_name, summary, branch, tags, created_at FROM activity_log WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT 50",
-				)
-				.all(cutoffStr) as Array<{
-				id: number;
-				source: string;
-				timestamp: string;
-				project_name: string;
-				summary: string;
-				branch: string | null;
-				tags: string;
-				created_at: string;
-			}>;
+			const activityRaw = parseJsonSafe<
+				Array<{
+					id: number;
+					source: string;
+					timestamp: string;
+					project_name: string;
+					summary: string;
+					branch: string | null;
+					tags: string[];
+					created_at: string;
+				}>
+			>(
+				extractText(
+					activityResult as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
+			);
 
-			const recent_activity: BridgeActivityEntry[] = activityRows.map((r) => ({
+			const recent_activity: BridgeActivityEntry[] = activityRaw.map((r) => ({
 				id: r.id,
-				source: r.source as "cc" | "codex" | "claude_ai",
+				source: r.source as BridgeActivityEntry["source"],
 				timestamp: r.timestamp,
 				project_name: r.project_name,
 				summary: r.summary,
 				branch: r.branch,
-				tags: JSON.parse(r.tags || "[]") as string[],
+				tags: Array.isArray(r.tags) ? r.tags : [],
 				created_at: r.created_at,
 			}));
 
-			// Open handoffs
-			const handoffRows = db
-				.prepare(
-					"SELECT id, project_name, project_path, roadmap_file, phase, dispatched_from, dispatched_at, picked_up_at, cleared_at, status FROM pending_handoffs WHERE status IN ('pending', 'active') ORDER BY dispatched_at DESC",
-				)
-				.all() as Array<{
-				id: number;
-				project_name: string;
-				project_path: string | null;
-				roadmap_file: string | null;
-				phase: string | null;
-				dispatched_from: string;
-				dispatched_at: string;
-				picked_up_at: string | null;
-				cleared_at: string | null;
-				status: string;
-			}>;
+			const handoffsRaw = parseJsonSafe<
+				Array<{
+					id: number;
+					project_name: string;
+					project_path: string | null;
+					roadmap_file: string | null;
+					phase: string | null;
+					dispatched_from: string;
+					dispatched_at: string;
+					picked_up_at: string | null;
+					cleared_at: string | null;
+					status: string;
+				}>
+			>(
+				extractText(
+					handoffsResult as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
+			);
 
-			const open_handoffs: BridgeHandoff[] = handoffRows.map((r) => ({
+			const open_handoffs: BridgeHandoff[] = handoffsRaw.map((r) => ({
 				id: r.id,
 				project_name: r.project_name,
 				project_path: r.project_path,
@@ -165,165 +281,257 @@ export class BridgeDbClient {
 				dispatched_at: r.dispatched_at,
 				picked_up_at: r.picked_up_at,
 				cleared_at: r.cleared_at,
-				status: r.status as "pending" | "active" | "cleared",
+				status: r.status as BridgeHandoff["status"],
 			}));
 
-			const briefing_line = this.buildBriefingLine(
+			const briefing_line = buildBriefingLine(
 				monthly_costs,
 				recent_activity,
 				open_handoffs,
-				currentMonth,
+				month,
 			);
 
 			return {
-				current_month: currentMonth,
+				current_month: month,
 				monthly_costs,
 				recent_activity,
 				open_handoffs,
 				briefing_line,
 			};
-		} finally {
-			db.close();
+		} catch (err) {
+			console.error("[bridge-db] getActivitySummary failed:", err);
+			return unavailableSummary();
 		}
 	}
 
 	/**
 	 * Query activity_log with optional filters for AI session memory.
 	 */
-	searchActivity(options: {
+	async searchActivity(options: {
 		query?: string;
 		project?: string;
 		days?: number;
 		limit?: number;
-	}): Array<{
-		id: number;
-		source: string;
-		timestamp: string;
-		project_name: string;
-		summary: string;
-		branch: string | null;
-		tags: string[];
-	}> {
-		if (!this.isAvailable()) return [];
-		const db = new DatabaseSync(this.dbPath, { open: true });
+	}): Promise<
+		Array<{
+			id: number;
+			source: string;
+			timestamp: string;
+			project_name: string;
+			summary: string;
+			branch: string | null;
+			tags: string[];
+		}>
+	> {
 		try {
+			const client = await this.ensureConnected();
 			const days = options.days ?? 30;
 			const limit = Math.min(options.limit ?? 50, 200);
-			const cutoff = new Date(
-				Date.now() - days * 24 * 60 * 60 * 1000,
-			).toISOString();
-			const conditions: string[] = ["timestamp >= ?"];
-			const params: (string | number)[] = [cutoff];
-			if (options.project) {
-				conditions.push("project_name LIKE ?");
-				params.push(`%${options.project}%`);
-			}
-			if (options.query) {
-				conditions.push("(summary LIKE ? OR project_name LIKE ?)");
-				params.push(`%${options.query}%`, `%${options.query}%`);
-			}
-			params.push(limit);
-			const rows = db
-				.prepare(
-					`SELECT id, source, timestamp, project_name, summary, branch, tags
-					 FROM activity_log
-					 WHERE ${conditions.join(" AND ")}
-					 ORDER BY timestamp DESC
-					 LIMIT ?`,
-				)
-				.all(...params) as Array<{
-				id: number;
-				source: string;
-				timestamp: string;
-				project_name: string;
-				summary: string;
-				branch: string | null;
-				tags: string;
-			}>;
-			return rows.map((r) => ({
-				...r,
-				tags: JSON.parse(r.tags || "[]") as string[],
-			}));
-		} finally {
-			db.close();
+			const args: Record<string, unknown> = {
+				since: sinceDate(days),
+				limit,
+			};
+
+			const result = await client.callTool({
+				name: "get_recent_activity",
+				arguments: args,
+			});
+
+			const rows = parseJsonSafe<
+				Array<{
+					id: number;
+					source: string;
+					timestamp: string;
+					project_name: string;
+					summary: string;
+					branch: string | null;
+					tags: string[];
+				}>
+			>(
+				extractText(
+					result as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
+			);
+
+			return rows
+				.filter((r) => {
+					if (
+						options.project &&
+						!r.project_name
+							.toLowerCase()
+							.includes(options.project.toLowerCase())
+					)
+						return false;
+					if (
+						options.query &&
+						!r.summary.toLowerCase().includes(options.query.toLowerCase()) &&
+						!r.project_name.toLowerCase().includes(options.query.toLowerCase())
+					)
+						return false;
+					return true;
+				})
+				.slice(0, limit)
+				.map((r) => ({
+					...r,
+					tags: Array.isArray(r.tags) ? r.tags : [],
+				}));
+		} catch (err) {
+			console.error("[bridge-db] searchActivity failed:", err);
+			return [];
 		}
 	}
 
 	/**
 	 * Aggregate activity_log by project for the morning briefing AI yesterday section.
 	 */
-	getProjectSummary(days: number): Array<{
-		project_name: string;
-		session_count: number;
-		latest: string;
-	}> {
-		if (!this.isAvailable()) return [];
-		const db = new DatabaseSync(this.dbPath, { open: true });
+	async getProjectSummary(
+		days: number,
+	): Promise<
+		Array<{ project_name: string; session_count: number; latest: string }>
+	> {
 		try {
-			const cutoff = new Date(
-				Date.now() - days * 24 * 60 * 60 * 1000,
-			).toISOString();
-			return db
-				.prepare(
-					`SELECT project_name, COUNT(*) AS session_count, MAX(timestamp) AS latest
-					 FROM activity_log
-					 WHERE timestamp >= ?
-					 GROUP BY project_name
-					 ORDER BY latest DESC
-					 LIMIT 20`,
-				)
-				.all(cutoff) as Array<{
-				project_name: string;
-				session_count: number;
-				latest: string;
-			}>;
-		} finally {
-			db.close();
+			const client = await this.ensureConnected();
+			const result = await client.callTool({
+				name: "get_recent_activity",
+				arguments: { since: sinceDate(days), limit: 200 },
+			});
+
+			const rows = parseJsonSafe<
+				Array<{ project_name: string; timestamp: string }>
+			>(
+				extractText(
+					result as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
+			);
+
+			// Group client-side
+			const projectMap = new Map<string, { count: number; latest: string }>();
+			for (const r of rows) {
+				const existing = projectMap.get(r.project_name);
+				if (!existing) {
+					projectMap.set(r.project_name, { count: 1, latest: r.timestamp });
+				} else {
+					existing.count += 1;
+					if (r.timestamp > existing.latest) existing.latest = r.timestamp;
+				}
+			}
+
+			return Array.from(projectMap.entries())
+				.map(([project_name, { count, latest }]) => ({
+					project_name,
+					session_count: count,
+					latest,
+				}))
+				.sort((a, b) => b.latest.localeCompare(a.latest))
+				.slice(0, 20);
+		} catch (err) {
+			console.error("[bridge-db] getProjectSummary failed:", err);
+			return [];
 		}
 	}
 
-	private buildBriefingLine(
-		costs: Array<{ system: string; month: string; amount_usd: number }>,
-		activity: BridgeActivityEntry[],
-		handoffs: BridgeHandoff[],
-		currentMonth: string,
-	): string {
-		const parts: string[] = [];
-
-		// Cost for current month
-		const thisMonthCosts = costs.filter((c) => c.month === currentMonth);
-		if (thisMonthCosts.length > 0) {
-			const total = thisMonthCosts.reduce((sum, c) => sum + c.amount_usd, 0);
-			parts.push(`AI ${currentMonth}: $${total.toFixed(0)}`);
-		}
-
-		// Session count from recent activity (last 7 days)
-		if (activity.length > 0) {
-			const projectSet = new Set(activity.map((a) => a.project_name));
-			parts.push(
-				`${activity.length} sessions · ${projectSet.size} projects this week`,
+	/**
+	 * Read context_sections (long-lived context written by other agents).
+	 */
+	async getContextSections(): Promise<
+		Array<{
+			section_name: string;
+			owner: string;
+			content: string;
+			updated_at: string;
+		}>
+	> {
+		try {
+			const client = await this.ensureConnected();
+			const result = await client.callTool({
+				name: "get_all_sections",
+				arguments: {},
+			});
+			const rows = parseJsonSafe<
+				Array<{
+					section_name: string;
+					owner: string;
+					content: string;
+					updated_at: string;
+				}>
+			>(
+				extractText(
+					result as { content: Array<{ type: string; text?: string }> },
+				),
+				[],
 			);
+			return rows;
+		} catch (err) {
+			console.error("[bridge-db] getContextSections failed:", err);
+			return [];
 		}
-
-		// Handoffs
-		if (handoffs.length > 0) {
-			parts.push(
-				`${handoffs.length} handoff${handoffs.length === 1 ? "" : "s"} pending`,
-			);
-		}
-
-		return parts.length > 0 ? parts.join(" · ") : "No AI activity recorded";
 	}
 
-	private unavailableSummary(): AiActivitySummary {
-		const now = new Date();
-		const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-		return {
-			current_month: currentMonth,
-			monthly_costs: [],
-			recent_activity: [],
-			open_handoffs: [],
-			briefing_line: "bridge-db not available",
-		};
+	// -------------------------------------------------------------------------
+	// Write methods — fire-and-forget, never throw
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Fire-and-forget: log a personal-ops activity entry to bridge-db.
+	 * Never throws — errors are written to stderr only.
+	 */
+	logActivity(
+		projectName: string,
+		summary: string,
+		tags: string[],
+		branch: string | null = null,
+	): void {
+		const timestamp = new Date().toISOString().slice(0, 10);
+		this.ensureConnected()
+			.then((client) =>
+				client.callTool({
+					name: "log_activity",
+					arguments: {
+						caller: "personal_ops",
+						project_name: projectName,
+						summary,
+						branch,
+						tags,
+						timestamp,
+					},
+				}),
+			)
+			.catch((err) => {
+				console.error("[bridge-db] logActivity failed:", err);
+			});
+	}
+
+	/**
+	 * Fire-and-forget: record a monthly cost entry.
+	 */
+	recordCost(_system: string, month: string, amount: number): void {
+		this.ensureConnected()
+			.then((client) =>
+				client.callTool({
+					name: "record_cost",
+					arguments: { caller: "personal_ops", month, amount, notes: null },
+				}),
+			)
+			.catch((err) => {
+				console.error("[bridge-db] recordCost failed:", err);
+			});
+	}
+
+	/**
+	 * Fire-and-forget: save a system state snapshot.
+	 */
+	saveSnapshot(data: Record<string, unknown>): void {
+		this.ensureConnected()
+			.then((client) =>
+				client.callTool({
+					name: "save_snapshot",
+					arguments: { caller: "personal_ops", data },
+				}),
+			)
+			.catch((err) => {
+				console.error("[bridge-db] saveSnapshot failed:", err);
+			});
 	}
 }

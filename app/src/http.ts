@@ -1282,6 +1282,19 @@ export function createHttpServer(
 				return;
 			}
 
+			if (request.method === "GET" && url.pathname === "/v1/notion/snapshot") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const snapshot = service.getNotionProjectSnapshot();
+				if (!snapshot) {
+					sendJson(response, 404, {
+						error: "Notion project snapshot not available",
+					});
+					return;
+				}
+				sendJson(response, 200, snapshot);
+				return;
+			}
+
 			if (request.method === "GET" && url.pathname === "/v1/evals/summary") {
 				if (!auth) throw new HttpError(401, "Authentication required.");
 				sendJson(response, 200, service.getAgentPerformanceSummary());

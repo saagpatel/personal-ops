@@ -86,6 +86,7 @@ import {
 } from "./meeting-contact-brief.js";
 import { NotificationHubClient } from "./notification-hub.js";
 import { sendMacNotification } from "./notifications.js";
+import { NotionSnapshotReader } from "./notion-snapshot-reader.js";
 import { PortfolioReader } from "./portfolio-reader.js";
 import {
 	getLatestSnapshotSummary as getLatestSnapshotSummaryFromPaths,
@@ -328,6 +329,7 @@ import {
 	type WorkspaceHomeSummary,
 } from "./types.js";
 import { readServiceVersion } from "./version.js";
+import { WarehouseReader } from "./warehouse-reader.js";
 
 interface DoctorOptions {
 	deep: boolean;
@@ -918,6 +920,8 @@ export class PersonalOpsService {
 	private readonly hub: NotificationHubClient;
 	private readonly bridgeDb: BridgeDbClient;
 	private readonly portfolioReader: PortfolioReader;
+	private readonly notionSnapshot: NotionSnapshotReader;
+	private readonly warehouseReader: WarehouseReader;
 	private readonly evalsReader: EvalsReader;
 	private readonly mcpAuditClient: McpAuditClient;
 	private readonly inboxClassifier: InboxClassifierService;
@@ -937,6 +941,8 @@ export class PersonalOpsService {
 		this.hub = new NotificationHubClient(logger);
 		this.bridgeDb = new BridgeDbClient();
 		this.portfolioReader = new PortfolioReader();
+		this.notionSnapshot = new NotionSnapshotReader();
+		this.warehouseReader = new WarehouseReader();
 		this.evalsReader = new EvalsReader();
 		this.mcpAuditClient = new McpAuditClient();
 		this.inboxClassifier = new InboxClassifierService(paths.stateDir);
@@ -1587,6 +1593,10 @@ export class PersonalOpsService {
 		return this.portfolioReader.getPortfolioHealth();
 	}
 
+	getNotionProjectSnapshot() {
+		return this.notionSnapshot.getSnapshot();
+	}
+
 	getAgentPerformanceSummary() {
 		return this.evalsReader.getAgentPerformanceSummary();
 	}
@@ -1656,6 +1666,19 @@ export class PersonalOpsService {
 		// AI cost (yesterday = last 1 day)
 		const aiActivity = this.bridgeDb.getActivitySummary(1);
 
+		// Portfolio hotspots from warehouse.db
+		const warehouseHotspots = this.warehouseReader.getHotspots(2);
+		const worstMaintenance = this.warehouseReader.getWorstLensScores(
+			"maintenance_risk",
+			2,
+		);
+
+		// Notion project state
+		const notionSummary = this.notionSnapshot.getSummary();
+
+		// Context sections from bridge-db
+		const contextSections = this.bridgeDb.getContextSections();
+
 		// Alerts — urgent notification-hub events from the last 12 hours
 		const hub = this.hub;
 		const hubEvents = hub.readRecentEvents(50).filter((e) => {
@@ -1714,6 +1737,27 @@ export class PersonalOpsService {
 			ai_cost: {
 				briefing_line: aiActivity.briefing_line,
 			},
+			portfolio_hotspots: {
+				available: warehouseHotspots.length > 0 || worstMaintenance.length > 0,
+				hotspots: warehouseHotspots,
+				worst_maintenance: worstMaintenance,
+			},
+			notion_projects: {
+				available: notionSummary.available,
+				briefing_line: notionSummary.briefing_line,
+				overdue_count: notionSummary.overdue_count,
+				needs_review_count: notionSummary.needs_review_count,
+				overdue_projects: notionSummary.overdue_projects,
+			},
+			context_sections: contextSections
+				.filter((s) =>
+					["career", "speaking", "research"].includes(s.section_name),
+				)
+				.map((s) => ({
+					section_name: s.section_name,
+					snippet: s.content.slice(0, 200),
+					updated_at: s.updated_at,
+				})),
 			alerts: {
 				urgent_count: hubEvents.length,
 				events: hubEvents.slice(0, 5).map((e) => ({
@@ -3697,6 +3741,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			task.title || taskId,
+			`Task completed: ${note.trim()}`,
+			["TASK_DONE"],
+		);
 		this.updateRecommendationOutcomeFromTask(
 			updated!,
 			"completed",
@@ -4744,6 +4793,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			recommendation.proposed_title || recommendationId,
+			`Planning applied: ${note.trim()}`,
+			["PLANNING_APPLIED"],
+		);
 		this.refreshPlanningRecommendationsInternal(identity);
 		return this.getPlanningRecommendationDetail(recommendationId);
 	}
@@ -5570,6 +5624,11 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
+		this.bridgeDb.logActivity(
+			"personal-ops",
+			`Review resolved: ${note.trim()}`,
+			["REVIEW_CLOSED"],
+		);
 		return {
 			review_item: resolved,
 			artifact_id: review.artifact_id,
@@ -6024,6 +6083,11 @@ export class PersonalOpsService {
 					provider_thread_id: sendResult.provider_thread_id ?? null,
 				},
 			});
+			this.bridgeDb.logActivity(
+				"personal-ops",
+				`Draft sent: ${context.draft.subject || approvalId}`,
+				["APPROVAL_SENT"],
+			);
 			sendMacNotification(
 				this.db,
 				this.logger,
