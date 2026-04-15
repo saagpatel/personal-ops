@@ -83,9 +83,11 @@ export class WarehouseReader {
 	private getLatestRunId(db: DatabaseSync): string | null {
 		try {
 			const row = db
-				.prepare("SELECT id FROM audit_runs ORDER BY generated_at DESC LIMIT 1")
-				.get() as { id: string } | undefined;
-			return row?.id ?? null;
+				.prepare(
+					"SELECT run_id FROM audit_runs ORDER BY generated_at DESC LIMIT 1",
+				)
+				.get() as { run_id: string } | undefined;
+			return row?.run_id ?? null;
 		} catch (err) {
 			console.error("[WarehouseReader] getLatestRunId failed:", err);
 			return null;
@@ -111,7 +113,7 @@ export class WarehouseReader {
 					        h.summary,
 					        h.recommended_action
 					 FROM hotspots h
-					 JOIN repos r ON r.id = h.repo_id
+					 JOIN repos r ON r.repo_id = h.repo_id
 					 WHERE h.run_id = ?
 					 ORDER BY h.severity DESC
 					 LIMIT ?`,
@@ -161,7 +163,7 @@ export class WarehouseReader {
 					        ls.orientation,
 					        ls.summary
 					 FROM lens_scores ls
-					 JOIN repos r ON r.id = ls.repo_id
+					 JOIN repos r ON r.repo_id = ls.repo_id
 					 WHERE ls.run_id = ? AND ls.lens = ?
 					 ORDER BY ls.score ASC
 					 LIMIT ?`,
