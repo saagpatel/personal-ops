@@ -455,6 +455,16 @@ const tools = [
 		},
 	},
 	{
+		name: "inbox_classified",
+		description:
+			"Return the inbox classified into act_today and waiting_on_someone buckets using local Ollama inference. act_today: threads needing a decision or reply within 24h. waiting_on_someone: threads where you sent last and are awaiting a response. Capped at 5 per bucket.",
+		inputSchema: {
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "inbox_status",
 		description:
 			"Show the current mailbox metadata sync status and inbox counts.",
@@ -1107,6 +1117,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 	}
 	if (name === "send_window_status") {
 		const response = await requestJson("GET", "/v1/send-window");
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "inbox_classified") {
+		assertAllowedToolArgs(args, [], "inbox_classified");
+		const response = await requestJson("GET", "/v1/inbox/classified");
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
 		};

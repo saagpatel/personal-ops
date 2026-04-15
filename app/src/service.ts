@@ -46,6 +46,10 @@ import {
 	verifyGmailMetadataAccess,
 } from "./gmail.js";
 import {
+	type ClassifiedInbox,
+	InboxClassifierService,
+} from "./inbox-classifier.js";
+import {
 	buildInstallCheckReport,
 	getInstallArtifactPaths,
 	readInstallManifest,
@@ -902,6 +906,7 @@ export class PersonalOpsService {
 	private readonly portfolioReader: PortfolioReader;
 	private readonly evalsReader: EvalsReader;
 	private readonly mcpAuditClient: McpAuditClient;
+	private readonly inboxClassifier: InboxClassifierService;
 
 	constructor(
 		private readonly paths: Paths,
@@ -920,6 +925,7 @@ export class PersonalOpsService {
 		this.portfolioReader = new PortfolioReader();
 		this.evalsReader = new EvalsReader();
 		this.mcpAuditClient = new McpAuditClient();
+		this.inboxClassifier = new InboxClassifierService(paths.stateDir);
 		fs.mkdirSync(this.paths.snapshotsDir, { recursive: true });
 	}
 
@@ -1575,15 +1581,23 @@ export class PersonalOpsService {
 		return this.mcpAuditClient.scan();
 	}
 
-	getMorningBriefing() {
+	async getClassifiedInbox(): Promise<ClassifiedInbox> {
+		const all = this.listInboxThreadSummaries(200);
+		return this.inboxClassifier.classifyThreads(all);
+	}
+
+	async getMorningBriefing() {
 		const today = new Date().toISOString().slice(0, 10);
 
 		// Calendar section
 		const calendarDay = this.getCalendarDayView(today);
 		const calendarStatus = this.getCalendarStatusReport();
 
-		// Inbox section — top 3 threads needing a reply
-		const needsReply = this.listNeedsReplyThreads(3);
+		// Inbox section — classified act_today threads (top 3)
+		const classified = await this.inboxClassifier.classifyThreads(
+			this.listNeedsReplyThreads(50),
+		);
+		const actTodayThreads = classified.act_today.slice(0, 3);
 
 		// Tasks section — open tasks with a due date in the past
 		const now = new Date().toISOString();
@@ -1630,7 +1644,8 @@ export class PersonalOpsService {
 			},
 			inbox: {
 				followup_count: this.getInboxStatusReport().followup_thread_count,
-				needs_reply_threads: needsReply.map((t) => ({
+				classified_briefing_line: classified.briefing_line,
+				act_today_threads: actTodayThreads.map((t) => ({
 					thread_id: t.thread.thread_id,
 					subject: t.latest_message?.subject ?? "(no subject)",
 					from: t.latest_message?.from_header ?? null,
