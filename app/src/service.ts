@@ -957,6 +957,11 @@ export class PersonalOpsService {
 		}
 	}
 
+	async close(): Promise<void> {
+		await this.bridgeDb.close();
+		this.db.close();
+	}
+
 	private dedupeInFlight<T>(
 		cache: Map<string, Promise<T>>,
 		key: string,

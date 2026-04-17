@@ -34,6 +34,19 @@ const TEST_IDENTITY: ClientIdentity = {
   auth_role: "operator",
 };
 
+const consoleServicesToClose = new Set<PersonalOpsService>();
+
+test.after(async () => {
+  for (const service of consoleServicesToClose) {
+    try {
+      await service.close();
+    } catch {
+      // Best-effort test cleanup.
+    }
+  }
+  consoleServicesToClose.clear();
+});
+
 function isRetryableConsoleFetchError(error: unknown): boolean {
   if (!(error instanceof TypeError)) {
     return false;
@@ -221,6 +234,7 @@ async function createConsoleFixture(options: { mailbox?: string } = {}) {
       }),
     openExternalUrl: () => {},
   });
+  consoleServicesToClose.add(service);
   if (mailbox) {
     service.db.upsertMailAccount(mailbox, config.keychainService, JSON.stringify({ emailAddress: mailbox }));
   }

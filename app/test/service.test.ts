@@ -521,6 +521,19 @@ const GITHUB_TEST_IDENTITY: ClientIdentity = {
 	auth_role: "operator",
 };
 
+const servicesToClose = new Set<PersonalOpsService>();
+
+test.after(async () => {
+	for (const service of servicesToClose) {
+		try {
+			await service.close();
+		} catch {
+			// Best-effort test cleanup.
+		}
+	}
+	servicesToClose.clear();
+});
+
 function createFixture(options: FixtureOptions = {}) {
 	const base = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-service-"));
 	process.env.PERSONAL_OPS_CONFIG_DIR = path.join(base, "config");
@@ -859,6 +872,7 @@ default_limit = 50
 		config.keychainService,
 		JSON.stringify({ emailAddress: accountEmail }),
 	);
+	servicesToClose.add(service);
 
 	return { paths, service, accountEmail, config, policy };
 }
