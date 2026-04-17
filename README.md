@@ -107,6 +107,13 @@ The latest audit and cleanup pass also:
 - made builds clean `dist/` before compile so test runs reflect the real source tree
 - pruned the docs surface so historical phase artifacts now live under `docs/archive/`
 
+Since that pass, the repo also merged the first Operator Home implementation slice:
+
+- `workspace_home` now supports a richer operator-home shell with sectioned content
+- the home summary now carries mode-aware shaping for `focus`, `day_start`, and `decisions`
+- top-level home items now expose provenance, freshness, and confidence metadata
+- CLI/status and console surfaces now tell the same operator-home story
+
 For the most recent durable checkpoint, read [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md).
 
 ## Tech Stack

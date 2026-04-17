@@ -91,7 +91,7 @@ Use this path if you want to:
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
   The current and future source of truth for the completed assistant-led initiative, now through Phase 38.
 - [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md)
-  The resume-work checkpoint for the repo after the April 2026 audit, stabilization, and docs cleanup pass.
+  The resume-work checkpoint for the repo after the April 2026 cleanup pass and the merged Operator Home Phase 1 slice.
 
 ## History and deep context
 
@@ -113,6 +113,7 @@ If you are a new operator:
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
 3. Read [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md) if you are resuming work after the April 2026 cleanup pass and want the latest repo checkpoint first.
+   It now also captures the post-cleanup Operator Home Phase 1 state on `main`.
 4. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
 5. Use `personal-ops outbound autopilot` or the Drafts section in the console when reviewed mail work is ready for grouped approval or send.
 6. Use `personal-ops planning autopilot` or the Planning section in the console when the assistant has already assembled grouped execution bundles.

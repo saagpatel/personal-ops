@@ -66,7 +66,9 @@ That pass:
 - moved older phase-by-phase historical artifacts into `docs/archive/`
 - refreshed current-truth docs so resume-work context is easier to recover
 
-For the latest repo checkpoint after that stabilization pass, use `docs/CURRENT-STATE.md`.
+After that cleanup pass, the repo also landed Operator Home Phase 1 as the first follow-on product slice.
+
+For the latest repo checkpoint after both the stabilization pass and that merged follow-on slice, use `docs/CURRENT-STATE.md`.
 
 ## Phase Ledger
 
