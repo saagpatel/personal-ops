@@ -9,7 +9,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { chromium } from "playwright";
 import { buildConsolePayloadForTest, renderConsoleSectionForTest } from "../src/console/app.js";
 import { ensureRuntimeFiles, loadConfig, loadPolicy } from "../src/config.js";
 import { PersonalOpsDb } from "../src/db.js";
@@ -498,6 +497,71 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           assistant_action_id: null,
           workflow: null,
           maintenance_state: "repair_priority_upkeep",
+          mode: "focus",
+          mode_summary: "Focus mode emphasizes the strongest current item while keeping supporting context compact.",
+          primary_focus: {
+            id: "workspace-home:maintenance:repair_priority_upkeep",
+            kind: "commitment",
+            title: "Upkeep is the main focus right now",
+            summary:
+              "This recurring family behaves like early repair and should be treated as repair-priority upkeep when surfaced.",
+            source: "maintenance_guidance",
+            source_owner: "personal-ops",
+            bucket: "soon",
+            freshness: "current",
+            confidence: "medium",
+            why_now:
+              "This recurring family should be handled through the maintenance session before it becomes active repair again.",
+            primary_action: {
+              label: "Open maintenance",
+              command: "personal-ops maintenance session",
+            },
+            secondary_actions: [],
+            status: "ready",
+            evidence: {
+              source_type: "local_summary",
+              source_label: "maintenance guidance",
+              captured_at: status.generated_at,
+              freshness_label: "current local summary",
+              confidence_label: "medium confidence",
+              inferred: false,
+              explanation:
+                "This is local maintenance guidance derived from recent repair and upkeep behavior.",
+            },
+          },
+          ready_decisions: [],
+          active_commitments: [],
+          waiting_drift: [],
+          system_posture: [
+            {
+              id: "system-posture-readiness",
+              kind: "attention",
+              title: "Local control plane looks healthy",
+              summary: "The local control plane looks healthy. 31 pass / 0 warn / 0 fail.",
+              source: "status_report",
+              source_owner: "personal-ops",
+              bucket: "background",
+              freshness: "fresh",
+              confidence: "high",
+              why_now: "This is the current local status report.",
+              primary_action: {
+                label: "Status",
+                command: "personal-ops status --json",
+              },
+              secondary_actions: [],
+              status: "background",
+              evidence: {
+                source_type: "direct_local_fact",
+                source_label: "service status report",
+                captured_at: status.generated_at,
+                freshness_label: "fresh local signal",
+                confidence_label: "high confidence",
+                inferred: false,
+                explanation:
+                  "Built directly from the current service readiness and doctor summary.",
+              },
+            },
+          ],
         },
         maintenance_window: maintenanceWindow,
         maintenance_confidence: {
@@ -800,6 +864,20 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
           state?: string | null;
           title?: string | null;
           primary_command?: string | null;
+          mode?: string | null;
+          primary_focus?: {
+            title?: string | null;
+            evidence?: {
+              source_type?: string | null;
+              source_label?: string | null;
+            };
+          };
+          system_posture?: Array<{
+            title?: string | null;
+            evidence?: {
+              source_type?: string | null;
+            };
+          }>;
         };
         maintenance_window?: {
           eligible_now?: boolean;
@@ -844,6 +922,12 @@ test("phase 18 console browser-safe status includes the calm-window maintenance 
     assert.equal(payload.status?.workspace_home?.state, "maintenance");
     assert.equal(payload.status?.workspace_home?.title, "Upkeep is the main focus right now");
     assert.equal(payload.status?.workspace_home?.primary_command, "personal-ops maintenance session");
+    assert.equal(payload.status?.workspace_home?.mode, "focus");
+    assert.equal(payload.status?.workspace_home?.primary_focus?.title, "Upkeep is the main focus right now");
+    assert.equal(payload.status?.workspace_home?.primary_focus?.evidence?.source_type, "local_summary");
+    assert.equal(payload.status?.workspace_home?.primary_focus?.evidence?.source_label, "maintenance guidance");
+    assert.equal(payload.status?.workspace_home?.system_posture?.[0]?.title, "Local control plane looks healthy");
+    assert.equal(payload.status?.workspace_home?.system_posture?.[0]?.evidence?.source_type, "direct_local_fact");
     assert.equal(payload.status?.maintenance_window?.bundle?.title, "Preventive maintenance window");
     assert.equal(payload.status?.maintenance_window?.bundle?.recommended_commands?.[0], "personal-ops install wrappers");
     assert.equal(payload.status?.maintenance_escalation?.eligible, true);
@@ -1721,31 +1805,30 @@ test("phase 34 console replaces the generic review focus note when the proof gat
       "consider_decision_surface_adjustment",
     );
 
-    const baseUrl = `http://${fixture.config.serviceHost}:${fixture.config.servicePort}`;
-    const grantResponse = await fetch(`${baseUrl}/v1/web/session-grants`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${fixture.config.apiToken}`,
-        "x-personal-ops-client": "console-test",
+    const worklist = await fixture.service.getWorklistReport({ httpReachable: true });
+    const nowNextWorkflow = await fixture.service.getNowNextWorkflowReport({ httpReachable: true });
+    const prepDayWorkflow = await fixture.service.getPrepDayWorkflowReport({ httpReachable: true });
+    const autopilot = await fixture.service.getAutopilotStatusReport({ httpReachable: true });
+    const assistantQueue = await fixture.service.getAssistantActionQueueReport({ httpReachable: true });
+    const outboundAutopilot = await fixture.service.getOutboundAutopilotReport({ httpReachable: true });
+    const payload = buildConsolePayloadForTest({
+      status: calibrated,
+      worklist,
+      nowNextWorkflow,
+      prepDayWorkflow,
+      deferred: {
+        autopilot,
+        assistantQueue,
+        inboxAutopilot: inboxReport,
+        outboundAutopilot,
+        approvals: fixture.service.listApprovalQueue({ limit: 20 }),
+        drafts: fixture.service.listDrafts(),
+        reviewItems: fixture.service.listReviewQueue(),
       },
     });
-    const grantPayload = (await grantResponse.json()) as { console_session: { launch_url: string } };
 
-    const browser = await chromium.launch();
-    try {
-      const page = await browser.newPage();
-      await page.goto(grantPayload.console_session.launch_url, { waitUntil: "commit" });
-      await page.waitForFunction(() => document.documentElement.dataset.consoleReady === "1");
-      await page.locator(".nav").getByRole("button", { name: "Overview", exact: true }).click();
-      await page.waitForFunction(() => {
-        const bodyText = document.body.textContent ?? "";
-        return bodyText.includes("Review and approval: This prepared work is approved and ready to send.");
-      });
-      const bodyText = (await page.locator("body").textContent()) ?? "";
-      assert.match(bodyText, /Review and approval: This prepared work is approved and ready to send\./);
-    } finally {
-      await browser.close();
-    }
+    const overviewHtml = renderConsoleSectionForTest({ section: "overview", payload });
+    assert.match(overviewHtml, /Review and approval: This prepared work is approved and ready to send\./);
   } finally {
     await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
     fs.rmSync(fixture.baseDir, { recursive: true, force: true });

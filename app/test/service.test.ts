@@ -13115,6 +13115,359 @@ test("phase 29 workspace home falls through assistant, workflow, maintenance, th
 	assert.equal(suppressedMaintenanceSummary.state, "caught_up");
 });
 
+test("phase 38 workspace home adds operator-home sections and evidence metadata", async () => {
+	const { service } = createFixture();
+	const baseStatus = await service.getStatusReport({ httpReachable: true });
+	const assistantQueue = {
+		generated_at: "2026-04-13T10:00:00.000Z",
+		readiness: "ready" as const,
+		summary: "Assistant queue is ready.",
+		counts_by_state: {
+			proposed: 1,
+			running: 0,
+			awaiting_review: 0,
+			blocked: 0,
+			completed: 0,
+			failed: 0,
+		},
+		top_item_summary: "Assistant action summary",
+		actions: [
+			{
+				action_id: "assistant.review-top-attention",
+				title: "Review top attention",
+				summary: "Assistant action summary",
+				state: "proposed" as const,
+				section: "overview" as const,
+				batch: false,
+				one_click: false,
+				review_required: true,
+				why_now: "Assistant action why now.",
+				command: "personal-ops assistant queue",
+				signals: ["assistant"],
+			},
+		],
+	};
+	const workflow = {
+		workflow: "now-next" as const,
+		generated_at: "2026-04-13T10:00:00.000Z",
+		readiness: "ready" as const,
+		summary: "Workflow summary",
+		sections: [],
+		actions: [
+			{
+				label: "Top workflow action",
+				summary: "Workflow action summary",
+				command: "personal-ops workflow now-next",
+				why_now: "Workflow why now.",
+			},
+		],
+		first_repair_step: null,
+		maintenance_follow_through: emptyMaintenanceFollowThrough(),
+		maintenance_escalation: {
+			eligible: false,
+			step_id: null,
+			signal: null,
+			summary: null,
+			suggested_command: null,
+			handoff_count_30d: 0,
+			cue: null,
+		},
+		maintenance_scheduling: emptyMaintenanceScheduling(),
+	};
+
+	const summary = buildWorkspaceHomeSummary({
+		status: {
+			...baseStatus,
+			state: "ready",
+			first_repair_step: null,
+			review_approval_flow: {
+				eligible: true,
+				state: "approval_needed",
+				summary: "Outbound group is ready for approval handoff.",
+				why_now: "The grouped path is already staged.",
+				primary_command: "personal-ops outbound autopilot --group outbound-1",
+				target_type: "outbound_autopilot_group",
+				target_id: "outbound-1",
+				review_id: null,
+				approval_id: "approval-1",
+				outbound_group_id: "outbound-1",
+				assistant_action_id: "assistant.review-top-attention",
+				supporting_summary: "Use the grouped handoff first.",
+				calibration: undefined,
+			},
+			maintenance_commitment: {
+				active: true,
+				step_id: "install_wrappers",
+				placement: "prep_day",
+				state: "active",
+				summary: "Wrapper upkeep is already committed into the next maintenance block.",
+				suggested_command: "personal-ops maintenance session",
+				defer_count: 1,
+				last_presented_at: "2026-04-13T08:00:00.000Z",
+				bundle_step_ids: ["install_wrappers"],
+			},
+			maintenance_defer_memory: {
+				active: true,
+				step_id: "install_wrappers",
+				defer_count: 2,
+				last_deferred_at: "2026-04-12T18:00:00.000Z",
+				summary: "Wrapper upkeep has already been deferred twice this week.",
+			},
+			maintenance_operating_block: {
+				eligible: true,
+				block: "later_today",
+				step_id: "install_wrappers",
+				summary: "Maintenance is better held for the calmer block later today.",
+				suggested_command: "personal-ops maintenance session",
+				reason: "Current work is still more concrete.",
+				confidence_level: "medium",
+				bundle_step_ids: ["install_wrappers"],
+			},
+			maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+			maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+		},
+		assistantQueue,
+		nowNextWorkflow: workflow,
+		mode: "decisions",
+	});
+
+	assert.equal(summary.mode, "decisions");
+	assert.match(summary.mode_summary ?? "", /decisions mode/i);
+	assert.equal(summary.primary_focus?.title, "Assistant-prepared work is ready");
+	assert.equal(summary.primary_focus?.evidence.source_type, "local_summary");
+	assert.equal(summary.primary_focus?.evidence.source_label, "assistant action queue");
+	assert.equal(summary.ready_decisions?.[0]?.title, "Review and approval handoff is ready");
+	assert.equal(summary.ready_decisions?.[0]?.evidence.source_label, "review and approval flow");
+	assert.equal(summary.active_commitments?.[0]?.title, "Preventive maintenance is already in motion");
+	assert.ok(summary.waiting_drift?.every((item) => Boolean(item.evidence.confidence_label)));
+});
+
+test("phase 38 workspace home mode shaping stays deterministic", async () => {
+	const { service } = createFixture();
+	const baseStatus = await service.getStatusReport({ httpReachable: true });
+	const summaryInput: Parameters<typeof buildWorkspaceHomeSummary>[0] = {
+		status: {
+			...baseStatus,
+			state: "ready" as const,
+			first_repair_step: null,
+			review_approval_flow: {
+				eligible: true,
+				state: "approval_needed" as const,
+				summary: "Outbound group is ready for approval handoff.",
+				why_now: "The grouped path is already staged.",
+				primary_command: "personal-ops outbound autopilot --group outbound-1",
+				target_type: "outbound_autopilot_group" as const,
+				target_id: "outbound-1",
+				review_id: null,
+				approval_id: "approval-1",
+				outbound_group_id: "outbound-1",
+				assistant_action_id: "assistant.review-top-attention",
+				supporting_summary: "Use the grouped handoff first.",
+				calibration: undefined,
+			},
+			maintenance_commitment: {
+				active: true,
+				step_id: "install_wrappers",
+				placement: "prep_day" as const,
+				state: "active" as const,
+				summary: "Wrapper upkeep is already committed into the next maintenance block.",
+				suggested_command: "personal-ops maintenance session",
+				defer_count: 1,
+				last_presented_at: "2026-04-13T08:00:00.000Z",
+				bundle_step_ids: ["install_wrappers"],
+			},
+			maintenance_defer_memory: {
+				active: true,
+				step_id: "install_wrappers",
+				defer_count: 2,
+				last_deferred_at: "2026-04-12T18:00:00.000Z",
+				summary: "Wrapper upkeep has already been deferred twice this week.",
+			},
+			maintenance_operating_block: {
+				eligible: true,
+				block: "later_today" as const,
+				step_id: "install_wrappers",
+				summary: "Maintenance is better held for the calmer block later today.",
+				suggested_command: "personal-ops maintenance session",
+				reason: "Current work is still more concrete.",
+				confidence_level: "medium" as const,
+				bundle_step_ids: ["install_wrappers"],
+			},
+			maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+			maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+		},
+		assistantQueue: {
+			generated_at: "2026-04-13T10:00:00.000Z",
+			readiness: "ready" as const,
+			summary: "Assistant queue is ready.",
+			counts_by_state: {
+				proposed: 1,
+				running: 0,
+				awaiting_review: 0,
+				blocked: 0,
+				completed: 0,
+				failed: 0,
+			},
+			top_item_summary: "Assistant action summary",
+			actions: [
+				{
+					action_id: "assistant.review-top-attention",
+					title: "Review top attention",
+					summary: "Assistant action summary",
+					state: "proposed" as const,
+					section: "overview" as const,
+					batch: false,
+					one_click: false,
+					review_required: true,
+					why_now: "Assistant action why now.",
+					command: "personal-ops assistant queue",
+					signals: ["assistant"],
+				},
+			],
+		},
+		nowNextWorkflow: {
+			workflow: "now-next" as const,
+			generated_at: "2026-04-13T10:00:00.000Z",
+			readiness: "ready" as const,
+			summary: "Workflow summary",
+			sections: [],
+			actions: [
+				{
+					label: "Top workflow action",
+					summary: "Workflow action summary",
+					command: "personal-ops workflow now-next",
+					why_now: "Workflow why now.",
+				},
+			],
+			first_repair_step: null,
+			maintenance_follow_through: emptyMaintenanceFollowThrough(),
+			maintenance_escalation: {
+				eligible: false,
+				step_id: null,
+				signal: null,
+				summary: null,
+				suggested_command: null,
+				handoff_count_30d: 0,
+				cue: null,
+			},
+			maintenance_scheduling: emptyMaintenanceScheduling(),
+		},
+	};
+
+	const dayStart = buildWorkspaceHomeSummary({
+		...summaryInput,
+		mode: "day_start",
+	});
+	const focus = buildWorkspaceHomeSummary({
+		...summaryInput,
+		mode: "focus",
+	});
+	const decisions = buildWorkspaceHomeSummary({
+		...summaryInput,
+		mode: "decisions",
+	});
+
+	assert.equal(dayStart.mode, "day_start");
+	assert.equal(focus.mode, "focus");
+	assert.equal(decisions.mode, "decisions");
+	assert.equal(focus.waiting_drift?.length, 1);
+	assert.equal(dayStart.waiting_drift?.length, 2);
+	assert.equal(decisions.waiting_drift?.length, 2);
+	assert.equal(focus.ready_decisions?.length, 1);
+	assert.equal(decisions.ready_decisions?.length, 1);
+	assert.notEqual(dayStart.mode_summary, focus.mode_summary);
+	assert.notEqual(decisions.mode_summary, focus.mode_summary);
+});
+
+test("phase 38 status formatter includes operator-home sections without replacing the compact focus line", async () => {
+	const { service } = createFixture();
+	const baseStatus = await service.getStatusReport({ httpReachable: true });
+	const workspaceHome = buildWorkspaceHomeSummary({
+		status: {
+			...baseStatus,
+			state: "ready",
+			first_repair_step: null,
+			review_approval_flow: {
+				eligible: true,
+				state: "approval_needed",
+				summary: "Outbound group is ready for approval handoff.",
+				why_now: "The grouped path is already staged.",
+				primary_command: "personal-ops outbound autopilot --group outbound-1",
+				target_type: "outbound_autopilot_group",
+				target_id: "outbound-1",
+				review_id: null,
+				approval_id: "approval-1",
+				outbound_group_id: "outbound-1",
+				assistant_action_id: "assistant.review-top-attention",
+				supporting_summary: "Use the grouped handoff first.",
+				calibration: undefined,
+			},
+			maintenance_repair_convergence: emptyMaintenanceRepairConvergence(),
+			maintenance_decision_explanation: emptyMaintenanceDecisionExplanation(),
+		},
+		assistantQueue: {
+			generated_at: "2026-04-13T10:00:00.000Z",
+			readiness: "ready",
+			summary: "Assistant queue is ready.",
+			counts_by_state: {
+				proposed: 1,
+				running: 0,
+				awaiting_review: 0,
+				blocked: 0,
+				completed: 0,
+				failed: 0,
+			},
+			top_item_summary: "Assistant action summary",
+			actions: [
+				{
+					action_id: "assistant.review-top-attention",
+					title: "Review top attention",
+					summary: "Review the prepared assistant action.",
+					state: "proposed",
+					section: "overview",
+					batch: false,
+					one_click: false,
+					review_required: true,
+					why_now: "This is the highest-value prepared work right now.",
+					command: "personal-ops assistant queue",
+					signals: ["assistant"],
+				},
+			],
+		},
+		nowNextWorkflow: {
+			workflow: "now-next",
+			generated_at: "2026-04-13T10:00:00.000Z",
+			readiness: "ready",
+			summary: "Workflow summary",
+			sections: [],
+			actions: [],
+			first_repair_step: null,
+			maintenance_follow_through: emptyMaintenanceFollowThrough(),
+			maintenance_escalation: {
+				eligible: false,
+				step_id: null,
+				signal: null,
+				summary: null,
+				suggested_command: null,
+				handoff_count_30d: 0,
+				cue: null,
+			},
+			maintenance_scheduling: emptyMaintenanceScheduling(),
+		},
+		mode: "decisions",
+	});
+
+	const formatted = formatStatusReport({
+		...baseStatus,
+		workspace_home: workspaceHome,
+	});
+
+	assert.match(formatted, /Workspace focus: Assistant-prepared work is ready: Review the prepared assistant action\./i);
+	assert.match(formatted, /Operator Home/i);
+	assert.match(formatted, /Mode: decisions\./i);
+	assert.match(formatted, /Ready Decisions: Review and approval handoff is ready/i);
+});
+
 test("assistant-led phase 5 drive sync feeds docs, sheets, and read-only routes", async () => {
 	const syncedAt = "2026-03-29T14:00:00.000Z";
 	const { service, config, policy } = createFixture({

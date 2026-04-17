@@ -31,6 +31,7 @@ import {
   buildStoredReviewReport,
   buildStoredReviewWeekly,
 } from "./review-intelligence.js";
+import { emptyWorkspaceHomeSummary } from "./operator-home.js";
 
 const CALIBRATION_METRIC_PRECEDENCE: ReviewCalibrationMetricAssessment["metric"][] = [
   "notifications_per_7d",
@@ -66,22 +67,6 @@ function topCalibrationSurface(summaries: ReviewCalibrationSurfaceSummary[]): Re
           (left.surface ?? "").localeCompare(right.surface ?? ""),
       )[0]?.surface ?? null
   );
-}
-
-function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
-  return {
-    ready: false,
-    state: "caught_up",
-    title: "The workspace is loading",
-    summary: "The shared workspace focus is loading local operator state.",
-    why_now: null,
-    primary_command: null,
-    secondary_summary: null,
-    assistant_action_id: null,
-    workflow: null,
-    maintenance_state: null,
-    review_approval_flow: undefined,
-  };
 }
 
 export async function buildStatusReport(

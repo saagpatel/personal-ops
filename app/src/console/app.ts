@@ -4,6 +4,11 @@ import {
 	reviewApprovalConsoleFlowNoteText,
 	reviewApprovalSupportingNoteText,
 } from "../review-approval-presentation.js";
+import {
+	emptyWorkspaceHomeSummary,
+	operatorHomeSectionItems,
+	workspaceHomeSectionFallback,
+} from "../service/operator-home.js";
 import type {
 	ApprovalDetail,
 	ApprovalRequest,
@@ -652,21 +657,6 @@ function emptyMaintenanceRepairConvergenceSummary(): ServiceStatusReport["mainte
 		handoff_count_30d: 0,
 		active_repair_step_id: null,
 		bundle_step_ids: [],
-	};
-}
-
-function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
-	return {
-		ready: false,
-		state: "caught_up",
-		title: "The workspace is loading",
-		summary: "The shared workspace focus is loading local operator state.",
-		why_now: null,
-		primary_command: null,
-		secondary_summary: null,
-		assistant_action_id: null,
-		workflow: null,
-		maintenance_state: null,
 	};
 }
 
@@ -2366,10 +2356,86 @@ function surfacedNoiseSummary(
 		: null;
 }
 
+function renderOperatorHomeItem(
+	item: NonNullable<ServiceStatusReport["workspace_home"]["primary_focus"]>,
+): string {
+	const evidenceParts = [
+		item.evidence.source_label,
+		item.evidence.freshness_label,
+		item.evidence.confidence_label,
+	]
+		.filter((value): value is string => Boolean(value))
+		.join(" · ");
+	return `
+      <article class="list-item">
+        <div class="list-item__top">
+          <h4>${escapeHtml(item.title)}</h4>
+          <span class="pill">${escapeHtml(item.bucket.replaceAll("_", " "))}</span>
+        </div>
+        ${
+					item.summary ? `<p>${escapeHtml(item.summary)}</p>` : ""
+				}
+        ${
+					item.why_now
+						? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>`
+						: ""
+				}
+        ${
+					evidenceParts
+						? `<p class="subtle subtle--body">${escapeHtml(`Evidence: ${evidenceParts}`)}</p>`
+						: ""
+				}
+        ${
+					item.evidence.explanation
+						? `<p class="subtle subtle--body">${escapeHtml(item.evidence.explanation)}</p>`
+						: ""
+				}
+        ${
+					item.primary_action?.command
+						? `<div class="list-item__actions list-item__actions--stack">${commandAction(item.primary_action.command)}</div>`
+						: ""
+				}
+      </article>
+    `;
+}
+
+function renderOperatorHomeSection(
+	section: ReturnType<typeof operatorHomeSectionItems>[number],
+): string {
+	if (section.key === "primary_focus") {
+		return `
+      <div class="detail-stack">
+        <p class="eyebrow">${escapeHtml(section.title)}</p>
+      ${
+					section.items[0]
+						? renderOperatorHomeItem(section.items[0])
+						: `<p class="subtle subtle--body">The primary focus is still loading.</p>`
+				}
+      </div>
+    `;
+	}
+	if (section.items.length === 0) {
+		return `
+      <div class="detail-stack">
+        <p class="eyebrow">${escapeHtml(section.title)}</p>
+        <p class="subtle subtle--body">${escapeHtml(workspaceHomeSectionFallback(section.key))}</p>
+      </div>
+    `;
+	}
+	return `
+    <div class="detail-stack">
+      <p class="eyebrow">${escapeHtml(section.title)}</p>
+      ${section.items.map((item) => renderOperatorHomeItem(item)).join("")}
+    </div>
+  `;
+}
+
 function renderWorkspaceFocusCard(
 	summary: ServiceStatusReport["workspace_home"],
 ): string {
 	const stateLabel = summary.state.replaceAll("_", " ");
+	const modeLabel = summary.mode?.replaceAll("_", " ") ?? "focus";
+	const sections = operatorHomeSectionItems(summary);
 	return `
     <section class="detail-card">
       <p class="eyebrow">Workspace focus</p>
@@ -2378,6 +2444,12 @@ function renderWorkspaceFocusCard(
         <span class="${summary.ready ? "pill pill--good" : "pill pill--warn"}">${escapeHtml(stateLabel)}</span>
       </div>
       <p>${escapeHtml(summary.summary ?? "The workspace focus is still loading.")}</p>
+      <p class="subtle subtle--body">${escapeHtml(`Mode: ${modeLabel}`)}</p>
+      ${
+				summary.mode_summary
+					? `<p class="subtle subtle--body">${escapeHtml(summary.mode_summary)}</p>`
+					: ""
+			}
       ${
 				summary.why_now
 					? `<p class="subtle subtle--body">${escapeHtml(summary.why_now)}</p>`
@@ -2396,6 +2468,9 @@ function renderWorkspaceFocusCard(
 					? `<div class="list-item__actions list-item__actions--stack">${commandAction(summary.primary_command)}</div>`
 					: ""
 			}
+      <div class="detail-stack">
+        ${sections.map((section) => renderOperatorHomeSection(section)).join("")}
+      </div>
     </section>
   `;
 }

@@ -1,7 +1,7 @@
 import type {
-  AutopilotStatusReport,
-  DoctorCheck,
-  DoctorReport,
+ AutopilotStatusReport,
+ DoctorCheck,
+ DoctorReport,
   HealthCheckReport,
   MaintenanceSessionPlan,
   MaintenanceSessionRunResult,
@@ -9,9 +9,13 @@ import type {
   RepairPlan,
   ServiceStatusReport,
   VersionReport,
-  WorklistReport,
+ WorklistReport,
 } from "../types.js";
 import { buildReviewApprovalPresentation } from "../review-approval-presentation.js";
+import {
+	operatorHomeSectionItems,
+	workspaceHomeSectionFallback,
+} from "../service/operator-home.js";
 import {
   formatSeverity,
   formatStateLabel,
@@ -31,6 +35,47 @@ function workspaceHomeSummary(report: ServiceStatusReport): string {
     return home?.title ?? "loading";
   }
   return `${home.title}: ${home.summary}`;
+}
+
+function operatorHomeRows(report: ServiceStatusReport): string[] {
+  const home = report.workspace_home;
+  const rows: string[] = [];
+  if (home.mode) {
+    rows.push(`- Mode: ${home.mode.replaceAll("_", " ")}.`);
+  }
+  if (home.mode_summary) {
+    rows.push(`- ${home.mode_summary}`);
+  }
+  for (const section of operatorHomeSectionItems(home)) {
+    if (section.items.length === 0) {
+      if (section.key !== "primary_focus") {
+        rows.push(`- ${section.title}: ${workspaceHomeSectionFallback(section.key)}`);
+      }
+      continue;
+    }
+    for (const item of section.items) {
+      const evidenceParts = [
+        item.evidence.source_label,
+        item.evidence.freshness_label,
+        item.evidence.confidence_label,
+      ].filter((value): value is string => Boolean(value));
+      const parts = [`${section.title}: ${item.title}`];
+      if (item.summary) {
+        parts.push(item.summary);
+      }
+      if (item.why_now) {
+        parts.push(`Why now: ${item.why_now}`);
+      }
+      if (item.primary_action?.command) {
+        parts.push(`Next: \`${item.primary_action.command}\`.`);
+      }
+      if (evidenceParts.length > 0) {
+        parts.push(`Evidence: ${evidenceParts.join(" / ")}.`);
+      }
+      rows.push(`- ${parts.join(" ")}`);
+    }
+  }
+  return rows;
 }
 
 function workspaceHomeSurfaceProof(report: ServiceStatusReport): string | null {
@@ -525,6 +570,8 @@ export function formatStatusReport(report: ServiceStatusReport): string {
     "Start Here",
     statusActionItems(report).map((item) => `- ${item}`),
   );
+
+  pushSection(lines, "Operator Home", operatorHomeRows(report));
 
   pushSection(lines, "Repair Plan", formatRepairPlan(report.repair_plan));
 
