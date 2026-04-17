@@ -716,7 +716,7 @@ export function createHttpServer(
 			) {
 				if (!auth) throw new HttpError(401, "Authentication required.");
 				sendJson(response, 200, {
-					end_of_day_digest: service.getEndOfDayDigest(),
+					end_of_day_digest: await service.getEndOfDayDigest(),
 				});
 				return;
 			}
@@ -1387,7 +1387,7 @@ export function createHttpServer(
 				if (q !== undefined) memOpts.query = q;
 				if (project !== undefined) memOpts.project = project;
 				sendJson(response, 200, {
-					results: service.searchAiMemory(memOpts),
+					results: await service.searchAiMemory(memOpts),
 					query_options: { q, project, days },
 				});
 				return;

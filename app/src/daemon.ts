@@ -182,7 +182,7 @@ preMeetingCheck.unref();
 
 // End-of-day digest: fire once at 5pm local time (checked every 5 minutes)
 let endOfDayFiredDate = "";
-const endOfDayCheck = setInterval(() => {
+const endOfDayCheck = setInterval(async () => {
 	try {
 		const now = new Date();
 		const hour = now.getHours();
@@ -190,7 +190,7 @@ const endOfDayCheck = setInterval(() => {
 		if (hour < 17 || hour >= 18) return; // only fire in the 5pm hour
 		if (endOfDayFiredDate === todayStr) return; // already fired today
 		endOfDayFiredDate = todayStr;
-		const digest = service.getEndOfDayDigest();
+		const digest = await service.getEndOfDayDigest();
 		hub.post({
 			source: "personal-ops",
 			level: "info",

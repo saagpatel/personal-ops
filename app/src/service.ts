@@ -1664,7 +1664,7 @@ export class PersonalOpsService {
 		const portfolioPulse = portfolio.stalest_projects[0] ?? null;
 
 		// AI cost (yesterday = last 1 day)
-		const aiActivity = this.bridgeDb.getActivitySummary(1);
+		const aiActivity = await this.bridgeDb.getActivitySummary(1);
 
 		// Portfolio hotspots from warehouse.db
 		const warehouseHotspots = this.warehouseReader.getHotspots(2);
@@ -1677,7 +1677,7 @@ export class PersonalOpsService {
 		const notionSummary = this.notionSnapshot.getSummary();
 
 		// Context sections from bridge-db
-		const contextSections = this.bridgeDb.getContextSections();
+		const contextSections = await this.bridgeDb.getContextSections();
 
 		// Alerts — urgent notification-hub events from the last 12 hours
 		const hub = this.hub;
@@ -1770,7 +1770,7 @@ export class PersonalOpsService {
 		};
 	}
 
-	getEndOfDayDigest() {
+	async getEndOfDayDigest() {
 		const now = new Date();
 		const todayStart = new Date(
 			now.getFullYear(),
@@ -1838,7 +1838,7 @@ export class PersonalOpsService {
 		).length;
 
 		// AI cost today from bridge-db
-		const aiActivity = this.bridgeDb.getActivitySummary(1);
+		const aiActivity = await this.bridgeDb.getActivitySummary(1);
 
 		// Git commits today: scan ~/Projects/
 		const gitCommits = this.scanGitCommitsToday();
@@ -1957,7 +1957,7 @@ export class PersonalOpsService {
 
 	// ── Tier 2.2: AI Session Memory ───────────────────────────────────────────
 
-	searchAiMemory(options: AiMemorySearchOptions): AiMemoryEntry[] {
+	async searchAiMemory(options: AiMemorySearchOptions): Promise<AiMemoryEntry[]> {
 		return searchAiMemoryImpl(this.bridgeDb, options);
 	}
 
