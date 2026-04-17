@@ -101,6 +101,14 @@ The assistant-led buildout is complete through Phase 38. The project is now in a
 
 This does not mean the project will never change. It means the large assistant-led buildout is complete and the current baseline is meant to be usable, verifiable, and maintainable.
 
+The latest audit and cleanup pass also:
+
+- fixed the current CLI regression on this branch
+- made builds clean `dist/` before compile so test runs reflect the real source tree
+- pruned the docs surface so historical phase artifacts now live under `docs/archive/`
+
+For the most recent durable checkpoint, read [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md).
+
 ## Tech Stack
 
 - Local daemon plus local database for one shared operational state
@@ -152,6 +160,7 @@ Today, the repo includes:
 - Architecture guide: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Client usage contract: [CLIENTS.md](CLIENTS.md)
 - Assistant-led roadmap: [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
+- Current state note: [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md)
 - Assistant-led history summary: [docs/ASSISTANT-LED-HISTORY-SUMMARY.md](docs/ASSISTANT-LED-HISTORY-SUMMARY.md)
 - New machine setup appendix: [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md)
 - Legacy program summary: [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)

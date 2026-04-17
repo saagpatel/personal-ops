@@ -129,7 +129,7 @@ If you need the last shipped implementation contract and cleanup record:
 
 If you need deep phase-by-phase historical detail:
 
-- read the older `docs/ASSISTANT-LED-PHASE-*-PLAN.md` and `docs/ASSISTANT-LED-PHASE-*-ROLLOUT.md` files
+- read `docs/archive/assistant-led-phases/`
 
 If you need the earlier pre-assistant-led history:
 
