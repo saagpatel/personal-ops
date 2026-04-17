@@ -2502,6 +2502,166 @@ test("inbox thread detail and status expose derived mailbox state", async () => 
 	assert.equal(status.inbox.total_thread_count, 2);
 });
 
+test("notification senders do not surface as needs-reply work or outbound reply blocks", async () => {
+	const accountEmail = "machine@example.com";
+	const { service } = createFixture({ accountEmail });
+	seedMailboxReadyState(service, accountEmail, "notification-filter");
+	const now = Date.now();
+
+	const humanThread = buildMessage("msg-human-reply", accountEmail, {
+		thread_id: "thread-human-reply",
+		history_id: "8101",
+		internal_date: String(now - 90 * 60 * 1000),
+		label_ids: ["INBOX", "UNREAD"],
+		from_header: "Client <client@example.com>",
+		subject: "Can you send the draft?",
+	});
+	const noReplyThread = buildMessage("msg-no-reply", accountEmail, {
+		thread_id: "thread-no-reply",
+		history_id: "8102",
+		internal_date: String(now - 36 * 60 * 60 * 1000),
+		label_ids: ["INBOX", "UNREAD"],
+		from_header: "Google <no-reply@google.com>",
+		subject: "Security alert",
+	});
+	const verifyThread = buildMessage("msg-verify", accountEmail, {
+		thread_id: "thread-verify",
+		history_id: "8103",
+		internal_date: String(now - 40 * 60 * 1000),
+		label_ids: ["INBOX", "UNREAD"],
+		from_header: "X <verify@x.com>",
+		subject: "New login to X from 11.62.0 on iPhone",
+	});
+	const infoThread = buildMessage("msg-info-transactional", accountEmail, {
+		thread_id: "thread-info-transactional",
+		history_id: "8104",
+		internal_date: String(now - 50 * 60 * 1000),
+		label_ids: ["INBOX", "IMPORTANT"],
+		from_header: "X <info@x.com>",
+		subject: "Password reset request",
+	});
+	const supportThread = buildMessage("msg-support-transactional", accountEmail, {
+		thread_id: "thread-support-transactional",
+		history_id: "8105",
+		internal_date: String(now - 55 * 60 * 1000),
+		label_ids: ["INBOX", "IMPORTANT"],
+		from_header: "The NordPass Team <support@nordpass.com>",
+		subject: "Here’s your Data Breach Scanner code",
+	});
+
+	for (const message of [
+		humanThread,
+		noReplyThread,
+		verifyThread,
+		infoThread,
+		supportThread,
+	]) {
+		service.db.upsertMailMessage(
+			accountEmail,
+			message,
+			new Date(Number(message.internal_date)).toISOString(),
+		);
+	}
+
+	service.db.createDraftArtifact(
+		{ client_id: "test-client" },
+		accountEmail,
+		"provider-draft-no-reply",
+		{
+			to: ["no-reply@google.com"],
+			cc: [],
+			bcc: [],
+			subject: "Security alert",
+			body_text: "Following up.",
+		},
+		{
+			assistant_generated: true,
+			assistant_source_thread_id: "thread-no-reply",
+			assistant_group_id: "needs_reply:notification-stale",
+			assistant_why_now: "Stale notification draft",
+		},
+	);
+	service.db.createDraftArtifact(
+		{ client_id: "test-client" },
+		accountEmail,
+		"provider-draft-verify",
+		{
+			to: ["verify@x.com"],
+			cc: [],
+			bcc: [],
+			subject: "New login to X from 11.62.0 on iPhone",
+			body_text: "Following up.",
+		},
+		{
+			assistant_generated: true,
+			assistant_source_thread_id: "thread-verify",
+			assistant_group_id: "needs_reply:notification-stale",
+			assistant_why_now: "Stale notification draft",
+		},
+	);
+	service.db.createDraftArtifact(
+		{ client_id: "test-client" },
+		accountEmail,
+		"provider-draft-info",
+		{
+			to: ["info@x.com"],
+			cc: [],
+			bcc: [],
+			subject: "Password reset request",
+			body_text: "Following up.",
+		},
+		{
+			assistant_generated: true,
+			assistant_source_thread_id: "thread-info-transactional",
+			assistant_group_id: "needs_reply:notification-stale",
+			assistant_why_now: "Stale notification draft",
+		},
+	);
+	service.db.createDraftArtifact(
+		{ client_id: "test-client" },
+		accountEmail,
+		"provider-draft-support",
+		{
+			to: ["support@nordpass.com"],
+			cc: [],
+			bcc: [],
+			subject: "Here’s your Data Breach Scanner code",
+			body_text: "Following up.",
+		},
+		{
+			assistant_generated: true,
+			assistant_source_thread_id: "thread-support-transactional",
+			assistant_group_id: "needs_reply:notification-stale",
+			assistant_why_now: "Stale notification draft",
+		},
+	);
+
+	const needsReply = service.listNeedsReplyThreads();
+	const inboxReport = await service.getInboxAutopilotReport({
+		httpReachable: true,
+	});
+	const outboundReport = await service.getOutboundAutopilotReport({
+		httpReachable: true,
+	});
+
+	assert.deepEqual(
+		needsReply.map((summary) => summary.thread.thread_id),
+		["thread-human-reply"],
+	);
+	assert.deepEqual(
+		inboxReport.groups.flatMap((group) =>
+			group.threads.map((thread) => thread.thread_id),
+		),
+		["thread-human-reply"],
+	);
+	assert.equal(
+		outboundReport.groups.some(
+			(group) => group.group_id === "needs_reply:notification-stale",
+		),
+		false,
+	);
+});
+
 test("doctor degrades when mailbox sync state is degraded", async () => {
 	const accountEmail = "machine@example.com";
 	const { service } = createFixture({ accountEmail });

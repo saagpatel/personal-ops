@@ -58,6 +58,7 @@ import {
 	type ClassifiedInbox,
 	InboxClassifierService,
 } from "./inbox-classifier.js";
+import { isNotificationLikeMessage } from "./service/inbox-heuristics.js";
 import {
 	buildInstallCheckReport,
 	getInstallArtifactPaths,
@@ -3470,7 +3471,9 @@ export class PersonalOpsService {
 		return this.listInboxThreadSummaries(
 			this.normalizeInboxLimit(limit),
 			(summary) =>
-				summary.last_direction === "inbound" && summary.thread.in_inbox,
+				summary.last_direction === "inbound" &&
+				summary.thread.in_inbox &&
+				!this.isNotificationLikeThread(summary),
 		);
 	}
 
@@ -14181,6 +14184,12 @@ export class PersonalOpsService {
 			from.includes(`<${normalizedMailbox}>`) ||
 			from.includes(normalizedMailbox)
 		);
+	}
+
+	private isNotificationLikeThread(summary: InboxThreadSummary): boolean {
+		return summary.latest_message
+			? isNotificationLikeMessage(summary.latest_message)
+			: false;
 	}
 
 	private isTrackedMessage(message: GmailMessageMetadata): boolean {
