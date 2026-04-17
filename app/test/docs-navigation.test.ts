@@ -59,6 +59,7 @@ test("START-HERE routes current readers to roadmap truth and historical readers 
     "CLIENTS.md",
     "docs/ASSISTANT-LED-ROADMAP.md",
     "docs/ASSISTANT-LED-HISTORY-SUMMARY.md",
+    "docs/archive/README.md",
     "docs/NEW-MACHINE-SETUP.md",
     "docs/PROGRAM-COMPLETE-SUMMARY.md",
     "docs/2026-03-24-system-audit.md",
@@ -70,6 +71,7 @@ test("START-HERE routes current readers to roadmap truth and historical readers 
   assert.match(startHere, /current and future source of truth/i);
   assert.match(startHere, /completed assistant-led initiative/i);
   assert.match(startHere, /assistant-led Phases 1 to 38 track/i);
+  assert.match(startHere, /archive map/i);
   assert.match(startHere, /historical summary of the earlier Phase 1 to 33 program/i);
 
   for (const relativePath of expectedLinks) {
@@ -94,10 +96,14 @@ test("primary current-truth doc chain has no dead-end relative links", () => {
 
 test("assistant-led terminal artifacts exist and current-truth docs reflect the completed track", () => {
   assertRepoFileExists("docs/ASSISTANT-LED-HISTORY-SUMMARY.md");
+  assertRepoFileExists("docs/archive/README.md");
   assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-PLAN.md");
   assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-ROLLOUT.md");
   assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-PLAN.md");
   assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-ROLLOUT.md");
+  assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-36-PLAN.md");
+  assertRepoFileExists("docs/archive/legacy-program/PHASE-33-ROLLOUT.md");
+  assertRepoFileExists("docs/archive/post-launch/POST-LAUNCH-PHASE-8-ROLLOUT.md");
 
   const roadmap = readRepoFile("docs/ASSISTANT-LED-ROADMAP.md");
   const startHere = readRepoFile("START-HERE.md");

@@ -11,6 +11,7 @@ import type {
   ReviewItem,
   WorkflowScoreBand,
 } from "../types.js";
+import { isNotificationLikeMessage } from "./inbox-heuristics.js";
 
 const MAX_ACTIVE_GROUPS = 3;
 const MAX_GROUP_DRAFTS = 3;
@@ -305,9 +306,23 @@ async function buildComputations(service: any, options: BuildOptions): Promise<{
       continue;
     }
     const drafts = groupedDrafts
+      .filter((draft: DraftArtifact) => {
+        if (kind !== "reply_block" || !draft.assistant_source_thread_id) {
+          return true;
+        }
+        try {
+          const detail = service.getInboxThreadDetail(draft.assistant_source_thread_id);
+          return !isNotificationLikeMessage(detail.messages[0] ?? {});
+        } catch {
+          return true;
+        }
+      })
       .slice()
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, MAX_GROUP_DRAFTS);
+    if (drafts.length === 0) {
+      continue;
+    }
     const reviews = drafts.map((draft: DraftArtifact) => latestReviewForArtifact(service, draft.artifact_id));
     const approvals = drafts
       .map((draft: DraftArtifact) => activeApprovalForArtifact(service, draft.artifact_id))

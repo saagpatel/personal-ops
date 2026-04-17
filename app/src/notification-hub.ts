@@ -48,10 +48,14 @@ export class NotificationHubClient {
 			body,
 			signal: AbortSignal.timeout(2000),
 		}).catch((error: unknown) => {
-			this.logger.error("hub_post_failed", {
-				title: event.title,
-				error: error instanceof Error ? error.message : String(error),
-			});
+			// Ignore expected local-sidecar failures when the hub is not running.
+			const msg = error instanceof Error ? error.message : String(error);
+			if (!msg.includes("ECONNREFUSED") && !msg.includes("fetch failed")) {
+				this.logger.error("hub_post_failed", {
+					title: event.title,
+					error: msg,
+				});
+			}
 		});
 	}
 

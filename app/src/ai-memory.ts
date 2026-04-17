@@ -23,20 +23,20 @@ export interface AiProjectSummary {
 	latest: string;
 }
 
-export function searchAiMemory(
+export async function searchAiMemory(
 	bridgeDb: BridgeDbClient,
 	options: AiMemorySearchOptions,
-): AiMemoryEntry[] {
-	const rows = bridgeDb.searchActivity(options);
+): Promise<AiMemoryEntry[]> {
+	const rows = await bridgeDb.searchActivity(options);
 	return rows.map((r) => ({
 		...r,
 		source: r.source as AiMemoryEntry["source"],
 	}));
 }
 
-export function getAiProjectSummary(
+export async function getAiProjectSummary(
 	bridgeDb: BridgeDbClient,
 	days: number,
-): AiProjectSummary[] {
+): Promise<AiProjectSummary[]> {
 	return bridgeDb.getProjectSummary(days);
 }

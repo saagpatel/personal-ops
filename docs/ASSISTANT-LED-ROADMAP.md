@@ -55,6 +55,19 @@ The final terminal compaction outcome is:
 - `docs/PROGRAM-COMPLETE-SUMMARY.md` remains the earlier legacy historical summary
 - older assistant-led phase plan and rollout docs remain available as searchable archive/reference
 
+## Post-Completion Maintenance Note
+
+After the assistant-led track was completed, the repo also received a follow-up audit and cleanup pass on 2026-04-15.
+
+That pass:
+
+- fixed an active CLI regression on the working branch
+- made local builds clean `dist/` before compile
+- moved older phase-by-phase historical artifacts into `docs/archive/`
+- refreshed current-truth docs so resume-work context is easier to recover
+
+For the latest repo checkpoint after that stabilization pass, use `docs/CURRENT-STATE.md`.
+
 ## Phase Ledger
 
 | Phase | Title | Goal | Status |

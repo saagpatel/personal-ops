@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-This document describes the current `personal-ops` system shape after the completed assistant-led phases through Phase 8.
+This document describes the current `personal-ops` system shape after the completed assistant-led track through Phase 38.
 
 ## Purpose
 
@@ -120,7 +120,7 @@ It remains:
 - token-gated
 - intentionally narrow for audit and governance
 
-Phase 8 added a same-origin browser session for the console, and the Assistant-Led phases have since widened it only for narrow operator-safe actions. It remains daemon-local and intentionally allowlisted.
+The earlier Phase 8 console foundation added a same-origin browser session for the console, and the later assistant-led phases widened it only for narrow operator-safe actions. It remains daemon-local and intentionally allowlisted.
 
 ### Operator console
 
@@ -139,7 +139,7 @@ It still does not replace the CLI for high-trust control surfaces like send-wind
 
 ### Continuous autopilot
 
-Assistant-Led Phase 8 adds one coordinator for safe background preparation.
+The assistant-led track added one coordinator for safe background preparation.
 
 That coordinator now owns warm-start preparation for:
 
@@ -229,7 +229,7 @@ Supporting domain folders now include:
 - `app/src/formatters/`
 - `app/src/service/`
 
-Phase 8 also adds:
+The assistant-led track also adds:
 
 - `app/src/service/autopilot.ts`
   the continuous warm-start coordinator and freshness model
@@ -259,4 +259,4 @@ Use these rules for future changes:
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
 - [OPERATIONS.md](OPERATIONS.md)
 - [CLIENTS.md](CLIENTS.md)
-- [docs/IMPROVEMENT-ROADMAP.md](docs/IMPROVEMENT-ROADMAP.md)
+- [docs/archive/README.md](docs/archive/README.md)

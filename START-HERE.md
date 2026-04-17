@@ -83,13 +83,15 @@ Use this path if you want to:
 - [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md)
   The operator automation runbook for the recurring briefing, recovery snapshot, and rehearsal reminder layer.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
-  The current system shape after Phases 1 to 8 plus the Assistant-Led roadmap through desktop shell support, including trust boundaries and module layout.
+  The current system shape after the completed assistant-led track through Phase 38, including trust boundaries, module layout, and the console-first local control plane.
 - [QUICK-GUIDE.md](QUICK-GUIDE.md)
   The shortest role-based onboarding path for a new operator or a new assistant.
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
   The current and future source of truth for the completed assistant-led initiative, now through Phase 38.
+- [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md)
+  The resume-work checkpoint for the repo after the April 2026 audit, stabilization, and docs cleanup pass.
 
 ## History and deep context
 
@@ -97,8 +99,8 @@ These docs are still important, but they are history and deeper context, not the
 
 - [docs/ASSISTANT-LED-HISTORY-SUMMARY.md](docs/ASSISTANT-LED-HISTORY-SUMMARY.md)
   The durable historical summary of the assistant-led Phases 1 to 38 track.
-- [docs/IMPROVEMENT-ROADMAP.md](docs/IMPROVEMENT-ROADMAP.md)
-  The earlier post-program roadmap that now serves as supporting context for the assistant-led track.
+- [docs/archive/README.md](docs/archive/README.md)
+  The archive map for older phase-by-phase plans, rollouts, handoffs, and superseded roadmap material.
 - [docs/PROGRAM-COMPLETE-SUMMARY.md](docs/PROGRAM-COMPLETE-SUMMARY.md)
   The historical summary of the earlier Phase 1 to 33 program.
 - [docs/2026-03-24-system-audit.md](docs/2026-03-24-system-audit.md)
@@ -110,14 +112,15 @@ If you are a new operator:
 
 1. Read [QUICK-GUIDE.md](QUICK-GUIDE.md).
 2. Follow [OPERATIONS.md](OPERATIONS.md), starting with `personal-ops workflow prep-day` for day-start context and `personal-ops workflow now-next` for the immediate next move.
-3. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
-4. Use `personal-ops outbound autopilot` or the Drafts section in the console when reviewed mail work is ready for grouped approval or send.
-5. Use `personal-ops planning autopilot` or the Planning section in the console when the assistant has already assembled grouped execution bundles.
-6. Use `personal-ops autopilot status` when you want to confirm whether inbox, meeting, planning, outbound, and day-start surfaces are already warm.
-7. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet and related Google files.
-8. If you want the console to feel more native on macOS, run `personal-ops install desktop` and then `personal-ops desktop open`.
-9. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
-10. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
+3. Read [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md) if you are resuming work after the April 2026 cleanup pass and want the latest repo checkpoint first.
+4. Use `personal-ops inbox autopilot` or the Drafts section in the console when the assistant has grouped reply or follow-up work ready.
+5. Use `personal-ops outbound autopilot` or the Drafts section in the console when reviewed mail work is ready for grouped approval or send.
+6. Use `personal-ops planning autopilot` or the Planning section in the console when the assistant has already assembled grouped execution bundles.
+7. Use `personal-ops autopilot status` when you want to confirm whether inbox, meeting, planning, outbound, and day-start surfaces are already warm.
+8. Use `personal-ops workflow prep-meetings --today` or the `Today's Prep` card in the console when an upcoming meeting needs a staged packet and related Google files.
+9. If you want the console to feel more native on macOS, run `personal-ops install desktop` and then `personal-ops desktop open`.
+10. Use [docs/NEW-MACHINE-SETUP.md](docs/NEW-MACHINE-SETUP.md) when setting up another Mac.
+11. If auth or secrets drift, use the recovery notes in [OPERATIONS.md](OPERATIONS.md) before trying ad hoc cleanup.
 
 If you just want the plain-English version:
 
