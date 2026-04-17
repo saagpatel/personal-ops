@@ -1382,8 +1382,11 @@ export function registerRuntimeCommands(
 	// ── Inbox Search (Tier 2.3) ─────────────────────────────────────────────
 
 	const inboxCmd = program
-		.command("inbox")
-		.description("Inbox commands — search and view email.");
+		.commands.find((command) => command.name() === "inbox");
+
+	if (!inboxCmd) {
+		throw new Error("Expected top-level inbox command to be registered before runtime commands.");
+	}
 
 	inboxCmd
 		.command("search <query>")
