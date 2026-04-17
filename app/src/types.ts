@@ -2895,6 +2895,74 @@ export type WorkspaceHomeState =
 	| "maintenance"
 	| "caught_up";
 
+export type WorkingSetBucket =
+	| "now"
+	| "soon"
+	| "blocked"
+	| "waiting"
+	| "background";
+
+export type OperatorMode = "day_start" | "focus" | "decisions";
+
+export type OperatorItemKind =
+	| "attention"
+	| "decision"
+	| "commitment"
+	| "repair"
+	| "review"
+	| "approval"
+	| "workflow"
+	| "follow_up";
+
+export type EvidenceSourceType =
+	| "direct_local_fact"
+	| "local_summary"
+	| "inferred_recommendation"
+	| "stale_signal";
+
+export type OperatorFreshness = "fresh" | "current" | "stale";
+
+export type OperatorConfidence = "high" | "medium" | "low";
+
+export type OperatorItemStatus =
+	| "active"
+	| "ready"
+	| "waiting"
+	| "blocked"
+	| "background";
+
+export interface OperatorActionSummary {
+	label: string;
+	command: string | null;
+}
+
+export interface EvidenceCard {
+	source_type: EvidenceSourceType;
+	source_label: string;
+	captured_at: string | null;
+	freshness_label: string | null;
+	confidence_label: string | null;
+	inferred: boolean;
+	explanation: string | null;
+}
+
+export interface OperatorItem {
+	id: string;
+	kind: OperatorItemKind;
+	title: string;
+	summary: string | null;
+	source: string;
+	source_owner: string;
+	bucket: WorkingSetBucket;
+	freshness: OperatorFreshness;
+	confidence: OperatorConfidence;
+	why_now: string | null;
+	primary_action: OperatorActionSummary | null;
+	secondary_actions: OperatorActionSummary[];
+	status: OperatorItemStatus;
+	evidence: EvidenceCard;
+}
+
 export interface WorkspaceHomeSummary {
 	ready: boolean;
 	state: WorkspaceHomeState;
@@ -2909,6 +2977,13 @@ export interface WorkspaceHomeSummary {
 		| MaintenanceRepairConvergenceState
 		| MaintenanceDecisionState
 		| null;
+	mode?: OperatorMode | undefined;
+	mode_summary?: string | null | undefined;
+	primary_focus?: OperatorItem | null | undefined;
+	ready_decisions?: OperatorItem[] | undefined;
+	active_commitments?: OperatorItem[] | undefined;
+	waiting_drift?: OperatorItem[] | undefined;
+	system_posture?: OperatorItem[] | undefined;
 	surfaced_work_helpfulness?: SurfacedWorkHelpfulnessSummary | undefined;
 	surfaced_noise_reduction?: SurfacedNoiseReductionSummary | undefined;
 	review_approval_flow?: ReviewApprovalFlowSummary | undefined;

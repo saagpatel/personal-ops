@@ -150,6 +150,7 @@ import {
 	requestApprovalForOutboundGroup,
 	sendOutboundGroup,
 } from "./service/outbound-autopilot.js";
+import { buildWorkspaceHomeSummary } from "./service/operator-home.js";
 import {
 	applyPlanningAutopilotBundle,
 	buildPlanningAutopilotReport,
@@ -327,10 +328,11 @@ import {
 	type TaskSuggestionDetail,
 	type WorkflowBundleReport,
 	type WorklistReport,
-	type WorkspaceHomeSummary,
 } from "./types.js";
 import { readServiceVersion } from "./version.js";
 import { WarehouseReader } from "./warehouse-reader.js";
+
+export { buildWorkspaceHomeSummary } from "./service/operator-home.js";
 
 interface DoctorOptions {
 	deep: boolean;
@@ -341,168 +343,6 @@ interface StoredGmailAuth {
 	email: string;
 	clientConfig: GmailClientConfig;
 	tokensJson: string;
-}
-
-function actionableAssistantAction(
-	queue: AssistantActionQueueReport,
-): AssistantActionQueueReport["actions"][number] | null {
-	return (
-		queue.actions.find(
-			(action) =>
-				action.state === "proposed" || action.state === "awaiting_review",
-		) ?? null
-	);
-}
-
-function maintenanceHomeSummary(
-	report: ServiceStatusReport,
-): Pick<
-	WorkspaceHomeSummary,
-	"summary" | "why_now" | "maintenance_state" | "primary_command"
-> | null {
-	const convergence = report.maintenance_repair_convergence;
-	if (
-		convergence?.eligible &&
-		convergence.state !== "repair_owned" &&
-		convergence.state !== "none" &&
-		convergence.summary
-	) {
-		return {
-			summary: convergence.summary,
-			why_now: convergence.why,
-			maintenance_state: convergence.state,
-			primary_command:
-				convergence.primary_command ?? "personal-ops maintenance session",
-		};
-	}
-	const decision = report.maintenance_decision_explanation;
-	if (
-		decision?.eligible &&
-		decision.state !== "suppressed" &&
-		decision.summary
-	) {
-		return {
-			summary: decision.summary,
-			why_now: decision.why_now ?? decision.why_not_higher,
-			maintenance_state: decision.state,
-			primary_command:
-				decision.suggested_command ?? "personal-ops maintenance session",
-		};
-	}
-	return null;
-}
-
-function appendSecondaryHint(
-	hints: string[],
-	value: string | null | undefined,
-): void {
-	if (!value || !value.trim()) {
-		return;
-	}
-	if (hints.includes(value.trim())) {
-		return;
-	}
-	hints.push(value.trim());
-}
-
-export function buildWorkspaceHomeSummary(input: {
-	status: ServiceStatusReport;
-	assistantQueue: AssistantActionQueueReport;
-	nowNextWorkflow: WorkflowBundleReport;
-}): WorkspaceHomeSummary {
-	const { status, assistantQueue, nowNextWorkflow } = input;
-	const repairOwned =
-		status.maintenance_repair_convergence?.eligible &&
-		status.maintenance_repair_convergence.state === "repair_owned";
-	const topAssistantAction = actionableAssistantAction(assistantQueue);
-	const topWorkflowAction = nowNextWorkflow.actions[0] ?? null;
-	const maintenance = maintenanceHomeSummary(status);
-	const secondaryHints: string[] = [];
-
-	if (status.first_repair_step || repairOwned) {
-		appendSecondaryHint(secondaryHints, topAssistantAction?.summary);
-		appendSecondaryHint(secondaryHints, topWorkflowAction?.summary);
-		appendSecondaryHint(secondaryHints, maintenance?.summary);
-		return {
-			ready: status.state === "ready",
-			state: "repair",
-			title: "Repair comes first",
-			summary:
-				status.maintenance_repair_convergence?.summary ??
-				(status.first_repair_step
-					? `Follow ${status.first_repair_step} before trusting the rest of the workspace.`
-					: "Active repair owns the workspace right now."),
-			why_now:
-				"Active repair outranks assistant-prepared work, workflow guidance, and preventive maintenance until the local control plane is stable again.",
-			primary_command: "personal-ops repair plan",
-			secondary_summary: secondaryHints[0] ?? null,
-			assistant_action_id: null,
-			workflow: null,
-			maintenance_state: status.maintenance_repair_convergence?.state ?? null,
-		};
-	}
-
-	if (topAssistantAction) {
-		appendSecondaryHint(secondaryHints, topWorkflowAction?.summary);
-		appendSecondaryHint(secondaryHints, maintenance?.summary);
-		return {
-			ready: status.state === "ready",
-			state: "assistant",
-			title: "Assistant-prepared work is ready",
-			summary: topAssistantAction.summary,
-			why_now: topAssistantAction.why_now,
-			primary_command: topAssistantAction.command ?? null,
-			secondary_summary: secondaryHints[0] ?? null,
-			assistant_action_id: topAssistantAction.action_id,
-			workflow: null,
-			maintenance_state: null,
-		};
-	}
-
-	if (topWorkflowAction) {
-		appendSecondaryHint(secondaryHints, maintenance?.summary);
-		return {
-			ready: status.state === "ready",
-			state: "workflow",
-			title: "This is the best next move",
-			summary: topWorkflowAction.summary,
-			why_now: topWorkflowAction.why_now ?? nowNextWorkflow.summary,
-			primary_command: topWorkflowAction.command,
-			secondary_summary: secondaryHints[0] ?? null,
-			assistant_action_id: null,
-			workflow: nowNextWorkflow.workflow,
-			maintenance_state: null,
-		};
-	}
-
-	if (maintenance) {
-		return {
-			ready: status.state === "ready",
-			state: "maintenance",
-			title: "Upkeep is the main focus right now",
-			summary: maintenance.summary,
-			why_now: maintenance.why_now,
-			primary_command: maintenance.primary_command,
-			secondary_summary: null,
-			assistant_action_id: null,
-			workflow: null,
-			maintenance_state: maintenance.maintenance_state,
-		};
-	}
-
-	return {
-		ready: status.state === "ready",
-		state: "caught_up",
-		title: "The workspace is caught up",
-		summary:
-			"No urgent repair, assistant-prepared, workflow, or maintenance focus is currently leading.",
-		why_now: null,
-		primary_command: null,
-		secondary_summary: null,
-		assistant_action_id: null,
-		workflow: null,
-		maintenance_state: null,
-	};
 }
 
 interface ApprovalContext {
@@ -1054,20 +894,6 @@ export class PersonalOpsService {
 			const outboundAutopilot = await this.getOutboundAutopilotReport({
 				httpReachable: options.httpReachable,
 			});
-			const workspaceHome = buildWorkspaceHomeSummary({
-				status: report,
-				assistantQueue,
-				nowNextWorkflow,
-			});
-			const trackedReport = trackWorkspaceHomeOutcome(this, {
-				report: {
-					...report,
-					workspace_home: workspaceHome,
-				},
-				workspace_home: workspaceHome,
-				assistant_queue: assistantQueue,
-				now_next_workflow: nowNextWorkflow,
-			}).report;
 			const reviewApprovalFlow = buildReviewApprovalFlowSummary({
 				reviews: this.listReviewQueue(),
 				approvals: this.listApprovalQueue({ limit: 500 }),
@@ -1082,6 +908,24 @@ export class PersonalOpsService {
 					outbound_groups: outboundAutopilot.groups,
 				},
 			);
+			const workspaceHome = buildWorkspaceHomeSummary({
+				status: {
+					...report,
+					review_approval_flow: calibratedReviewApprovalFlow,
+				},
+				assistantQueue,
+				nowNextWorkflow,
+			});
+			const trackedReport = trackWorkspaceHomeOutcome(this, {
+				report: {
+					...report,
+					review_approval_flow: calibratedReviewApprovalFlow,
+					workspace_home: workspaceHome,
+				},
+				workspace_home: workspaceHome,
+				assistant_queue: assistantQueue,
+				now_next_workflow: nowNextWorkflow,
+			}).report;
 			const withReviewApprovalFlow = applyReviewApprovalFlowPayloads({
 				status: {
 					...trackedReport,
