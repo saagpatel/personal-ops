@@ -125,6 +125,7 @@ import {
 	buildAssistantActionQueueReport,
 	runAssistantAction,
 } from "./service/assistant.js";
+import { PersonalOpsActivityLogger } from "./service/activity-log.js";
 import { listAuditEvents as listAuditEventsFromModule } from "./service/audit.js";
 import {
 	buildAutopilotStatusReport,
@@ -762,6 +763,7 @@ export class PersonalOpsService {
 	private reviewReadModelRefreshDepth = 0;
 	private readonly hub: NotificationHubClient;
 	private readonly bridgeDb: BridgeDbClientLike;
+	private readonly activityLogger: PersonalOpsActivityLogger;
 	private readonly portfolioReader: PortfolioReader;
 	private readonly notionSnapshot: NotionSnapshotReader;
 	private readonly warehouseReader: WarehouseReader;
@@ -783,6 +785,7 @@ export class PersonalOpsService {
 		};
 		this.hub = new NotificationHubClient(logger);
 		this.bridgeDb = this.dependencies.createBridgeDbClient();
+		this.activityLogger = new PersonalOpsActivityLogger(this.bridgeDb);
 		this.portfolioReader = new PortfolioReader();
 		this.notionSnapshot = new NotionSnapshotReader();
 		this.warehouseReader = new WarehouseReader();
@@ -3595,11 +3598,7 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
-		this.bridgeDb.logActivity(
-			task.title || taskId,
-			`Task completed: ${note.trim()}`,
-			["TASK_DONE"],
-		);
+		this.activityLogger.taskCompleted(task.title, taskId, note.trim());
 		this.updateRecommendationOutcomeFromTask(
 			updated!,
 			"completed",
@@ -4647,10 +4646,10 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
-		this.bridgeDb.logActivity(
-			recommendation.proposed_title || recommendationId,
-			`Planning applied: ${note.trim()}`,
-			["PLANNING_APPLIED"],
+		this.activityLogger.planningApplied(
+			recommendation.proposed_title,
+			recommendationId,
+			note.trim(),
 		);
 		this.refreshPlanningRecommendationsInternal(identity);
 		return this.getPlanningRecommendationDetail(recommendationId);
@@ -5478,11 +5477,7 @@ export class PersonalOpsService {
 				note: note.trim(),
 			},
 		});
-		this.bridgeDb.logActivity(
-			"personal-ops",
-			`Review resolved: ${note.trim()}`,
-			["REVIEW_CLOSED"],
-		);
+		this.activityLogger.reviewResolved(note.trim());
 		return {
 			review_item: resolved,
 			artifact_id: review.artifact_id,
@@ -5937,11 +5932,7 @@ export class PersonalOpsService {
 					provider_thread_id: sendResult.provider_thread_id ?? null,
 				},
 			});
-			this.bridgeDb.logActivity(
-				"personal-ops",
-				`Draft sent: ${context.draft.subject || approvalId}`,
-				["APPROVAL_SENT"],
-			);
+			this.activityLogger.approvalSent(context.draft.subject, approvalId);
 			sendMacNotification(
 				this.db,
 				this.logger,

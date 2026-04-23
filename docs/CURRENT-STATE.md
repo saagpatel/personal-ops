@@ -52,6 +52,7 @@ The cleanup, Operator Home, and audit-fix work were verified locally with:
 - focused CLI and docs-navigation checks
 - `npm test`
 - `npm run release:check:ci`
+- `npm run verify:recovery`
 - `npm audit`
 - `personal-ops install check --json`
 - `personal-ops doctor --deep --json`
@@ -89,10 +90,13 @@ What is already true:
 - the first Operator Home shell is now present in `workspace_home`
 - that shell is intentionally local-first and does not yet stitch in broader sibling-system integrations
 - bridge-db activity logging is now injectable so tests can stay isolated from live operating state
+- shared service-test fixture setup now lives outside the monolithic `service.test.ts`
+- outbound bridge activity logging now flows through a small compatibility helper instead of inline `service.ts` calls
 
 What that means for the next session:
 
 - build on the new operator-home shell instead of reopening broad cleanup work
+- start with Operator Inbox foundations as the next Operator Home slice
 - keep external-system ownership boundaries intact while preparing future integration seams
 - treat `personal-ops` as the operator-facing layer, not the source of truth for every sibling system
 
@@ -100,7 +104,7 @@ What that means for the next session:
 
 Good next-session starting points:
 
-- choose the next Operator Home slice to build on top of Workspace Home 2.0
-- decide whether the next step is Operator Inbox foundations, Decision Console foundations, or deeper working-set / evidence-card refinement
+- define the Operator Inbox foundations contract on top of Workspace Home 2.0
+- keep Decision Console and deeper working-set / evidence-card refinement behind that first inbox slice
 - continue extracting high-churn code out of `app/src/service.ts` only behind compatibility facades
 - keep using the current docs layer for truth and the archive only for deep history
