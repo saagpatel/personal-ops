@@ -26,6 +26,13 @@ import {
 	buildWorkspaceHomeSummary,
 	PersonalOpsService,
 } from "../src/service.js";
+import type {
+	AiActivitySummary,
+	BridgeActivitySearchEntry,
+  BridgeProjectSummaryEntry,
+	BridgeContextSection,
+	BridgeDbClientLike,
+} from "../src/bridge-db.js";
 import {
 	applySurfacedNoiseReduction,
 	trackAssistantTopActionOutcome,
@@ -134,6 +141,7 @@ interface FixtureOptions {
 		providerEventId: string,
 	) => Promise<void>;
 	profileHistoryId?: string;
+	bridgeDbClient?: BridgeDbClientLike;
 }
 
 function emptyMaintenanceFollowThrough(
@@ -523,6 +531,45 @@ const GITHUB_TEST_IDENTITY: ClientIdentity = {
 
 const servicesToClose = new Set<PersonalOpsService>();
 
+class NoopBridgeDbClient implements BridgeDbClientLike {
+	async close(): Promise<void> {}
+
+	async getActivitySummary(): Promise<AiActivitySummary> {
+		return {
+			current_month: new Date().toISOString().slice(0, 7),
+			monthly_costs: [],
+			recent_activity: [],
+			open_handoffs: [],
+			briefing_line: "bridge-db disabled for tests",
+		};
+	}
+
+	async searchActivity(): Promise<BridgeActivitySearchEntry[]> {
+		return [];
+	}
+
+	async getProjectSummary(): Promise<BridgeProjectSummaryEntry[]> {
+		return [];
+	}
+
+	async getContextSections(): Promise<BridgeContextSection[]> {
+		return [];
+	}
+
+	logActivity(
+		_projectName: string,
+		_summary: string,
+		_tags: string[],
+		_branch: string | null = null,
+	): void {
+		void _branch;
+	}
+
+	recordCost(_system: string, _month: string, _amount: number): void {}
+
+	saveSnapshot(_data: Record<string, unknown>): void {}
+}
+
 test.after(async () => {
 	for (const service of servicesToClose) {
 		try {
@@ -695,6 +742,7 @@ default_limit = 50
 	};
 
 	const service = new PersonalOpsService(paths, config, policy, logger, {
+		createBridgeDbClient: () => options.bridgeDbClient ?? new NoopBridgeDbClient(),
 		loadStoredGmailTokens: async () => ({
 			email: accountEmail,
 			clientConfig,
@@ -1225,6 +1273,35 @@ const mcpIdentity: ClientIdentity = {
 	requested_by: "codex",
 	auth_role: "assistant",
 };
+
+test("service fixtures use injected bridge-db client for activity logging", () => {
+	class CountingBridgeDbClient extends NoopBridgeDbClient {
+		logs: Array<{ projectName: string; summary: string; tags: string[] }> = [];
+
+		override logActivity(
+			projectName: string,
+			summary: string,
+			tags: string[],
+		): void {
+			this.logs.push({ projectName, summary, tags });
+		}
+	}
+
+	const bridgeDbClient = new CountingBridgeDbClient();
+	const { service } = createFixture({ bridgeDbClient });
+	const task = service.createTask(cliIdentity, {
+		title: "Bridge isolation task",
+		kind: "human_reminder",
+		priority: "normal",
+		owner: "operator",
+	});
+
+	service.completeTask(cliIdentity, task.task_id, "Completed without live bridge-db");
+
+	assert.equal(bridgeDbClient.logs.length, 1);
+	assert.equal(bridgeDbClient.logs[0]?.projectName, "Bridge isolation task");
+	assert.deepEqual(bridgeDbClient.logs[0]?.tags, ["TASK_DONE"]);
+});
 
 test("service classifies ready, setup_required, and degraded states", () => {
 	const { service } = createFixture();

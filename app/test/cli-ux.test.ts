@@ -25,6 +25,13 @@ import { Logger } from "../src/logger.js";
 import { resolvePaths } from "../src/paths.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import { PersonalOpsService } from "../src/service.js";
+import type {
+  AiActivitySummary,
+  BridgeActivitySearchEntry,
+  BridgeProjectSummaryEntry,
+  BridgeContextSection,
+  BridgeDbClientLike,
+} from "../src/bridge-db.js";
 import type { ClientIdentity, Config, MaintenanceDecisionReasonCode, Paths, Policy } from "../src/types.js";
 
 const cliIdentity: ClientIdentity = {
@@ -32,6 +39,43 @@ const cliIdentity: ClientIdentity = {
   requested_by: "operator",
   auth_role: "operator",
 };
+
+class NoopBridgeDbClient implements BridgeDbClientLike {
+  async close(): Promise<void> {}
+
+  async getActivitySummary(): Promise<AiActivitySummary> {
+    return {
+      current_month: new Date().toISOString().slice(0, 7),
+      monthly_costs: [],
+      recent_activity: [],
+      open_handoffs: [],
+      briefing_line: "bridge-db disabled for tests",
+    };
+  }
+
+  async searchActivity(): Promise<BridgeActivitySearchEntry[]> {
+    return [];
+  }
+
+  async getProjectSummary(): Promise<BridgeProjectSummaryEntry[]> {
+    return [];
+  }
+
+  async getContextSections(): Promise<BridgeContextSection[]> {
+    return [];
+  }
+
+  logActivity(
+    _projectName: string,
+    _summary: string,
+    _tags: string[],
+    _branch: string | null = null,
+  ): void { void _branch; }
+
+  recordCost(_system: string, _month: string, _amount: number): void {}
+
+  saveSnapshot(_data: Record<string, unknown>): void {}
+}
 
 function emptyMaintenanceFollowThrough(generatedAt = "2026-04-11T10:00:00.000Z") {
   return {
@@ -391,6 +435,7 @@ function createServiceFixture() {
   return withRuntimeEnv(env, () => {
     const logger = new Logger(paths);
     const service = new PersonalOpsService(paths, config, policy, logger, {
+      createBridgeDbClient: () => new NoopBridgeDbClient(),
       loadStoredGmailTokens: async () => ({
         email: "machine@example.com",
         clientConfig: {

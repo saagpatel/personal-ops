@@ -13,13 +13,57 @@ import { ensureMachineIdentity, readRestoreProvenance, writeRestoreProvenance } 
 import { restoreSnapshot } from "../src/restore.js";
 import { createSnapshotId } from "../src/snapshots.js";
 import { PersonalOpsService } from "../src/service.js";
-import { ClientIdentity, MachineDescriptor, Paths } from "../src/types.js";
+import type {
+  AiActivitySummary,
+  BridgeActivitySearchEntry,
+  BridgeProjectSummaryEntry,
+  BridgeContextSection,
+  BridgeDbClientLike,
+} from "../src/bridge-db.js";
+import type { ClientIdentity, MachineDescriptor, Paths } from "../src/types.js";
 
 const cliIdentity: ClientIdentity = {
   client_id: "operator-cli",
   requested_by: "operator",
   auth_role: "operator",
 };
+
+class NoopBridgeDbClient implements BridgeDbClientLike {
+  async close(): Promise<void> {}
+
+  async getActivitySummary(): Promise<AiActivitySummary> {
+    return {
+      current_month: new Date().toISOString().slice(0, 7),
+      monthly_costs: [],
+      recent_activity: [],
+      open_handoffs: [],
+      briefing_line: "bridge-db disabled for tests",
+    };
+  }
+
+  async searchActivity(): Promise<BridgeActivitySearchEntry[]> {
+    return [];
+  }
+
+  async getProjectSummary(): Promise<BridgeProjectSummaryEntry[]> {
+    return [];
+  }
+
+  async getContextSections(): Promise<BridgeContextSection[]> {
+    return [];
+  }
+
+  logActivity(
+    _projectName: string,
+    _summary: string,
+    _tags: string[],
+    _branch: string | null = null,
+  ): void { void _branch; }
+
+  recordCost(_system: string, _month: string, _amount: number): void {}
+
+  saveSnapshot(_data: Record<string, unknown>): void {}
+}
 
 function createLaunchctlStub(initiallyLoaded = false) {
   let loaded = initiallyLoaded;
@@ -815,6 +859,7 @@ test("service doctor recognizes wrapper-based installs and both assistant wrappe
     const policy = loadPolicy(fixture.paths);
     const logger = new Logger(fixture.paths);
     const service = new PersonalOpsService(fixture.paths, config, policy, logger, {
+      createBridgeDbClient: () => new NoopBridgeDbClient(),
       inspectLaunchAgent: () => ({
         exists: true,
         loaded: true,
@@ -848,6 +893,7 @@ test("doctor formatter prefers install wrappers when wrapper drift is the main r
     const policy = loadPolicy(fixture.paths);
     const logger = new Logger(fixture.paths);
     const service = new PersonalOpsService(fixture.paths, config, policy, logger, {
+      createBridgeDbClient: () => new NoopBridgeDbClient(),
       inspectLaunchAgent: () => ({
         exists: false,
         loaded: false,

@@ -16,6 +16,13 @@ import { createHttpServer } from "../src/http.js";
 import { Logger } from "../src/logger.js";
 import { PersonalOpsService } from "../src/service.js";
 import type {
+  AiActivitySummary,
+  BridgeActivitySearchEntry,
+  BridgeProjectSummaryEntry,
+  BridgeContextSection,
+  BridgeDbClientLike,
+} from "../src/bridge-db.js";
+import type {
   ClientIdentity,
   Config,
   GmailClientConfig,
@@ -34,6 +41,43 @@ const TEST_IDENTITY: ClientIdentity = {
 };
 
 const consoleServicesToClose = new Set<PersonalOpsService>();
+
+class NoopBridgeDbClient implements BridgeDbClientLike {
+  async close(): Promise<void> {}
+
+  async getActivitySummary(): Promise<AiActivitySummary> {
+    return {
+      current_month: new Date().toISOString().slice(0, 7),
+      monthly_costs: [],
+      recent_activity: [],
+      open_handoffs: [],
+      briefing_line: "bridge-db disabled for tests",
+    };
+  }
+
+  async searchActivity(): Promise<BridgeActivitySearchEntry[]> {
+    return [];
+  }
+
+  async getProjectSummary(): Promise<BridgeProjectSummaryEntry[]> {
+    return [];
+  }
+
+  async getContextSections(): Promise<BridgeContextSection[]> {
+    return [];
+  }
+
+  logActivity(
+    _projectName: string,
+    _summary: string,
+    _tags: string[],
+    _branch: string | null = null,
+  ): void { void _branch; }
+
+  recordCost(_system: string, _month: string, _amount: number): void {}
+
+  saveSnapshot(_data: Record<string, unknown>): void {}
+}
 
 test.after(async () => {
   for (const service of consoleServicesToClose) {
@@ -189,7 +233,7 @@ function buildCalendarEventMetadata(
   };
 }
 
-async function createConsoleFixture(options: { mailbox?: string } = {}) {
+async function createConsoleFixture(options: { mailbox?: string; bridgeDbClient?: BridgeDbClientLike } = {}) {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-ops-console-test-"));
   const homeDir = path.join(baseDir, "home");
   fs.mkdirSync(homeDir, { recursive: true });
@@ -216,6 +260,7 @@ async function createConsoleFixture(options: { mailbox?: string } = {}) {
     redirect_uris: ["http://127.0.0.1"],
   };
   const service = new PersonalOpsService(paths, config, policy, logger, {
+    createBridgeDbClient: () => options.bridgeDbClient ?? new NoopBridgeDbClient(),
     loadStoredGmailTokens: async () => ({
       email: mailbox,
       clientConfig,
@@ -287,6 +332,36 @@ function seedInboxAutopilotFixture(paths: Paths, mailbox: string): void {
     db.close();
   }
 }
+
+test("console fixtures use injected bridge-db client for activity logging", async () => {
+  class CountingBridgeDbClient extends NoopBridgeDbClient {
+    logs: Array<{ projectName: string; summary: string; tags: string[] }> = [];
+
+    override logActivity(projectName: string, summary: string, tags: string[]): void {
+      this.logs.push({ projectName, summary, tags });
+    }
+  }
+
+  const bridgeDbClient = new CountingBridgeDbClient();
+  const fixture = await createConsoleFixture({ bridgeDbClient });
+  try {
+    const task = fixture.service.createTask(TEST_IDENTITY, {
+      title: "Console bridge isolation task",
+      kind: "human_reminder",
+      priority: "normal",
+      owner: "operator",
+    });
+
+    fixture.service.completeTask(TEST_IDENTITY, task.task_id, "No live bridge-db write");
+
+    assert.equal(bridgeDbClient.logs.length, 1);
+    assert.equal(bridgeDbClient.logs[0]?.projectName, "Console bridge isolation task");
+    assert.deepEqual(bridgeDbClient.logs[0]?.tags, ["TASK_DONE"]);
+  } finally {
+    await new Promise<void>((resolve, reject) => fixture.server.close((error) => (error ? reject(error) : resolve())));
+    fs.rmSync(fixture.baseDir, { recursive: true, force: true });
+  }
+});
 
 function seedPlanningFixture(paths: Paths): { recommendationId: string } {
   const db = new PersonalOpsDb(paths.databaseFile);

@@ -14,7 +14,7 @@ Use the top-level `docs/` folder for current truth:
 Use this archive when you need the detailed delivery trail behind that current state:
 
 - `assistant-led-phases/`
-  Assistant-led phase plans, rollouts, and audits that predate the retained Phase 37 and Phase 38 terminal artifacts in the main `docs/` folder.
+  Assistant-led phase plans, rollouts, audits, and terminal Phase 37/38 artifacts.
 - `legacy-program/`
   The earlier `PHASE-*` planning and rollout sequence that led into the later assistant-led track.
 - `post-launch/`

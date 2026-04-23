@@ -124,6 +124,8 @@ Important desktop-shell rules:
 - it does not widen browser-safe or assistant-safe mutation scope
 - send, approval decisions, restore, auth mutation, and destructive actions remain gated
 
+Local desktop build artifacts under `desktop/dist/` and `desktop/src-tauri/target/` are generated. They can be removed during local storage cleanup and rebuilt with `personal-ops install desktop`.
+
 ## Auth flow
 
 ### Required operator steps

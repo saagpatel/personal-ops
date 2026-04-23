@@ -1,4 +1,4 @@
-import type { BridgeDbClient } from "./bridge-db.js";
+import type { BridgeDbClientLike } from "./bridge-db.js";
 
 export interface AiMemoryEntry {
 	id: number;
@@ -24,7 +24,7 @@ export interface AiProjectSummary {
 }
 
 export async function searchAiMemory(
-	bridgeDb: BridgeDbClient,
+	bridgeDb: BridgeDbClientLike,
 	options: AiMemorySearchOptions,
 ): Promise<AiMemoryEntry[]> {
 	const rows = await bridgeDb.searchActivity(options);
@@ -35,7 +35,7 @@ export async function searchAiMemory(
 }
 
 export async function getAiProjectSummary(
-	bridgeDb: BridgeDbClient,
+	bridgeDb: BridgeDbClientLike,
 	days: number,
 ): Promise<AiProjectSummary[]> {
 	return bridgeDb.getProjectSummary(days);

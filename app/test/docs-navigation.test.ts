@@ -94,13 +94,13 @@ test("primary current-truth doc chain has no dead-end relative links", () => {
   }
 });
 
-test("assistant-led terminal artifacts exist and current-truth docs reflect the completed track", () => {
+test("assistant-led terminal artifacts are archived and current-truth docs reflect the completed track", () => {
   assertRepoFileExists("docs/ASSISTANT-LED-HISTORY-SUMMARY.md");
   assertRepoFileExists("docs/archive/README.md");
-  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-PLAN.md");
-  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-37-ROLLOUT.md");
-  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-PLAN.md");
-  assertRepoFileExists("docs/ASSISTANT-LED-PHASE-38-ROLLOUT.md");
+  assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-37-PLAN.md");
+  assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-37-ROLLOUT.md");
+  assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-38-PLAN.md");
+  assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-38-ROLLOUT.md");
   assertRepoFileExists("docs/archive/assistant-led-phases/ASSISTANT-LED-PHASE-36-PLAN.md");
   assertRepoFileExists("docs/archive/legacy-program/PHASE-33-ROLLOUT.md");
   assertRepoFileExists("docs/archive/post-launch/POST-LAUNCH-PHASE-8-ROLLOUT.md");

@@ -1,19 +1,17 @@
-.PHONY: dev build test lint clean install
+.PHONY: build clean install lint test
 
 install:
-	pnpm install
-
-dev:
-	pnpm dev
+	npm --prefix app install
 
 build:
-	pnpm build
+	npm --prefix app run build
 
 test:
-	pnpm test
+	npm --prefix app test
 
 lint:
-	pnpm lint
+	@echo "No lint script is configured. Use 'npm --prefix app run typecheck' for the current static check." >&2
+	@exit 1
 
 clean:
-	rm -rf node_modules dist .next .turbo
+	rm -rf app/dist desktop/dist desktop/src-tauri/target

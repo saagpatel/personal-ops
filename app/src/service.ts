@@ -16,7 +16,7 @@ import {
 	startGmailAuth,
 	startGoogleAuth,
 } from "./auth.js";
-import { BridgeDbClient } from "./bridge-db.js";
+import { BridgeDbClient, type BridgeDbClientLike } from "./bridge-db.js";
 import {
 	cancelGoogleCalendarEvent,
 	createGoogleCalendarEvent,
@@ -400,6 +400,7 @@ interface PersonalOpsDependencies {
 	deleteKeychainSecret: typeof deleteKeychainSecret;
 	openExternalUrl: (url: string) => void;
 	inspectLaunchAgent: typeof inspectInstalledLaunchAgent;
+	createBridgeDbClient: () => BridgeDbClientLike;
 }
 
 const SETUP_REQUIRED_IDS = new Set([
@@ -714,6 +715,7 @@ const defaultDependencies: PersonalOpsDependencies = {
 		execFileSync("open", [url]);
 	},
 	inspectLaunchAgent: inspectInstalledLaunchAgent,
+	createBridgeDbClient: () => new BridgeDbClient(),
 };
 
 type AutopilotRunRequest = {
@@ -759,7 +761,7 @@ export class PersonalOpsService {
 	private reviewReadModelRefreshInFlight: Promise<void> | null = null;
 	private reviewReadModelRefreshDepth = 0;
 	private readonly hub: NotificationHubClient;
-	private readonly bridgeDb: BridgeDbClient;
+	private readonly bridgeDb: BridgeDbClientLike;
 	private readonly portfolioReader: PortfolioReader;
 	private readonly notionSnapshot: NotionSnapshotReader;
 	private readonly warehouseReader: WarehouseReader;
@@ -780,7 +782,7 @@ export class PersonalOpsService {
 			...dependencies,
 		};
 		this.hub = new NotificationHubClient(logger);
-		this.bridgeDb = new BridgeDbClient();
+		this.bridgeDb = this.dependencies.createBridgeDbClient();
 		this.portfolioReader = new PortfolioReader();
 		this.notionSnapshot = new NotionSnapshotReader();
 		this.warehouseReader = new WarehouseReader();

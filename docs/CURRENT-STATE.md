@@ -1,9 +1,9 @@
 # Current State
 
-Date: 2026-04-17
-Status: Stable baseline after cleanup plus Operator Home Phase 1
+Date: 2026-04-23
+Status: Stable baseline after audit fixes and runtime repair
 
-This note captures the repo state after the April 2026 audit, stabilization, and documentation cleanup pass, plus the first Operator Home implementation slice that followed it.
+This note captures the repo state after the April 2026 audit, stabilization, documentation cleanup pass, Operator Home Phase 1, and the follow-up audit fixes on `codex/personal-ops-audit-fixes`.
 
 ## What changed recently
 
@@ -22,6 +22,16 @@ This note captures the repo state after the April 2026 audit, stabilization, and
 - introduced provenance, freshness, and confidence metadata on top-level home items
 - aligned console and CLI/status formatting around the same operator-home story
 
+### Audit fix pass
+
+- refreshed wrappers and the optional desktop app so install checks match the current checkout
+- re-authenticated Gmail and Google grants for the configured mailbox
+- created a fresh recovery snapshot after auth repair
+- added a bridge-db dependency seam so tests can avoid writing to the live bridge database
+- updated the Hono override to the fixed advisory range
+- replaced the stale root `Makefile` pnpm workflow with npm-backed app commands
+- archived the terminal Phase 37 and Phase 38 artifacts under `docs/archive/assistant-led-phases/`
+
 ## Current repo posture
 
 `personal-ops` is currently in a strong maintenance-and-iteration state:
@@ -30,18 +40,22 @@ This note captures the repo state after the April 2026 audit, stabilization, and
 - Operator Home Phase 1 is merged on top of that stable baseline
 - the repo keeps a stable local-first product baseline with CLI, daemon, HTTP API, MCP bridge, browser console, and optional desktop shell
 - the top-level docs now prioritize current truth, while deep implementation history lives under `docs/archive/`
-- the repo is back on clean `main` after PR #61
-- the branch is ready for further feature work without needing another cleanup pass first
+- the live install, doctor, and health checks are ready after the April 23 repair pass
+- the active audit-fix branch is ready for review after verification completes
 
 ## Verification status
 
-The cleanup and follow-on Operator Home work were verified locally with:
+The cleanup, Operator Home, and audit-fix work were verified locally with:
 
 - `npm run typecheck`
 - `npm run build`
 - focused CLI and docs-navigation checks
 - `npm test`
 - `npm run release:check:ci`
+- `npm audit`
+- `personal-ops install check --json`
+- `personal-ops doctor --deep --json`
+- `personal-ops health check --deep --json`
 
 At the end of the latest pass:
 
@@ -49,6 +63,7 @@ At the end of the latest pass:
 - the docs-navigation checks passed
 - the CI-style local release baseline passed
 - the Operator Home Phase 1 merge was rechecked on current `main`
+- the live runtime returned to `ready` after wrapper, desktop, auth, and snapshot repair
 
 ## What to read first when resuming
 
@@ -66,13 +81,14 @@ If you need the historical implementation trail:
 
 ## Current product direction
 
-The next build direction is no longer cleanup. The current product direction is to grow `personal-ops` toward an Operator Home.
+The next build direction is no longer emergency cleanup. The current product direction is to grow `personal-ops` toward an Operator Home while continuing small maintainability extractions.
 
 What is already true:
 
 - the repo has a stable verified baseline
 - the first Operator Home shell is now present in `workspace_home`
 - that shell is intentionally local-first and does not yet stitch in broader sibling-system integrations
+- bridge-db activity logging is now injectable so tests can stay isolated from live operating state
 
 What that means for the next session:
 
@@ -86,4 +102,5 @@ Good next-session starting points:
 
 - choose the next Operator Home slice to build on top of Workspace Home 2.0
 - decide whether the next step is Operator Inbox foundations, Decision Console foundations, or deeper working-set / evidence-card refinement
+- continue extracting high-churn code out of `app/src/service.ts` only behind compatibility facades
 - keep using the current docs layer for truth and the archive only for deep history

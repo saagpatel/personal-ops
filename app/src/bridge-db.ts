@@ -16,6 +16,22 @@ export interface BridgeActivityEntry {
 	created_at: string;
 }
 
+export interface BridgeActivitySearchEntry {
+	id: number;
+	source: string;
+	timestamp: string;
+	project_name: string;
+	summary: string;
+	branch: string | null;
+	tags: string[];
+}
+
+export interface BridgeProjectSummaryEntry {
+	project_name: string;
+	session_count: number;
+	latest: string;
+}
+
 export interface BridgeCostRecord {
 	id: number;
 	system: "cc" | "codex";
@@ -49,6 +65,34 @@ export interface AiActivitySummary {
 	open_handoffs: BridgeHandoff[];
 	/** Compact one-line summary for briefings */
 	briefing_line: string;
+}
+
+export interface BridgeContextSection {
+	section_name: string;
+	owner: string;
+	content: string;
+	updated_at: string;
+}
+
+export interface BridgeDbClientLike {
+	close(): Promise<void>;
+	getActivitySummary(days?: number): Promise<AiActivitySummary>;
+	searchActivity(options?: {
+		query?: string;
+		project?: string;
+		days?: number;
+		limit?: number;
+	}): Promise<BridgeActivitySearchEntry[]>;
+	getProjectSummary(days?: number): Promise<BridgeProjectSummaryEntry[]>;
+	getContextSections(): Promise<BridgeContextSection[]>;
+	logActivity(
+		projectName: string,
+		summary: string,
+		tags: string[],
+		branch?: string | null,
+	): void;
+	recordCost(system: string, month: string, amount: number): void;
+	saveSnapshot(data: Record<string, unknown>): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +166,7 @@ function unavailableSummary(): AiActivitySummary {
 // BridgeDbClient — long-lived MCP subprocess, one connection per daemon
 // ---------------------------------------------------------------------------
 
-export class BridgeDbClient {
+export class BridgeDbClient implements BridgeDbClientLike {
 	private mcpClient: Client | null = null;
 	private connectPromise: Promise<Client> | null = null;
 
@@ -312,17 +356,7 @@ export class BridgeDbClient {
 		project?: string;
 		days?: number;
 		limit?: number;
-	}): Promise<
-		Array<{
-			id: number;
-			source: string;
-			timestamp: string;
-			project_name: string;
-			summary: string;
-			branch: string | null;
-			tags: string[];
-		}>
-	> {
+	} = {}): Promise<BridgeActivitySearchEntry[]> {
 		try {
 			const client = await this.ensureConnected();
 			const days = options.days ?? 30;
@@ -386,10 +420,8 @@ export class BridgeDbClient {
 	 * Aggregate activity_log by project for the morning briefing AI yesterday section.
 	 */
 	async getProjectSummary(
-		days: number,
-	): Promise<
-		Array<{ project_name: string; session_count: number; latest: string }>
-	> {
+		days = 7,
+	): Promise<BridgeProjectSummaryEntry[]> {
 		try {
 			const client = await this.ensureConnected();
 			const result = await client.callTool({
@@ -435,14 +467,7 @@ export class BridgeDbClient {
 	/**
 	 * Read context_sections (long-lived context written by other agents).
 	 */
-	async getContextSections(): Promise<
-		Array<{
-			section_name: string;
-			owner: string;
-			content: string;
-			updated_at: string;
-		}>
-	> {
+	async getContextSections(): Promise<BridgeContextSection[]> {
 		try {
 			const client = await this.ensureConnected();
 			const result = await client.callTool({
