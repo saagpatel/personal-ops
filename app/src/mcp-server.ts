@@ -291,6 +291,21 @@ const tools = [
 		},
 	},
 	{
+		name: "operator_inbox",
+		description:
+			"Show the unified read-only Operator Inbox across personal-ops, bridge-db, notification-hub, Repo Auditor, and Notion snapshots.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				local_only: {
+					type: "boolean",
+					description: "When true, skip external read adapters.",
+				},
+			},
+			additionalProperties: false,
+		},
+	},
+	{
 		name: "notification_feed",
 		description:
 			"Read recent events from the notification-hub unified event bus (127.0.0.1:9199). " +
@@ -1108,6 +1123,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 	}
 	if (name === "personal_ops_worklist") {
 		const response = await requestJson("GET", "/v1/worklist");
+		return {
+			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+		};
+	}
+	if (name === "operator_inbox") {
+		assertAllowedToolArgs(args, ["local_only"], "operator_inbox");
+		const response = await requestJson(
+			"GET",
+			args.local_only ? "/v1/inbox/operator?external=0" : "/v1/inbox/operator",
+		);
 		return {
 			content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
 		};

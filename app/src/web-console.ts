@@ -83,6 +83,7 @@ export function isConsoleBrowserRoute(method: string, pathname: string): boolean
       pathname === "/v1/worklist" ||
       pathname === "/v1/assistant/actions" ||
       pathname === "/v1/inbox/autopilot" ||
+      pathname === "/v1/inbox/operator" ||
       pathname === "/v1/outbound/autopilot" ||
       pathname.startsWith("/v1/outbound/autopilot/groups/") ||
       pathname === "/v1/workflows/now-next" ||

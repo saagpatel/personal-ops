@@ -209,3 +209,46 @@ export function formatInboxAutopilot(report: InboxAutopilotReport): string {
 	}
 	return lines.join("\n");
 }
+
+export function formatOperatorInboxReport(report: import("../types.js").OperatorInboxReport): string {
+	const lines: string[] = [];
+	lines.push("Operator Inbox");
+	lines.push(line("Generated", report.generated_at));
+	lines.push(line("Summary", report.summary));
+	lines.push(
+		line(
+			"Priorities",
+			`P0 ${report.counts_by_priority.P0} / P1 ${report.counts_by_priority.P1} / P2 ${report.counts_by_priority.P2} / P3 ${report.counts_by_priority.P3}`,
+		),
+	);
+	lines.push("");
+	lines.push("Top Items");
+	if (report.top_items.length === 0) {
+		lines.push("- Nothing needs operator attention right now.");
+	} else {
+		for (const item of report.top_items) {
+			lines.push(
+				`- [${item.priority}] ${item.title} (${item.state.replaceAll("_", " ")})`,
+			);
+			lines.push(`  ${truncate(item.summary, 120)}`);
+			if (item.why_now) {
+				lines.push(`  why now: ${truncate(item.why_now, 120)}`);
+			}
+			const command = item.safe_actions.find((action) => action.command)?.command;
+			if (command) {
+				lines.push(`  next: ${command}`);
+			}
+			lines.push(
+				`  source: ${item.source_label} / ${item.freshness} / ${item.confidence}`,
+			);
+		}
+	}
+	lines.push("");
+	lines.push("Sources");
+	for (const source of report.sources) {
+		lines.push(
+			`- ${source.source}: ${source.available ? "available" : "unavailable"} / ${source.item_count} item${source.item_count === 1 ? "" : "s"}. ${source.summary}`,
+		);
+	}
+	return lines.join("\n");
+}

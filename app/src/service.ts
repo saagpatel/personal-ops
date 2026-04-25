@@ -151,6 +151,7 @@ import {
 	requestApprovalForOutboundGroup,
 	sendOutboundGroup,
 } from "./service/outbound-autopilot.js";
+import { buildOperatorInboxReport } from "./service/operator-inbox.js";
 import { buildWorkspaceHomeSummary } from "./service/operator-home.js";
 import {
 	applyPlanningAutopilotBundle,
@@ -251,6 +252,7 @@ import {
 	type MeetingPrepPacket,
 	type OutboundAutopilotActionResult,
 	type OutboundAutopilotGroup,
+	type OperatorInboxReport,
 	type OutboundAutopilotReport,
 	type OwnedCalendarSummary,
 	type Paths,
@@ -945,6 +947,48 @@ export class PersonalOpsService {
 				this.statusWorkspaceHomeDepth - 1,
 			);
 		}
+	}
+
+	async getOperatorInboxReport(options: {
+		httpReachable: boolean;
+		includeExternal?: boolean;
+	}): Promise<OperatorInboxReport> {
+		const [
+			status,
+			worklist,
+			assistantQueue,
+			nowNext,
+			inboxAutopilot,
+			planningAutopilot,
+			outboundAutopilot,
+		] = await Promise.all([
+			this.getStatusReport({ httpReachable: options.httpReachable }),
+			this.getWorklistReport({ httpReachable: options.httpReachable }),
+			this.getAssistantActionQueueReport({ httpReachable: options.httpReachable }),
+			this.getNowNextWorkflowReport({ httpReachable: options.httpReachable }),
+			this.getInboxAutopilotReport({ httpReachable: options.httpReachable }),
+			this.getPlanningAutopilotReport({ httpReachable: options.httpReachable }),
+			this.getOutboundAutopilotReport({ httpReachable: options.httpReachable }),
+		]);
+		const includeExternal = options.includeExternal ?? true;
+		const external = includeExternal
+			? {
+				bridge: await this.bridgeDb.getActivitySummary(7),
+				hub_events: this.hub.readRecentEvents(50),
+				portfolio: this.portfolioReader.getPortfolioHealth(),
+				notion: this.notionSnapshot.getSummary(),
+			}
+			: undefined;
+		return buildOperatorInboxReport({
+			status,
+			worklist,
+			assistant_queue: assistantQueue,
+			now_next: nowNext,
+			inbox_autopilot: inboxAutopilot,
+			planning_autopilot: planningAutopilot,
+			outbound_autopilot: outboundAutopilot,
+			...(external ? { external } : {}),
+		});
 	}
 
 	async getAutopilotStatusReport(

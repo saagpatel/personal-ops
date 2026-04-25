@@ -2963,6 +2963,67 @@ export interface OperatorItem {
 	evidence: EvidenceCard;
 }
 
+export type OperatorInboxSource =
+	| "personal_ops"
+	| "bridge_db"
+	| "repo_auditor"
+	| "notion"
+	| "notification_hub";
+
+export type OperatorInboxPriority = "P0" | "P1" | "P2" | "P3";
+
+export type OperatorInboxState =
+	| "info"
+	| "review_needed"
+	| "approval_needed"
+	| "blocked"
+	| "ready_to_act"
+	| "waiting"
+	| "done";
+
+export interface OperatorInboxAction {
+	label: string;
+	command: string | null;
+	safety: "read_only" | "existing_operator_gate" | "external_source";
+}
+
+export interface OperatorInboxItem {
+	id: string;
+	source: OperatorInboxSource;
+	source_label: string;
+	source_ref: string | null;
+	title: string;
+	summary: string;
+	why_now: string | null;
+	priority: OperatorInboxPriority;
+	state: OperatorInboxState;
+	owner: "operator" | "assistant" | "system";
+	freshness: OperatorFreshness;
+	confidence: OperatorConfidence;
+	created_at: string | null;
+	source_url_or_command: string | null;
+	safe_actions: OperatorInboxAction[];
+	evidence: EvidenceCard;
+}
+
+export interface OperatorInboxSourceState {
+	source: OperatorInboxSource;
+	available: boolean;
+	summary: string;
+	captured_at: string | null;
+	item_count: number;
+}
+
+export interface OperatorInboxReport {
+	generated_at: string;
+	summary: string;
+	items: OperatorInboxItem[];
+	top_items: OperatorInboxItem[];
+	counts_by_priority: Record<OperatorInboxPriority, number>;
+	counts_by_state: Record<OperatorInboxState, number>;
+	sources: OperatorInboxSourceState[];
+}
+
 export interface WorkspaceHomeSummary {
 	ready: boolean;
 	state: WorkspaceHomeState;

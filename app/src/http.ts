@@ -919,6 +919,18 @@ export function createHttpServer(
 				return;
 			}
 
+			if (request.method === "GET" && url.pathname === "/v1/inbox/operator") {
+				if (!auth) throw new HttpError(401, "Authentication required.");
+				const external = url.searchParams.get("external");
+				sendJson(response, 200, {
+					operator_inbox: await service.getOperatorInboxReport({
+						httpReachable: true,
+						includeExternal: external !== "0" && external !== "false",
+					}),
+				});
+				return;
+			}
+
 			if (request.method === "GET" && url.pathname === "/v1/calendar/status") {
 				sendJson(response, 200, {
 					calendar: service.getCalendarStatusReport(),

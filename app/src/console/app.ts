@@ -4,11 +4,6 @@ import {
 	reviewApprovalConsoleFlowNoteText,
 	reviewApprovalSupportingNoteText,
 } from "../review-approval-presentation.js";
-import {
-	emptyWorkspaceHomeSummary,
-	operatorHomeSectionItems,
-	workspaceHomeSectionFallback,
-} from "../service/operator-home.js";
 import type {
 	ApprovalDetail,
 	ApprovalRequest,
@@ -28,6 +23,7 @@ import type {
 	MeetingPrepPacket,
 	OutboundAutopilotActionResult,
 	OutboundAutopilotGroup,
+	OperatorInboxReport,
 	OutboundAutopilotReport,
 	PlanningAutopilotBundle,
 	PlanningAutopilotReport,
@@ -54,6 +50,62 @@ import type {
 	WorklistReport,
 } from "../types.js";
 
+
+function emptyWorkspaceHomeSummary(): ServiceStatusReport["workspace_home"] {
+	return {
+		ready: false,
+		state: "caught_up",
+		title: "The workspace is loading",
+		summary: "The shared workspace focus is loading local operator state.",
+		why_now: null,
+		primary_command: null,
+		secondary_summary: null,
+		assistant_action_id: null,
+		workflow: null,
+		maintenance_state: null,
+		mode: "focus",
+		mode_summary: "Focus mode emphasizes the strongest current item while keeping supporting context compact.",
+		primary_focus: null,
+		ready_decisions: [],
+		active_commitments: [],
+		waiting_drift: [],
+		system_posture: [],
+	};
+}
+
+function operatorHomeSectionItems(summary: ServiceStatusReport["workspace_home"]): Array<{
+	key: "primary_focus" | "ready_decisions" | "active_commitments" | "waiting_drift" | "system_posture";
+	title: string;
+	items: NonNullable<ServiceStatusReport["workspace_home"]["ready_decisions"]>;
+}> {
+	return [
+		{
+			key: "primary_focus",
+			title: "Primary Focus",
+			items: summary.primary_focus ? [summary.primary_focus] : [],
+		},
+		{ key: "ready_decisions", title: "Ready Decisions", items: summary.ready_decisions ?? [] },
+		{ key: "active_commitments", title: "Active Commitments", items: summary.active_commitments ?? [] },
+		{ key: "waiting_drift", title: "Waiting / Drift", items: summary.waiting_drift ?? [] },
+		{ key: "system_posture", title: "System Posture", items: summary.system_posture ?? [] },
+	];
+}
+
+function workspaceHomeSectionFallback(
+	key: "ready_decisions" | "active_commitments" | "waiting_drift" | "system_posture",
+): string {
+	switch (key) {
+		case "ready_decisions":
+			return "No operator decisions are currently queued at the top of the home surface.";
+		case "active_commitments":
+			return "No active commitments are currently leading the home surface.";
+		case "waiting_drift":
+			return "Nothing is quietly drifting at the top of the current home surface.";
+		case "system_posture":
+			return "System posture is not available yet.";
+	}
+}
+
 type SectionId =
 	| "overview"
 	| "review"
@@ -71,6 +123,7 @@ interface ConsolePayload {
 	worklist: WorklistReport;
 	assistantQueue: AssistantActionQueueReport;
 	inboxAutopilot: InboxAutopilotReport;
+	operatorInbox: OperatorInboxReport;
 	outboundAutopilot: OutboundAutopilotReport;
 	nowNextWorkflow: WorkflowBundleReport;
 	prepDayWorkflow: WorkflowBundleReport;
@@ -116,6 +169,10 @@ interface AssistantQueueResponse {
 
 interface InboxAutopilotResponse {
 	inbox_autopilot: InboxAutopilotReport;
+}
+
+interface OperatorInboxResponse {
+	operator_inbox: OperatorInboxReport;
 }
 
 interface OutboundAutopilotResponse {
@@ -1172,6 +1229,23 @@ function buildCoreConsolePayload(input: {
 			prepared_draft_count: 0,
 			groups: [],
 		},
+		operatorInbox: {
+			generated_at: generatedAt,
+			summary: "Operator inbox is loading.",
+			items: [],
+			top_items: [],
+			counts_by_priority: { P0: 0, P1: 0, P2: 0, P3: 0 },
+			counts_by_state: {
+				info: 0,
+				review_needed: 0,
+				approval_needed: 0,
+				blocked: 0,
+				ready_to_act: 0,
+				waiting: 0,
+				done: 0,
+			},
+			sources: [],
+		},
 		outboundAutopilot: {
 			generated_at: generatedAt,
 			readiness,
@@ -1522,6 +1596,7 @@ async function loadDeferredPayload(): Promise<Partial<ConsolePayload>> {
 		assistantQueueResponse,
 		inboxAutopilotResponse,
 		outboundAutopilotResponse,
+		operatorInboxResponse,
 		workflowResponse,
 		prepMeetingsWorkflowResponse,
 		approvalsResponse,
@@ -1536,6 +1611,7 @@ async function loadDeferredPayload(): Promise<Partial<ConsolePayload>> {
 		fetchJson<AssistantQueueResponse>("/v1/assistant/actions"),
 		fetchJson<InboxAutopilotResponse>("/v1/inbox/autopilot"),
 		fetchJson<OutboundAutopilotResponse>("/v1/outbound/autopilot"),
+		fetchJson<OperatorInboxResponse>("/v1/inbox/operator?external=0"),
 		fetchJson<WorkflowResponse>("/v1/workflows/prep-day"),
 		fetchJson<WorkflowResponse>("/v1/workflows/prep-meetings?scope=today"),
 		fetchJson<ApprovalQueueResponse>("/v1/approval-queue?limit=20"),
@@ -1552,6 +1628,7 @@ async function loadDeferredPayload(): Promise<Partial<ConsolePayload>> {
 		assistantQueue: assistantQueueResponse.assistant_queue,
 		inboxAutopilot: inboxAutopilotResponse.inbox_autopilot,
 		outboundAutopilot: outboundAutopilotResponse.outbound_autopilot,
+		operatorInbox: operatorInboxResponse.operator_inbox,
 		prepDayWorkflow: workflowResponse.workflow,
 		prepMeetingsWorkflow: prepMeetingsWorkflowResponse.workflow,
 		approvals: approvalsResponse.approval_requests,
@@ -2427,6 +2504,51 @@ function renderOperatorHomeSection(
       <p class="eyebrow">${escapeHtml(section.title)}</p>
       ${section.items.map((item) => renderOperatorHomeItem(item)).join("")}
     </div>
+  `;
+}
+
+function renderOperatorInboxCard(report: OperatorInboxReport): string {
+	const topItems = report.top_items.slice(0, 3);
+	return `
+    <section class="detail-card">
+      <p class="eyebrow">Operator inbox</p>
+      <div class="list-item__top">
+        <h3>${escapeHtml(topItems[0]?.title ?? "No operator inbox items waiting")}</h3>
+        <span class="pill">${escapeHtml(`P0 ${report.counts_by_priority.P0} · P1 ${report.counts_by_priority.P1}`)}</span>
+      </div>
+      <p>${escapeHtml(report.summary)}</p>
+      <div class="detail-stack">
+        ${
+			topItems.length > 0
+				? topItems
+						.map(
+							(item) => `
+          <article class="list-item">
+            <div class="list-item__top">
+              <h4>${escapeHtml(item.title)}</h4>
+              <span class="pill">${escapeHtml(`${item.priority} · ${item.state.replaceAll("_", " ")}`)}</span>
+            </div>
+            <p>${escapeHtml(item.summary)}</p>
+            ${item.why_now ? `<p class="subtle subtle--body">${escapeHtml(item.why_now)}</p>` : ""}
+            <p class="subtle subtle--body">${escapeHtml(`Source: ${item.source_label} · ${item.freshness} · ${item.confidence}`)}</p>
+            ${
+								item.safe_actions.find((action) => action.command)?.command
+									? `<div class="list-item__actions list-item__actions--stack">${commandAction(item.safe_actions.find((action) => action.command)?.command ?? "personal-ops inbox operator")}</div>`
+									: ""
+							}
+          </article>
+        `,
+						)
+						.join("")
+				: `<p class="subtle subtle--body">The operator inbox is clear right now.</p>`
+		}
+      </div>
+      <p class="subtle subtle--body">${escapeHtml(
+			report.sources
+				.map((source) => `${source.source}: ${source.available ? "available" : "unavailable"}`)
+				.join(" · ") || "Sources are loading.",
+		)}</p>
+    </section>
   `;
 }
 
@@ -3477,6 +3599,7 @@ function renderOverview(payload: ConsolePayload): string {
 	const focusIsMaintenance = workspaceHome.state === "maintenance";
 	return `
     ${renderWorkspaceFocusCard(workspaceHome)}
+    ${renderOperatorInboxCard(payload.operatorInbox)}
     <section class="hero">
       <p class="eyebrow">Top-level readiness</p>
       <div class="list-item__top">

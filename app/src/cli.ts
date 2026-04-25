@@ -43,6 +43,7 @@ import {
   formatInstallCheckReport,
   formatInstallManifest,
   formatInboxAutopilot,
+  formatOperatorInboxReport,
   formatInboxStatus,
   formatInboxThreadDetail,
   formatInboxThreads,
@@ -539,6 +540,20 @@ inbox
   .action(async (options) => {
     const response = await requestJson<{ inbox: unknown }>("GET", "/v1/inbox/status");
     printOutput(response, (value) => formatInboxStatus(value.inbox), options.json);
+  });
+
+
+inbox
+  .command("operator")
+  .description("Show the unified operator inbox across local and read-only external signals.")
+  .option("--local-only", "Skip external read adapters")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const search = new URLSearchParams();
+    if (options.localOnly) search.set("external", "0");
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    const response = await requestJson<{ operator_inbox: unknown }>("GET", `/v1/inbox/operator${suffix}`);
+    printOutput(response, (value) => formatOperatorInboxReport(value.operator_inbox as any), options.json);
   });
 
 inbox
