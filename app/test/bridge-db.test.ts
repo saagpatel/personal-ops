@@ -8,10 +8,22 @@ import { BridgeDbClient } from "../src/bridge-db.js";
 // ---------------------------------------------------------------------------
 
 type ToolArgs = Record<string, unknown>;
-type CallToolResult = { content: Array<{ type: string; text: string }> };
+type CallToolResult = {
+	content: Array<{ type: string; text: string }>;
+	structuredContent?: { result: unknown };
+};
 
 function textResult(data: unknown): CallToolResult {
 	return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+
+function structuredResult(data: unknown): CallToolResult {
+	return {
+		content: Array.isArray(data)
+			? data.map((entry) => ({ type: "text", text: JSON.stringify(entry) }))
+			: [{ type: "text", text: JSON.stringify(data) }],
+		structuredContent: { result: data },
+	};
 }
 
 /**
@@ -132,6 +144,45 @@ test("getActivitySummary: returns compiled summary with activity, costs, handoff
 	assert.ok(Array.isArray(result.open_handoffs));
 	assert.ok(typeof result.briefing_line === "string");
 	assert.equal(result.open_handoffs.length, 1);
+});
+
+test("getActivitySummary: reads structured MCP results with per-row text content", async () => {
+	const month = new Date().toISOString().slice(0, 7);
+	const responses = [
+		structuredResult([
+			{
+				system: "cc",
+				month,
+				amount: 50.0,
+				notes: null,
+				recorded_at: "2026-04-14",
+			},
+		]),
+		structuredResult([
+			{
+				id: 1,
+				source: "cc",
+				timestamp: "2026-04-14",
+				project_name: "TestProject",
+				summary: "did stuff",
+				branch: null,
+				tags: [],
+				created_at: "2026-04-14T00:00:00Z",
+			},
+		]),
+		structuredResult([]),
+	];
+	let callIdx = 0;
+	const client = new TestBridgeDbClient(() =>
+		Promise.resolve(responses[callIdx++] ?? structuredResult([])),
+	);
+
+	const result = await client.getActivitySummary(7);
+
+	assert.equal(result.briefing_line.includes("AI"), true);
+	assert.equal(result.monthly_costs.length, 1);
+	assert.equal(result.recent_activity.length, 1);
+	assert.equal(result.recent_activity[0]?.project_name, "TestProject");
 });
 
 test("getActivitySummary: returns unavailable summary on connect error", async () => {

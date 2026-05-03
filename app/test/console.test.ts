@@ -40,6 +40,10 @@ const TEST_IDENTITY: ClientIdentity = {
   auth_role: "operator",
 };
 
+function isoHoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
 const consoleServicesToClose = new Set<PersonalOpsService>();
 
 class NoopBridgeDbClient implements BridgeDbClientLike {
@@ -1837,12 +1841,12 @@ test("phase 34 console replaces the generic review focus note when the proof gat
       assistant_action_id: flow.assistant_action_id,
       summary_snapshot: flow.summary,
       command_snapshot: flow.primary_command,
-      surfaced_at: "2026-04-13T10:00:00.000Z",
-      last_seen_at: "2026-04-13T10:05:00.000Z",
+      surfaced_at: isoHoursAgo(13),
+      last_seen_at: isoHoursAgo(12),
       state: "helpful",
       evidence_kind: "approval_progressed",
-      acted_at: "2026-04-13T10:05:00.000Z",
-      closed_at: "2026-04-13T10:05:00.000Z",
+      acted_at: isoHoursAgo(12),
+      closed_at: isoHoursAgo(12),
       ...overrides,
     });
 
@@ -1853,21 +1857,21 @@ test("phase 34 console replaces the generic review focus note when the proof gat
         evidence_kind: "timed_out",
         surfaced_state: "approval_needed",
         acted_at: undefined,
-        closed_at: "2026-04-13T11:05:00.000Z",
+        closed_at: isoHoursAgo(10),
       }),
       record("superseded", {
         state: "superseded",
         evidence_kind: "superseded",
         surfaced_state: "send_ready",
         acted_at: undefined,
-        closed_at: "2026-04-13T12:05:00.000Z",
+        closed_at: isoHoursAgo(8),
       }),
       record("recovery", {
         state: "attempted_failed",
         evidence_kind: "regressed_to_recovery",
         surfaced_state: "approval_needed",
         acted_at: undefined,
-        closed_at: "2026-04-13T13:05:00.000Z",
+        closed_at: isoHoursAgo(6),
       }),
     ]) {
       fixture.service.db.upsertReviewApprovalFlowOutcome(entry as any);

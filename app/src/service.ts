@@ -12859,7 +12859,8 @@ export class PersonalOpsService {
 		const summaries = this.listInboxThreadSummaries(
 			MAX_INBOX_LIMIT,
 			(summary) =>
-				["needs_reply", "stale_followup"].includes(summary.derived_kind),
+				["needs_reply", "stale_followup"].includes(summary.derived_kind) &&
+				!this.isNotificationLikeThread(summary),
 			(left, right) => {
 				const priorityRank = (value: InboxThreadSummary["derived_kind"]) =>
 					value === "needs_reply" ? 0 : 1;
@@ -13220,7 +13221,10 @@ export class PersonalOpsService {
 				return false;
 			}
 			const summary = this.buildInboxThreadSummary(thread);
-			return ["needs_reply", "stale_followup"].includes(summary.derived_kind);
+			return (
+				["needs_reply", "stale_followup"].includes(summary.derived_kind) &&
+				!this.isNotificationLikeThread(summary)
+			);
 		}
 		const event = recommendation.source_calendar_event_id
 			? this.db.getCalendarEvent(recommendation.source_calendar_event_id)

@@ -13585,6 +13585,65 @@ test("assistant-led phase 6 planning autopilot reuses inbox autopilot groups and
 	assert.equal(preparedEvent.bundle.apply_ready, true);
 });
 
+test("assistant-led phase 6 planning autopilot ignores notification-like thread follow-ups", async () => {
+	const { service, accountEmail } = createFixture();
+	const now = Date.now();
+	seedMailboxReadyState(service, accountEmail, "planning-notification-ready");
+	service.db.upsertMailMessage(
+		accountEmail,
+		buildMessage("planning-notification-msg", accountEmail, {
+			thread_id: "thread-planning-notification",
+			history_id: "planning-notification-1",
+			internal_date: String(now - 90 * 60 * 1000),
+			label_ids: ["INBOX", "UNREAD"],
+			from_header: "Security <no-reply@example.com>",
+			subject: "Security alert",
+		}),
+		new Date(now - 90 * 60 * 1000).toISOString(),
+	);
+	service.db.createPlanningRecommendation(cliIdentity, {
+		kind: "schedule_thread_followup",
+		status: "pending",
+		priority: "high",
+		source: "system_generated",
+		source_thread_id: "thread-planning-notification",
+		proposed_start_at: new Date(now + 30 * 60 * 1000).toISOString(),
+		proposed_end_at: new Date(now + 60 * 60 * 1000).toISOString(),
+		proposed_title: "Notification follow-up",
+		reason_code: "needs_reply",
+		reason_summary: "Reply to notification-like security alert.",
+		dedupe_key: "schedule_thread_followup:thread-planning-notification",
+		source_fingerprint: "thread:planning-notification:1",
+		source_last_seen_at: new Date(now).toISOString(),
+		slot_state: "ready",
+		slot_reason: "earliest_free_in_business_window",
+		trigger_signals: ["needs_reply"],
+		suppressed_signals: [],
+		group_key: "urgent_inbox_followups",
+		group_summary: "Urgent inbox follow-ups can be time-boxed",
+	});
+
+	service.refreshPlanningRecommendations(cliIdentity);
+	const activeFollowups = service
+		.listPlanningRecommendations({
+			include_resolved: false,
+			kind: "schedule_thread_followup",
+		})
+		.filter(
+			(recommendation) =>
+				recommendation.source_thread_id === "thread-planning-notification",
+		);
+	const report = await service.getPlanningAutopilotReport({
+		httpReachable: true,
+	});
+
+	assert.equal(activeFollowups.length, 0);
+	assert.equal(
+		report.bundles.some((bundle) => bundle.kind === "thread_followup"),
+		false,
+	);
+});
+
 test("assistant-led phase 6 grouped planning apply requires confirmation and records bundle audit history", async () => {
 	const { service, accountEmail } = createFixture({
 		verifyCalendarWriteImpl: async () => {},

@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { existsSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Types (unchanged public API)
@@ -108,11 +109,25 @@ function parseJsonSafe<T>(text: unknown, fallback: T): T {
 	}
 }
 
-function extractText(result: {
-	content: Array<{ type: string; text?: string }>;
-}): string {
-	const first = result.content.find((c) => c.type === "text");
-	return first?.text ?? "[]";
+function toolResultData<T>(result: unknown, fallback: T): T {
+	const structured = (result as { structuredContent?: { result?: unknown } } | null)
+		?.structuredContent;
+	if (structured && Object.hasOwn(structured, "result")) {
+		return structured.result as T;
+	}
+	const content =
+		(result as { content?: Array<{ type: string; text?: string }> } | null)
+			?.content ?? [];
+	const texts = content
+		.filter((entry) => entry.type === "text" && typeof entry.text === "string")
+		.map((entry) => entry.text as string);
+	if (texts.length === 0) {
+		return fallback;
+	}
+	if (texts.length === 1) {
+		return parseJsonSafe<T>(texts[0], fallback);
+	}
+	return texts.map((text) => parseJsonSafe<unknown>(text, null)) as T;
 }
 
 function currentMonth(): string {
@@ -162,6 +177,15 @@ function unavailableSummary(): AiActivitySummary {
 	};
 }
 
+function uvCommand(): string {
+	const configured = process.env["BRIDGE_DB_UV"] ?? process.env["UV_EXECUTABLE"];
+	if (configured) return configured;
+	for (const candidate of ["/opt/homebrew/bin/uv", "/usr/local/bin/uv"]) {
+		if (existsSync(candidate)) return candidate;
+	}
+	return "uv";
+}
+
 // ---------------------------------------------------------------------------
 // BridgeDbClient — long-lived MCP subprocess, one connection per daemon
 // ---------------------------------------------------------------------------
@@ -178,7 +202,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 			const bridgeDbDir =
 				process.env["BRIDGE_DB_DIR"] ?? "/Users/d/Projects/bridge-db";
 			const transport = new StdioClientTransport({
-				command: "uv",
+				command: uvCommand(),
 				args: ["run", "--directory", bridgeDbDir, "python", "-m", "bridge_db"],
 			});
 			const client = new Client(
@@ -243,7 +267,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 				client.callTool({ name: "get_pending_handoffs", arguments: {} }),
 			]);
 
-			const costsRaw = parseJsonSafe<
+			const costsRaw = toolResultData<
 				Array<{
 					system: string;
 					month: string;
@@ -251,12 +275,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 					notes: string | null;
 					recorded_at: string;
 				}>
-			>(
-				extractText(
-					costsResult as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(costsResult, []);
 
 			const monthly_costs = costsRaw
 				.filter((r) => r.month === month || r.month === prevMonth)
@@ -266,7 +285,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 					amount_usd: r.amount,
 				}));
 
-			const activityRaw = parseJsonSafe<
+			const activityRaw = toolResultData<
 				Array<{
 					id: number;
 					source: string;
@@ -277,12 +296,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 					tags: string[];
 					created_at: string;
 				}>
-			>(
-				extractText(
-					activityResult as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(activityResult, []);
 
 			const recent_activity: BridgeActivityEntry[] = activityRaw.map((r) => ({
 				id: r.id,
@@ -295,7 +309,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 				created_at: r.created_at,
 			}));
 
-			const handoffsRaw = parseJsonSafe<
+			const handoffsRaw = toolResultData<
 				Array<{
 					id: number;
 					project_name: string;
@@ -308,12 +322,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 					cleared_at: string | null;
 					status: string;
 				}>
-			>(
-				extractText(
-					handoffsResult as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(handoffsResult, []);
 
 			const open_handoffs: BridgeHandoff[] = handoffsRaw.map((r) => ({
 				id: r.id,
@@ -371,7 +380,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 				arguments: args,
 			});
 
-			const rows = parseJsonSafe<
+			const rows = toolResultData<
 				Array<{
 					id: number;
 					source: string;
@@ -381,12 +390,7 @@ export class BridgeDbClient implements BridgeDbClientLike {
 					branch: string | null;
 					tags: string[];
 				}>
-			>(
-				extractText(
-					result as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(result, []);
 
 			return rows
 				.filter((r) => {
@@ -429,14 +433,9 @@ export class BridgeDbClient implements BridgeDbClientLike {
 				arguments: { since: sinceDate(days), limit: 200 },
 			});
 
-			const rows = parseJsonSafe<
+			const rows = toolResultData<
 				Array<{ project_name: string; timestamp: string }>
-			>(
-				extractText(
-					result as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(result, []);
 
 			// Group client-side
 			const projectMap = new Map<string, { count: number; latest: string }>();
@@ -474,19 +473,14 @@ export class BridgeDbClient implements BridgeDbClientLike {
 				name: "get_all_sections",
 				arguments: {},
 			});
-			const rows = parseJsonSafe<
+			const rows = toolResultData<
 				Array<{
 					section_name: string;
 					owner: string;
 					content: string;
 					updated_at: string;
 				}>
-			>(
-				extractText(
-					result as { content: Array<{ type: string; text?: string }> },
-				),
-				[],
-			);
+			>(result, []);
 			return rows;
 		} catch (err) {
 			console.error("[bridge-db] getContextSections failed:", err);

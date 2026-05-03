@@ -433,6 +433,10 @@ function notionItems(notion: NotionSnapshotSummary | null | undefined): Operator
 	);
 }
 
+function bridgeAvailable(summary: AiActivitySummary | null | undefined): boolean {
+	return Boolean(summary && summary.briefing_line !== "bridge-db not available");
+}
+
 function sourceState(input: {
 	source: OperatorInboxSource;
 	available: boolean;
@@ -502,7 +506,7 @@ export function buildOperatorInboxReport(input: OperatorInboxInput): OperatorInb
 		counts_by_state: countsByState,
 		sources: [
 			sourceState({ source: "personal_ops", available: true, summary: input.status.workspace_home.summary ?? input.status.workspace_home.title, captured_at: input.status.generated_at, items }),
-			sourceState({ source: "bridge_db", available: Boolean(input.external?.bridge), summary: input.external?.bridge?.briefing_line ?? "bridge-db unavailable or not requested", captured_at: input.external?.bridge?.recent_activity[0]?.timestamp ?? null, items }),
+			sourceState({ source: "bridge_db", available: bridgeAvailable(input.external?.bridge), summary: input.external?.bridge?.briefing_line ?? "bridge-db unavailable or not requested", captured_at: input.external?.bridge?.recent_activity[0]?.timestamp ?? null, items }),
 			sourceState({ source: "notification_hub", available: Boolean(input.external?.hub_events), summary: input.external?.hub_events ? `${input.external.hub_events.length} recent events read` : "notification-hub events unavailable or not requested", captured_at: input.external?.hub_events?.[0]?.received_at ?? null, items }),
 			sourceState({ source: "repo_auditor", available: Boolean(input.external?.portfolio?.generated_at), summary: input.external?.portfolio?.briefing_line ?? "portfolio truth unavailable or not requested", captured_at: input.external?.portfolio?.generated_at ?? null, items }),
 			sourceState({ source: "notion", available: Boolean(input.external?.notion?.available), summary: input.external?.notion?.briefing_line ?? "Notion snapshot unavailable or not requested", captured_at: input.external?.notion?.generated_at ?? null, items }),

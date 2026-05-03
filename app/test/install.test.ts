@@ -28,6 +28,10 @@ const cliIdentity: ClientIdentity = {
   auth_role: "operator",
 };
 
+function isoHoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
 class NoopBridgeDbClient implements BridgeDbClientLike {
   async close(): Promise<void> {}
 
@@ -413,8 +417,8 @@ test("phase 17 install check summarizes preventive maintenance from recurring sa
     const db = new PersonalOpsDb(fixture.paths.databaseFile);
     db.createRepairExecution({
       step_id: "install_wrappers",
-      started_at: "2026-04-01T18:00:00.000Z",
-      completed_at: "2026-04-01T18:05:00.000Z",
+      started_at: isoHoursAgo(73),
+      completed_at: isoHoursAgo(72),
       requested_by_client: "personal-ops-cli",
       requested_by_actor: "operator",
       trigger_source: "repair_run",
@@ -426,8 +430,8 @@ test("phase 17 install check summarizes preventive maintenance from recurring sa
     });
     db.createRepairExecution({
       step_id: "install_wrappers",
-      started_at: "2026-04-03T18:00:00.000Z",
-      completed_at: "2026-04-03T18:05:00.000Z",
+      started_at: isoHoursAgo(49),
+      completed_at: isoHoursAgo(48),
       requested_by_client: "personal-ops-cli",
       requested_by_actor: "operator",
       trigger_source: "repair_run",

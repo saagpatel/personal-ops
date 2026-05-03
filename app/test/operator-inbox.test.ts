@@ -231,6 +231,29 @@ test("Operator Inbox exposes read-only external sources without hiding local ite
 	assert.equal(report.items.find((item) => item.source === "bridge_db")?.safe_actions[0]?.safety, "read_only");
 });
 
+test("Operator Inbox marks bridge-db unavailable when the bridge summary is unavailable", () => {
+	const report = buildOperatorInboxReport({
+		status: baseStatus(operatorItem({ id: "system-posture-readiness" })),
+		worklist: emptyWorklist(),
+		assistant_queue: { ...assistantQueue(), actions: [] },
+		...emptyReports(),
+		external: {
+			bridge: {
+				current_month: "2026-05",
+				monthly_costs: [],
+				recent_activity: [],
+				open_handoffs: [],
+				briefing_line: "bridge-db not available",
+			},
+		},
+	});
+	const bridge = report.sources.find((source) => source.source === "bridge_db");
+
+	assert.equal(bridge?.available, false);
+	assert.equal(bridge?.summary, "bridge-db not available");
+	assert.equal(bridge?.item_count, 0);
+});
+
 test("Operator Inbox formatter keeps compact human output and read-only source state", async () => {
 	const { formatOperatorInboxReport } = await import("../src/formatters.js");
 	const report = buildOperatorInboxReport({
