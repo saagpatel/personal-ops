@@ -88,6 +88,8 @@ Use this path if you want to:
   The shortest role-based onboarding path for a new operator or a new assistant.
 - [CLIENTS.md](CLIENTS.md)
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
+- [docs/CHATGPT-CODEX-HANDOFF.md](docs/CHATGPT-CODEX-HANDOFF.md)
+  The draft protocol for using ChatGPT memory and Codex local verification together.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
   The current and future source of truth for the completed assistant-led initiative, now through Phase 38.
 - [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md)
