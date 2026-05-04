@@ -33,6 +33,8 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 ### ChatGPT and Codex handoff protocol was added
 
 - added `docs/CHATGPT-CODEX-HANDOFF.md` for compact, verified Codex-to-ChatGPT packets
+- added `docs/CODEX-CHATGPT-MACHINE-SNAPSHOT.md` to orient ChatGPT before cross-project strategy asks
+- added `docs/CROSS-PROJECT-COORDINATION.md` to preserve sibling-system ownership boundaries
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
 - kept mutation, send, publish, and auth-sensitive actions under explicit operator approval
@@ -84,7 +86,7 @@ At the time of this checkpoint:
 - `/Users/d/Projects/bridge-db` is clean and aligned with `origin/main`
 - `/Users/d/Projects/GithubRepoAuditor` is clean and aligned with `origin/main`
 - `/Users/d/Projects/notification-hub` is clean and aligned with `origin/main`
-- `/Users/d/Notion` has active local Notion repair edits and should be handled in the separate Notion lane
+- `/Users/d/Notion` has local command-center ID edits and should be handled in the separate Notion lane
 
 ## What to read first when resuming
 
@@ -93,6 +95,7 @@ If you need current truth:
 - `README.md`
 - `START-HERE.md`
 - `docs/CHATGPT-CODEX-HANDOFF.md`
+- `docs/CROSS-PROJECT-COORDINATION.md`
 - this file
 
 If you need architecture and operating contracts:
@@ -119,6 +122,7 @@ What is already true:
 - bridge-db remains the cross-agent bridge, while `personal-ops` remains the operator-facing hub
 - send-adjacent and external mutations remain gated by explicit operator approval
 - docs now include a first draft of the Codex-to-ChatGPT handoff protocol
+- docs now include a cross-project coordination contract for the five-project local operating layer
 
 What that means for the next session:
 

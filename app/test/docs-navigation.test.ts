@@ -58,6 +58,7 @@ test("START-HERE routes current readers to roadmap truth and historical readers 
     "ARCHITECTURE.md",
     "CLIENTS.md",
     "docs/ASSISTANT-LED-ROADMAP.md",
+    "docs/CROSS-PROJECT-COORDINATION.md",
     "docs/ASSISTANT-LED-HISTORY-SUMMARY.md",
     "docs/archive/README.md",
     "docs/NEW-MACHINE-SETUP.md",

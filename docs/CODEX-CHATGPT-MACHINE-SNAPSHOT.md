@@ -2,7 +2,7 @@
 
 Snapshot ID: handoff-20260503-124815-cross-project-machine-map
 Created: 2026-05-03 12:48:15 PDT
-Status: Draft snapshot for review before pasting into ChatGPT; refreshed against local git status on 2026-05-03 19:37 PDT
+Status: Draft snapshot sent to ChatGPT; refreshed against local git status on 2026-05-03 22:51 PDT
 
 ## Purpose
 
@@ -75,9 +75,9 @@ The user called one project `GitHubrepoeditor`; current local evidence points to
 
 `Notion`:
 
-- Git: `main` is aligned with `origin/main`, with active local repair edits in:
-  - `src/notion/execution-sync.ts`
-  - `src/notion/project-markdown-refresh-contract.ts`
+- Git: `main` is aligned with `origin/main`, with local command-center ID edits in:
+  - `config/destinations.json`
+  - `config/local-portfolio-control-tower.json`
 - Governance check: `npm run governance:health-report` reports `status: healthy` and no immediate operator follow-up.
 - Local Notion OS snapshot exists at `/Users/d/.local/share/notion-os/project-snapshot.json`, modified 2026-05-03 09:54:44 PDT.
 
@@ -111,7 +111,7 @@ The user called one project `GitHubrepoeditor`; current local evidence points to
 
 ## Active Cautions
 
-- `Notion` has local repair edits in progress; do not assume a clean tree there until the separate Notion lane finishes.
+- `Notion` has local command-center ID edits; do not assume a clean tree there until those edits are reviewed.
 - `GithubRepoAuditor` has Notion integration warnings in doctor output because Notion token/config are not available in that repo context.
 - `notification-hub` reports healthy, but Slack delivery should not be treated as end-to-end proven unless a fresh send/smoke path is explicitly approved and run.
 - bridge-db should not be expanded into a broad knowledge store; current scope is state coordination plus lexical recall and observability.
@@ -140,7 +140,7 @@ The user called one project `GitHubrepoeditor`; current local evidence points to
 ## Recommended Next Coordination Moves
 
 1. Review this snapshot with the user.
-2. Review the Notion local repair edits before treating the Notion repo as clean.
+2. Review the Notion local command-center ID edits before treating the Notion repo as clean.
 3. Decide whether this snapshot should be pasted into ChatGPT as-is or trimmed for a narrower strategy question.
 4. Send this snapshot to ChatGPT in the `Codex-ChatGPT` project and ask for strategic advice only after the user approves the packet.
 5. Keep the first ChatGPT ask focused on cross-tool coordination, not new automation.
@@ -177,7 +177,7 @@ Codex created a local machine snapshot covering five coordinated projects:
 Current cautions:
 
 - `personal-ops` is currently ready after wrapper and desktop refresh.
-- `Notion` governance is healthy, but the repo has active local repair edits.
+- `Notion` governance is healthy, but the repo has local command-center ID edits.
 - `GithubRepoAuditor`, `bridge-db`, and `notification-hub` are clean and aligned with their remotes.
 - `bridge-db` is a state bridge, not a general knowledge store.
 - `notification-hub` is healthy by status, but Slack delivery should not be treated as end-to-end proven without a fresh approved smoke/send path.
