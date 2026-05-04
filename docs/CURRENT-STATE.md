@@ -1,7 +1,7 @@
 # Current State
 
 Date: 2026-05-04
-Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, read-only baseline selection, read-only baseline verification, v0 change classification, and v0 verification prompts are verified or in active verification.
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the ChatGPT response contract, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, read-only baseline selection, read-only baseline verification, v0 change classification, and v0 verification prompts are verified or in active verification.
 
 This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
@@ -33,6 +33,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 ### ChatGPT and Codex handoff protocol was added
 
 - added `docs/CHATGPT-CODEX-HANDOFF.md` for compact, verified Codex-to-ChatGPT packets
+- added `docs/CHATGPT-RESPONSE-CONTRACT.md` to keep ChatGPT responses advisory until Codex verifies them locally and the user approves action
 - added `docs/CODEX-CHATGPT-MACHINE-SNAPSHOT.md` to orient ChatGPT before cross-project strategy asks
 - added `docs/CROSS-PROJECT-COORDINATION.md` to preserve sibling-system ownership boundaries
 - added `docs/COORDINATION-SNAPSHOT-SCHEMA.md` plus `personal-ops coordination snapshot` for a derived, read-only handoff lens
@@ -43,6 +44,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - added `docs/COORDINATION-BASELINE-VERIFICATION.md` plus always-on `baseline_verification` mode for no-diff or empty-diff ChatGPT briefings
 - added `docs/COORDINATION-CHANGE-CLASSIFICATION.md` plus deterministic read-only classification for snapshot diffs and ChatGPT briefings
 - added `docs/COORDINATION-VERIFICATION-PROMPTS.md` plus human-readable read-only verification prompts derived from classifications
+- added focused baseline packet coverage so the green no-diff packet keeps its response contract, advisory boundary, and deferred Notion language
 - added `personal-ops health explain --json` for read-only health-state explainability when handoff packets need clearer current readiness context
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
@@ -114,6 +116,7 @@ If you need current truth:
 - `README.md`
 - `START-HERE.md`
 - `docs/CHATGPT-CODEX-HANDOFF.md`
+- `docs/CHATGPT-RESPONSE-CONTRACT.md`
 - `docs/CROSS-PROJECT-COORDINATION.md`
 - `docs/COORDINATION-SNAPSHOT-SCHEMA.md`
 - `docs/COORDINATION-BASELINE.md`

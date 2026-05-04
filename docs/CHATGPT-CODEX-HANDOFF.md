@@ -57,6 +57,18 @@ Do not use ChatGPT memory as proof of current local state.
 - Keep the operator in charge of approval, live sends, external publishing, destructive changes, and auth-sensitive work.
 - Keep the first version documentary; do not add automation or `bridge-db` integration until the manual loop proves useful.
 
+## Round-Trip Semantics
+
+The normal loop is:
+
+```text
+Codex packet -> ChatGPT briefing -> Codex verification plan -> user approval -> local action
+```
+
+ChatGPT responses are advisory. Codex turns them into local checks before acting, and the user remains the approval source for live sends, publishing, destructive changes, auth-sensitive work, and broad scope changes.
+
+Use `docs/CHATGPT-RESPONSE-CONTRACT.md` for the expected ChatGPT response shape and the rules Codex follows when translating ChatGPT guidance back into local work.
+
 Suggested packet ID format:
 
 ```text
@@ -160,6 +172,8 @@ Packet response for:
 
 -
 ```
+
+Codex should read this response as guidance, not execution approval. Repo, health, source, branch, test, and browser claims still need local verification before implementation.
 
 ## Notion-Style Summary
 

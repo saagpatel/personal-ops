@@ -1145,6 +1145,7 @@ export function buildCoordinationBriefing(
 	lines.push("Docs in Personal Ops:");
 	lines.push("");
 	lines.push("- `docs/CHATGPT-CODEX-HANDOFF.md`: handoff protocol.");
+	lines.push("- `docs/CHATGPT-RESPONSE-CONTRACT.md`: advisory ChatGPT response contract.");
 	lines.push(
 		"- `docs/CROSS-PROJECT-COORDINATION.md`: ownership boundaries and source-of-truth order.",
 	);
@@ -1230,6 +1231,7 @@ export function buildCoordinationBriefing(
 	lines.push(
 		"- Treat this as guidance for Codex, not permission to execute local changes.",
 	);
+	lines.push("- No ChatGPT recommendation is execution approval.");
 	lines.push(
 		"- Keep command output summarized unless exact excerpts are necessary.",
 	);

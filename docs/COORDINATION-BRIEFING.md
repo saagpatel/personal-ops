@@ -68,6 +68,7 @@ The briefing includes:
 - a local verification checklist for Codex
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
+- a link to the ChatGPT response contract that keeps responses advisory
 
 Packet IDs use:
 
@@ -88,6 +89,8 @@ Codex verifies locally before implementation
 ```
 
 This keeps ChatGPT useful for memory, strategy, risk framing, and sequencing without letting it become proof of local state.
+
+ChatGPT responses follow `docs/CHATGPT-RESPONSE-CONTRACT.md`. The response is advisory until Codex verifies it locally and the user approves any action that needs approval.
 
 ## Read-Only Diff
 

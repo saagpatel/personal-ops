@@ -15,6 +15,10 @@ import {
 	type CoordinationSnapshot,
 } from "../src/coordination-snapshot.js";
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function coordinationSnapshotFixture(
 	overrides: Partial<CoordinationSnapshot> = {},
 ): CoordinationSnapshot {
@@ -265,6 +269,46 @@ test("buildCoordinationBriefing emits a ChatGPT packet without claiming Notion s
 	assert.match(briefing.markdown, /Notion: deferred/);
 	assert.match(briefing.markdown, /Do not pull Notion into this lane/);
 	assert.doesNotMatch(briefing.markdown, /active_projects/);
+});
+
+test("buildCoordinationBriefing baseline packet keeps the advisory response contract stable", () => {
+	const briefing = buildCoordinationBriefing(coordinationSnapshotFixture());
+	const expectedSections = [
+		"# Codex -> ChatGPT Handoff",
+		"Packet ID: handoff-20260504T064511-coordination-snapshot",
+		"Coordination Mode: baseline_verification",
+		"## Verified Local Facts",
+		"## Significant Changes",
+		"## Suggested Verification Prompts (Read-Only)",
+		"Docs in Personal Ops:",
+		"`docs/CHATGPT-RESPONSE-CONTRACT.md`: advisory ChatGPT response contract.",
+		"## Local Verification Checklist For Codex",
+		"# ChatGPT -> Codex Briefing",
+		"## Memory-Based Context",
+		"## Inferences Or Strategy",
+		"## Local Verification Still Needed",
+		"## Risks Or Cautions",
+		"## Recommended Next Codex Actions",
+		"## Questions For The User",
+		"## Boundaries",
+		"No ChatGPT recommendation is execution approval.",
+	];
+
+	for (const expected of expectedSections) {
+		assert.match(briefing.markdown, new RegExp(escapeRegExp(expected)));
+	}
+
+	assert.deepEqual(briefing.source_diff, null);
+	assert.deepEqual(briefing.change_classification, null);
+	assert.deepEqual(briefing.verification_prompts, {
+		included: true,
+		total_prompts: 4,
+		source: "baseline_verification",
+	});
+	assert.doesNotMatch(briefing.markdown, /Mode: diff/);
+	assert.doesNotMatch(briefing.markdown, /diff_classification/);
+	assert.match(briefing.markdown, /Notion: deferred/);
+	assert.match(briefing.markdown, /Do not pull Notion into this lane/);
 });
 
 test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes", () => {

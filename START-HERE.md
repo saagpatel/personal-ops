@@ -90,6 +90,8 @@ Use this path if you want to:
   The shared client contract for assistants and MCP consumers, including the assistant-safe GitHub and Drive read surfaces.
 - [docs/CHATGPT-CODEX-HANDOFF.md](docs/CHATGPT-CODEX-HANDOFF.md)
   The draft protocol for using ChatGPT memory and Codex local verification together.
+- [docs/CHATGPT-RESPONSE-CONTRACT.md](docs/CHATGPT-RESPONSE-CONTRACT.md)
+  The advisory response contract for turning ChatGPT guidance into local Codex verification and user-approved action.
 - [docs/CROSS-PROJECT-COORDINATION.md](docs/CROSS-PROJECT-COORDINATION.md)
   The coordination contract for using personal-ops with Notion, GithubRepoAuditor, bridge-db, and notification-hub without creating another source of truth.
 - [docs/COORDINATION-SNAPSHOT-SCHEMA.md](docs/COORDINATION-SNAPSHOT-SCHEMA.md)
