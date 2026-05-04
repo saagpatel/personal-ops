@@ -1,7 +1,7 @@
 # Current State
 
 Date: 2026-05-04
-Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, read-only baseline selection, v0 change classification, and v0 verification prompts are verified or in active verification.
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, read-only baseline selection, read-only baseline verification, v0 change classification, and v0 verification prompts are verified or in active verification.
 
 This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
@@ -40,6 +40,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - extended `personal-ops coordination briefing --for chatgpt --from <snapshot-json>` to include a read-only change summary in the ChatGPT packet
 - added `personal-ops coordination diff --from <snapshot-json>` for read-only comparison against a manually supplied prior snapshot file
 - added `docs/COORDINATION-BASELINE.md` plus `--against previous|last-green --candidate <snapshot-json>` for deterministic read-only baseline selection from operator-supplied candidate files
+- added `docs/COORDINATION-BASELINE-VERIFICATION.md` plus always-on `baseline_verification` mode for no-diff or empty-diff ChatGPT briefings
 - added `docs/COORDINATION-CHANGE-CLASSIFICATION.md` plus deterministic read-only classification for snapshot diffs and ChatGPT briefings
 - added `docs/COORDINATION-VERIFICATION-PROMPTS.md` plus human-readable read-only verification prompts derived from classifications
 - added `personal-ops health explain --json` for read-only health-state explainability when handoff packets need clearer current readiness context
@@ -69,6 +70,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 - `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
 - `personal-ops coordination snapshot --json`: available as the read-only cross-project handoff lens; it reports Notion as intentionally deferred for this lane
 - `personal-ops coordination briefing --for chatgpt`: available as the read-only Markdown packet surface for the Codex-ChatGPT project
+- `personal-ops coordination briefing --for chatgpt`: emits `baseline_verification` mode when no prior diff is supplied
 - `personal-ops coordination briefing --for chatgpt --from <snapshot-json>`: available when the ChatGPT packet should include changes since a manually supplied prior snapshot
 - `personal-ops coordination diff --from <snapshot-json>`: available as the read-only change summary when a prior snapshot file is manually supplied
 - `personal-ops coordination diff --against last-green --candidate <snapshot-json>`: available as a read-only comparison against the newest supplied green baseline candidate
@@ -115,6 +117,7 @@ If you need current truth:
 - `docs/CROSS-PROJECT-COORDINATION.md`
 - `docs/COORDINATION-SNAPSHOT-SCHEMA.md`
 - `docs/COORDINATION-BASELINE.md`
+- `docs/COORDINATION-BASELINE-VERIFICATION.md`
 - `docs/COORDINATION-BRIEFING.md`
 - `docs/COORDINATION-CHANGE-CLASSIFICATION.md`
 - `docs/COORDINATION-VERIFICATION-PROMPTS.md`

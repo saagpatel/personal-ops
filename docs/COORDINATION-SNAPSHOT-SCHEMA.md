@@ -56,6 +56,8 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json 
 
 Verification prompts consume only classification output. They tell Codex what to verify, not what to do.
 
+When a ChatGPT briefing has no prior diff or an empty diff, it uses baseline verification prompts from the current snapshot instead of diff classification. See `docs/COORDINATION-BASELINE-VERIFICATION.md`.
+
 ## Scope
 
 Included in v1:
@@ -85,6 +87,7 @@ Notion is intentionally deferred because active Notion work is handled in a sepa
 | change classification | `personal-ops coordination diff` output | Derived only from changed fields. It must not call sibling systems. |
 | verification prompts | change classification output | Derived only from classifications. They must stay human-readable and read-only. |
 | baseline selection | operator-supplied coordination snapshot files | Derived only from supplied candidates. It must not write a baseline registry. |
+| baseline verification | current coordination snapshot | Used only when a briefing has no diff signal. It must stay minimal and read-only. |
 
 If a future field has more than one possible owner, do not add it until the owner is explicit.
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	buildCoordinationBriefing,
+	buildCoordinationBaselineVerificationPrompts,
 	buildCoordinationSnapshotDiff,
 	buildCoordinationVerificationPrompts,
 	classifyCoordinationSnapshotDiff,
@@ -247,9 +248,19 @@ test("buildCoordinationBriefing emits a ChatGPT packet without claiming Notion s
 		"handoff-20260504T064511-coordination-snapshot",
 	);
 	assert.equal(briefing.target, "chatgpt");
+	assert.equal(briefing.coordination_mode, "baseline_verification");
+	assert.deepEqual(briefing.verification_prompts, {
+		included: true,
+		total_prompts: 4,
+		source: "baseline_verification",
+	});
 	assert.match(briefing.markdown, /# Codex -> ChatGPT Handoff/);
 	assert.match(briefing.markdown, /ChatGPT Project: Codex-ChatGPT/);
+	assert.match(briefing.markdown, /Coordination Mode: baseline_verification/);
 	assert.match(briefing.markdown, /No prior snapshot diff was supplied/);
+	assert.match(briefing.markdown, /Mode: baseline_verification/);
+	assert.match(briefing.markdown, /Confirm included repos are clean/);
+	assert.match(briefing.markdown, /Confirm Notion is still intentionally deferred/);
 	assert.match(briefing.markdown, /Local Verification Checklist For Codex/);
 	assert.match(briefing.markdown, /Notion: deferred/);
 	assert.match(briefing.markdown, /Do not pull Notion into this lane/);
@@ -359,6 +370,29 @@ test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes"
 	assert.match(formatted, /health:overall.overall: green -> yellow/);
 });
 
+test("buildCoordinationBaselineVerificationPrompts derives minimal current-snapshot checks", () => {
+	const snapshot = coordinationSnapshotFixture();
+	const first = buildCoordinationBaselineVerificationPrompts(snapshot);
+	const second = buildCoordinationBaselineVerificationPrompts(snapshot);
+
+	assert.equal(first.summary.total_prompts, 4);
+	assert.deepEqual(
+		first.prompts.map((prompt) => prompt.entity),
+		["repos", "health", "sources", "notion"],
+	);
+	assert.deepEqual(first.prompts, second.prompts);
+	assert.ok(
+		first.prompts.every(
+			(prompt) => prompt.derived_from.source === "current_snapshot",
+		),
+	);
+	assert.ok(
+		first.prompts.some((prompt) =>
+			prompt.check.includes("Confirm required coordination sources remain reachable"),
+		),
+	);
+});
+
 test("selectCoordinationBaselineSnapshot chooses latest previous or latest green candidate", () => {
 	const earlyGreen = coordinationSnapshotFixture({
 		generated_at: "2026-05-04T06:00:00.000Z",
@@ -426,6 +460,7 @@ test("last trusted green baseline prevents stale yellow replay", () => {
 	const briefing = buildCoordinationBriefing(currentGreen, diff);
 
 	assert.equal(diff.previous_snapshot.overall, "green");
+	assert.equal(briefing.coordination_mode, "diff");
 	assert.equal(diff.baseline?.source_path, "/tmp/trusted-green.json");
 	assert.match(formatted, /Compared against: last trusted green snapshot/);
 	assert.match(briefing.markdown, /Compared against: last trusted green snapshot/);
@@ -603,6 +638,36 @@ test("classifyCoordinationSnapshotDiff stays quiet for no-op diffs", () => {
 	assert.equal(classification.summary.total_classifications, 0);
 	assert.equal(classification.summary.highest_severity, null);
 	assert.deepEqual(classification.classifications, []);
+});
+
+test("buildCoordinationBriefing uses baseline verification for identical snapshots", () => {
+	const snapshot = coordinationSnapshotFixture();
+	const diff = buildCoordinationSnapshotDiff(snapshot, snapshot, {
+		kind: "explicit",
+		label: "explicit snapshot from 2026-05-04T06:45:11.157Z",
+		source_path: "/tmp/same.json",
+	});
+	const briefing = buildCoordinationBriefing(snapshot, diff);
+
+	assert.equal(briefing.coordination_mode, "baseline_verification");
+	assert.deepEqual(briefing.source_diff, {
+		included: true,
+		total_changes: 0,
+	});
+	assert.deepEqual(briefing.change_classification, {
+		included: true,
+		total_classifications: 0,
+		highest_severity: null,
+	});
+	assert.deepEqual(briefing.verification_prompts, {
+		included: true,
+		total_prompts: 4,
+		source: "baseline_verification",
+	});
+	assert.match(briefing.markdown, /Compared against: explicit snapshot/);
+	assert.match(briefing.markdown, /Changes since prior snapshot: none/);
+	assert.match(briefing.markdown, /Mode: baseline_verification/);
+	assert.match(briefing.markdown, /Confirm Personal Ops health is ready/);
 });
 
 test("buildCoordinationVerificationPrompts derives stable read-only checks", () => {
@@ -875,7 +940,12 @@ test("buildCoordinationBriefing can include a supplied snapshot diff", () => {
 	assert.deepEqual(briefing.verification_prompts, {
 		included: true,
 		total_prompts: 1,
+		source: "diff_classification",
 	});
+	assert.equal(briefing.coordination_mode, "diff");
+	assert.match(briefing.markdown, /Coordination Mode: diff/);
+	assert.match(briefing.markdown, /Mode: diff/);
+	assert.doesNotMatch(briefing.markdown, /Mode: baseline_verification/);
 	assert.match(briefing.markdown, /What changed since prior snapshot/);
 	assert.match(briefing.markdown, /## Significant Changes/);
 	assert.match(briefing.markdown, /## Suggested Verification Prompts \(Read-Only\)/);

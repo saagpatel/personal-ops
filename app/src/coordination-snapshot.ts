@@ -81,6 +81,7 @@ export interface CoordinationBriefing {
 	target: "chatgpt";
 	created_at: string;
 	mode: "general_cross_tool_coordination";
+	coordination_mode: "diff" | "baseline_verification";
 	source_snapshot: {
 		schema_version: CoordinationSnapshot["schema_version"];
 		generated_at: string;
@@ -98,6 +99,7 @@ export interface CoordinationBriefing {
 	verification_prompts: {
 		included: boolean;
 		total_prompts: number;
+		source: "diff_classification" | "baseline_verification" | null;
 	} | null;
 	markdown: string;
 }
@@ -220,6 +222,28 @@ export interface CoordinationVerificationPromptReport {
 		low: number;
 	};
 	prompts: CoordinationVerificationPrompt[];
+	next_actions: string[];
+}
+
+export interface CoordinationBaselineVerificationPrompt {
+	entity: "repos" | "health" | "sources" | "notion";
+	check: string;
+	reason: string;
+	derived_from: {
+		source: "current_snapshot";
+		fields: string[];
+	};
+}
+
+export interface CoordinationBaselineVerificationReport {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	source_snapshot_generated_at: string;
+	summary: {
+		total_prompts: number;
+	};
+	prompts: CoordinationBaselineVerificationPrompt[];
 	next_actions: string[];
 }
 
@@ -926,6 +950,67 @@ export function formatCoordinationVerificationPrompts(
 	return `${lines.join("\n")}\n`;
 }
 
+export function buildCoordinationBaselineVerificationPrompts(
+	snapshot: CoordinationSnapshot,
+): CoordinationBaselineVerificationReport {
+	const prompts: CoordinationBaselineVerificationPrompt[] = [
+		{
+			entity: "repos",
+			check:
+				"Confirm included repos are clean, on their expected branches, and aligned with upstream before treating this as a trusted baseline.",
+			reason: "Baseline trust depends on repo posture staying clean and synced.",
+			derived_from: {
+				source: "current_snapshot",
+				fields: ["repos[].clean", "repos[].branch", "repos[].ahead", "repos[].behind"],
+			},
+		},
+		{
+			entity: "health",
+			check:
+				"Confirm Personal Ops health is ready and has no current health issues before using this packet as a clean handoff baseline.",
+			reason: "Baseline trust depends on current install and deep health readiness.",
+			derived_from: {
+				source: "current_snapshot",
+				fields: ["health.overall", "health.install_check_state", "health.deep_health_state", "health.issues"],
+			},
+		},
+		{
+			entity: "sources",
+			check:
+				"Confirm required coordination sources remain reachable before relying on their facts.",
+			reason: "Baseline trust depends on available GithubRepoAuditor, bridge-db, and notification-hub source reads.",
+			derived_from: {
+				source: "current_snapshot",
+				fields: ["sources.github_repo_auditor.state", "sources.bridge_db.state", "sources.notification_hub.state"],
+			},
+		},
+		{
+			entity: "notion",
+			check:
+				"Confirm Notion is still intentionally deferred in this lane unless the user explicitly reopens it here.",
+			reason: "The baseline is scoped to this coordination lane and must preserve the Notion boundary.",
+			derived_from: {
+				source: "current_snapshot",
+				fields: ["scope.notion_lane", "sources.notion.state"],
+			},
+		},
+	];
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		source_snapshot_generated_at: snapshot.generated_at,
+		summary: {
+			total_prompts: prompts.length,
+		},
+		prompts,
+		next_actions: [
+			"Use baseline prompts as minimal trust checks, not as permission to execute.",
+			"Keep baseline verification read-only and current-snapshot-derived.",
+		],
+	};
+}
+
 function formatClassificationFacts(
 	report: CoordinationChangeClassificationReport,
 ): string[] {
@@ -945,6 +1030,15 @@ function formatVerificationPromptFacts(
 	);
 }
 
+function formatBaselineVerificationPromptFacts(
+	report: CoordinationBaselineVerificationReport,
+): string[] {
+	return [
+		"- Mode: baseline_verification.",
+		...report.prompts.map((prompt) => `- ${prompt.entity}: ${prompt.check}`),
+	];
+}
+
 export function buildCoordinationBriefing(
 	snapshot: CoordinationSnapshot,
 	diff?: CoordinationSnapshotDiff,
@@ -953,9 +1047,17 @@ export function buildCoordinationBriefing(
 	const shouldClassify = options.classifyChanges ?? true;
 	const classification = diff && shouldClassify ? classifyCoordinationSnapshotDiff(diff) : null;
 	const shouldIncludePrompts = options.includeVerificationPrompts ?? true;
+	const coordinationMode =
+		!diff || diff.summary.total_changes === 0
+			? "baseline_verification"
+			: "diff";
 	const verificationPrompts =
-		classification && shouldIncludePrompts
+		coordinationMode === "diff" && classification && shouldIncludePrompts
 			? buildCoordinationVerificationPrompts(classification)
+			: null;
+	const baselineVerificationPrompts =
+		coordinationMode === "baseline_verification" && shouldIncludePrompts
+			? buildCoordinationBaselineVerificationPrompts(snapshot)
 			: null;
 	const packetId = `handoff-${packetTimestamp(snapshot.generated_at)}-coordination-snapshot`;
 	const lines: string[] = [];
@@ -964,6 +1066,7 @@ export function buildCoordinationBriefing(
 	lines.push(`Packet ID: ${packetId}`);
 	lines.push(`Created: ${createdAtLine(snapshot.generated_at)}`);
 	lines.push("Mode: General cross-tool coordination");
+	lines.push(`Coordination Mode: ${coordinationMode}`);
 	lines.push("ChatGPT Project: Codex-ChatGPT");
 	lines.push("");
 	lines.push("## Setup");
@@ -1027,9 +1130,14 @@ export function buildCoordinationBriefing(
 	lines.push("## Suggested Verification Prompts (Read-Only)");
 	lines.push("");
 	if (verificationPrompts) {
+		lines.push("- Mode: diff.");
 		lines.push(...formatVerificationPromptFacts(verificationPrompts));
+	} else if (baselineVerificationPrompts) {
+		lines.push(...formatBaselineVerificationPromptFacts(baselineVerificationPrompts));
 	} else if (classification && !shouldIncludePrompts) {
 		lines.push("- Verification prompts were disabled for this briefing.");
+	} else if (coordinationMode === "baseline_verification" && !shouldIncludePrompts) {
+		lines.push("- Baseline verification prompts were disabled for this briefing.");
 	} else {
 		lines.push("- No change classification was available, so no verification prompts were generated.");
 	}
@@ -1045,6 +1153,9 @@ export function buildCoordinationBriefing(
 	);
 	lines.push(
 		"- `docs/COORDINATION-BASELINE.md`: read-only baseline selection contract.",
+	);
+	lines.push(
+		"- `docs/COORDINATION-BASELINE-VERIFICATION.md`: read-only no-diff baseline verification contract.",
 	);
 	lines.push(
 		"- `docs/COORDINATION-BRIEFING.md`: read-only Markdown packet contract.",
@@ -1129,6 +1240,7 @@ export function buildCoordinationBriefing(
 		target: "chatgpt",
 		created_at: snapshot.generated_at,
 		mode: "general_cross_tool_coordination",
+		coordination_mode: coordinationMode,
 		source_snapshot: {
 			schema_version: snapshot.schema_version,
 			generated_at: snapshot.generated_at,
@@ -1157,12 +1269,26 @@ export function buildCoordinationBriefing(
 			? {
 					included: true,
 					total_prompts: verificationPrompts.summary.total_prompts,
+					source: "diff_classification",
 				}
+			: baselineVerificationPrompts
+				? {
+						included: true,
+						total_prompts: baselineVerificationPrompts.summary.total_prompts,
+						source: "baseline_verification",
+					}
 			: classification && !shouldIncludePrompts
 				? {
 						included: false,
 						total_prompts: 0,
+						source: null,
 					}
+				: coordinationMode === "baseline_verification" && !shouldIncludePrompts
+					? {
+							included: false,
+							total_prompts: 0,
+							source: null,
+						}
 				: null,
 		markdown: `${lines.join("\n")}\n`,
 	};

@@ -40,6 +40,8 @@ By default, a briefing with `--from` also includes a short read-only `Significan
 
 It also includes a short read-only `Suggested Verification Prompts` section. That section is generated from deterministic prompt rules in `docs/COORDINATION-VERIFICATION-PROMPTS.md` and stays human-readable by default.
 
+When no prior diff is supplied, or when the supplied diff is empty, the briefing switches to `baseline_verification` mode and emits minimal read-only trust checks from `docs/COORDINATION-BASELINE-VERIFICATION.md`.
+
 Disable the classification or prompt sections with:
 
 ```bash
@@ -53,6 +55,7 @@ The briefing includes:
 
 - packet ID
 - creation time
+- explicit coordination mode: `diff` or `baseline_verification`
 - Codex app and in-app browser setup
 - source-of-truth boundary reminder
 - snapshot schema and current health, labeled separately from any prior snapshot health
@@ -61,7 +64,7 @@ The briefing includes:
 - optional changed fields from a manually supplied prior snapshot
 - the selected baseline label when a diff is included
 - optional significant change classifications from those changed fields
-- optional read-only verification prompts from those classifications
+- read-only verification prompts from either diff classification or baseline verification mode
 - a local verification checklist for Codex
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
@@ -128,6 +131,8 @@ When a prior snapshot is supplied, the briefing must label prior health as compa
 Classification is additive and derived only from the diff. It labels change meaning, but it does not decide actions.
 
 Verification prompts are additive and derived only from classifications. They tell Codex what to verify, not what to do.
+
+When the diff is empty, the packet does not stay silent. It uses baseline verification prompts instead. These are minimal trust checks derived only from the current snapshot, not from classification.
 
 Use the diff when ChatGPT only needs to understand what changed since the last loop. Use the full briefing when changed fields affect sequencing, risk, or user-facing recommendations.
 
