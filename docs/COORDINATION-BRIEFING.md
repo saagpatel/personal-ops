@@ -31,10 +31,13 @@ The command builds the current `personal-ops coordination snapshot` first, then 
 
 By default, a briefing with `--from` also includes a short read-only `Significant Changes` section. That section is generated from deterministic diff classification rules in `docs/COORDINATION-CHANGE-CLASSIFICATION.md`.
 
-Disable the classification section with:
+It also includes a short read-only `Suggested Verification Prompts` section. That section is generated from deterministic prompt rules in `docs/COORDINATION-VERIFICATION-PROMPTS.md` and stays human-readable by default.
+
+Disable the classification or prompt sections with:
 
 ```bash
 personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json --no-classify
+personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json --no-prompts
 ```
 
 ## Packet Shape
@@ -50,6 +53,7 @@ The briefing includes:
 - source availability for GithubRepoAuditor, bridge-db, notification-hub, and deferred Notion
 - optional changed fields from a manually supplied prior snapshot
 - optional significant change classifications from those changed fields
+- optional read-only verification prompts from those classifications
 - a local verification checklist for Codex
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
@@ -94,9 +98,17 @@ Include deterministic read-only classification with:
 personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --classify
 ```
 
+Include deterministic read-only verification prompts with:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --with-prompts
+```
+
 The diff accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object. It does not write a new snapshot file. It only reports repo, source, and health fields that changed.
 
 Classification is additive and derived only from the diff. It labels change meaning, but it does not decide actions.
+
+Verification prompts are additive and derived only from classifications. They tell Codex what to verify, not what to do.
 
 Use the diff when ChatGPT only needs to understand what changed since the last loop. Use the full briefing when changed fields affect sequencing, risk, or user-facing recommendations.
 
@@ -121,4 +133,4 @@ This keeps one packet shape while still making the change set visible.
 
 The next safe expansion is still read-only: compact and verbose output modes for the generated briefing.
 
-Only add those after the generated briefing with optional diff and v0 classification has been used in real loops and its packet shape stays stable.
+Only add those after the generated briefing with optional diff, v0 classification, and v0 verification prompts has been used in real loops and its packet shape stays stable.

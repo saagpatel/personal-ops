@@ -16,10 +16,12 @@ import {
   buildCoordinationBriefing,
   buildCoordinationSnapshot,
   buildCoordinationSnapshotDiff,
+  buildCoordinationVerificationPrompts,
   classifyCoordinationSnapshotDiff,
   formatCoordinationChangeClassification,
   formatCoordinationSnapshot,
   formatCoordinationSnapshotDiff,
+  formatCoordinationVerificationPrompts,
   type CoordinationSnapshot,
 } from "./coordination-snapshot.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
@@ -1780,6 +1782,7 @@ coordination
   .option("--for <target>", "Briefing target", "chatgpt")
   .option("--from <path>", "Optional prior snapshot JSON file to include a read-only diff")
   .option("--no-classify", "Disable read-only change classification when a prior snapshot is supplied")
+  .option("--no-prompts", "Disable read-only verification prompts when classifications are included")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     if (options.for !== "chatgpt") {
@@ -1789,7 +1792,10 @@ coordination
     const diff = options.from
       ? buildCoordinationSnapshotDiff(readCoordinationSnapshotFile(options.from), snapshot)
       : undefined;
-    const briefing = buildCoordinationBriefing(snapshot, diff, { classifyChanges: options.classify });
+    const briefing = buildCoordinationBriefing(snapshot, diff, {
+      classifyChanges: options.classify,
+      includeVerificationPrompts: options.prompts,
+    });
     printOutput(
       { coordination_briefing: briefing },
       (value) => value.coordination_briefing.markdown,
@@ -1805,20 +1811,25 @@ coordination
   .description("Compare the current read-only coordination snapshot against a manually supplied prior snapshot JSON file.")
   .requiredOption("--from <path>", "Prior snapshot JSON file")
   .option("--classify", "Include read-only deterministic change classification")
+  .option("--with-prompts", "Include read-only verification prompts derived from classifications")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     const previous = readCoordinationSnapshotFile(options.from);
     const current = await buildCoordinationSnapshot(paths, requestJson, logger);
     const diff = buildCoordinationSnapshotDiff(previous, current);
-    const classification = options.classify ? classifyCoordinationSnapshotDiff(diff) : null;
+    const classification = options.classify || options.withPrompts ? classifyCoordinationSnapshotDiff(diff) : null;
+    const prompts = classification && options.withPrompts ? buildCoordinationVerificationPrompts(classification) : null;
     printOutput(
       {
         coordination_snapshot_diff: diff,
         ...(classification ? { coordination_change_classification: classification } : {}),
+        ...(prompts ? { coordination_verification_prompts: prompts } : {}),
       },
       (value) =>
         `${formatCoordinationSnapshotDiff(value.coordination_snapshot_diff)}${
           classification ? `\n${formatCoordinationChangeClassification(classification)}` : ""
+        }${
+          prompts ? `\n${formatCoordinationVerificationPrompts(prompts)}` : ""
         }`,
       options.json,
     );

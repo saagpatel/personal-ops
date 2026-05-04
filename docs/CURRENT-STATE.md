@@ -1,7 +1,7 @@
 # Current State
 
 Date: 2026-05-04
-Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, and v0 change classification are verified or in active verification.
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, v0 change classification, and v0 verification prompts are verified or in active verification.
 
 This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
@@ -40,6 +40,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - extended `personal-ops coordination briefing --for chatgpt --from <snapshot-json>` to include a read-only change summary in the ChatGPT packet
 - added `personal-ops coordination diff --from <snapshot-json>` for read-only comparison against a manually supplied prior snapshot file
 - added `docs/COORDINATION-CHANGE-CLASSIFICATION.md` plus deterministic read-only classification for snapshot diffs and ChatGPT briefings
+- added `docs/COORDINATION-VERIFICATION-PROMPTS.md` plus human-readable read-only verification prompts derived from classifications
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
 - kept mutation, send, publish, and auth-sensitive actions under explicit operator approval
@@ -68,6 +69,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 - `personal-ops coordination briefing --for chatgpt --from <snapshot-json>`: available when the ChatGPT packet should include changes since a manually supplied prior snapshot
 - `personal-ops coordination diff --from <snapshot-json>`: available as the read-only change summary when a prior snapshot file is manually supplied
 - `personal-ops coordination diff --from <snapshot-json> --classify`: available as the read-only significance layer derived only from the diff
+- `personal-ops coordination diff --from <snapshot-json> --with-prompts`: available as the read-only verification prompt layer derived only from classifications
 
 Important live details from that check:
 
@@ -109,6 +111,7 @@ If you need current truth:
 - `docs/COORDINATION-SNAPSHOT-SCHEMA.md`
 - `docs/COORDINATION-BRIEFING.md`
 - `docs/COORDINATION-CHANGE-CLASSIFICATION.md`
+- `docs/COORDINATION-VERIFICATION-PROMPTS.md`
 - this file
 
 If you need architecture and operating contracts:
@@ -140,6 +143,7 @@ What is already true:
 - the first coordination briefing surface is read-only and formats snapshot truth plus optional supplied diffs for ChatGPT without creating another state store
 - the first coordination diff surface is read-only and compares the current snapshot with a manually supplied prior snapshot file
 - v0 change classification is read-only and labels diff meaning without deciding actions
+- v0 verification prompts are read-only and say what Codex should verify without giving execution permission
 
 What that means for the next session:
 
@@ -151,6 +155,7 @@ What that means for the next session:
 - add `--from <snapshot-json>` to the briefing when ChatGPT needs current state plus what changed
 - use `personal-ops coordination diff --from <snapshot-json>` when ChatGPT only needs to see what changed between two manual loops
 - add `--classify` to the diff when ChatGPT or Codex needs a compact significance layer without adding automation
+- add `--with-prompts` to the diff when ChatGPT or Codex needs human-readable verification checks without shell-command-heavy instructions
 - use `npm --prefix app run release:check:ci`, `personal-ops health check --deep --json`, and `personal-ops inbox operator --json` as the primary confidence path for changes near the operator surface
 
 ## Suggested next focus

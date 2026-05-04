@@ -39,6 +39,14 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json 
 
 Classification consumes only the diff output. It labels significance for review and does not decide actions.
 
+Add human-readable read-only verification prompts with:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --with-prompts
+```
+
+Verification prompts consume only classification output. They tell Codex what to verify, not what to do.
+
 ## Scope
 
 Included in v1:
@@ -66,6 +74,7 @@ Notion is intentionally deferred because active Notion work is handled in a sepa
 | `sources.notification_hub` | `http://127.0.0.1:9199/health` and local `events.jsonl` | Health and event-count only in v1. No events are posted. |
 | `sources.notion` | `/Users/d/Notion` and the Notion workspace | Deferred in this lane. |
 | change classification | `personal-ops coordination diff` output | Derived only from changed fields. It must not call sibling systems. |
+| verification prompts | change classification output | Derived only from classifications. They must stay human-readable and read-only. |
 
 If a future field has more than one possible owner, do not add it until the owner is explicit.
 

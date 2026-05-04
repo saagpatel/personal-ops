@@ -21,6 +21,12 @@ Include classification in a ChatGPT briefing:
 personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
 ```
 
+Include derived verification prompts with the diff:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --with-prompts
+```
+
 Disable briefing classification while the contract evolves:
 
 ```bash
@@ -74,3 +80,4 @@ Keep severity minimal:
 - Do not pull Notion into this lane.
 - Do not trigger notifications from classifications.
 - Do not make ChatGPT recommendations execution permission.
+- Do not treat verification prompts as actions; they are covered by `docs/COORDINATION-VERIFICATION-PROMPTS.md`.

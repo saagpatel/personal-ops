@@ -85,7 +85,7 @@ When a prior snapshot file is available and ChatGPT should focus on what changed
 personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
 ```
 
-The generated briefing is read-only and should be treated as a derived packet from `personal-ops coordination snapshot`, not as a new source of truth. When `--from` is supplied, the packet includes a deterministic `Significant Changes` section derived only from the snapshot diff.
+The generated briefing is read-only and should be treated as a derived packet from `personal-ops coordination snapshot`, not as a new source of truth. When `--from` is supplied, the packet includes deterministic `Significant Changes` and `Suggested Verification Prompts` sections derived only from the snapshot diff and classification.
 
 ```markdown
 # Codex -> ChatGPT Handoff

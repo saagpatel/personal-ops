@@ -95,6 +95,10 @@ export interface CoordinationBriefing {
 		total_classifications: number;
 		highest_severity: CoordinationChangeSeverity | null;
 	} | null;
+	verification_prompts: {
+		included: boolean;
+		total_prompts: number;
+	} | null;
 	markdown: string;
 }
 
@@ -163,6 +167,29 @@ export interface CoordinationChangeClassificationReport {
 		highest_severity: CoordinationChangeSeverity | null;
 	};
 	classifications: CoordinationChangeClassification[];
+	next_actions: string[];
+}
+
+export interface CoordinationVerificationPrompt {
+	entity: string;
+	source_type: CoordinationChangeType;
+	severity: CoordinationChangeSeverity;
+	check: string;
+	reason: string;
+}
+
+export interface CoordinationVerificationPromptReport {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	source_classification_generated_at: string;
+	summary: {
+		total_prompts: number;
+		high: number;
+		medium: number;
+		low: number;
+	};
+	prompts: CoordinationVerificationPrompt[];
 	next_actions: string[];
 }
 
@@ -736,6 +763,86 @@ export function formatCoordinationChangeClassification(
 	return `${lines.join("\n")}\n`;
 }
 
+function promptCheckForClassification(
+	classification: CoordinationChangeClassification,
+): string {
+	switch (classification.type) {
+		case "repo_state_recovery":
+			return `Confirm ${classification.name} is clean, on the expected branch, and aligned with its upstream before relying on the recovery.`;
+		case "repo_state_regression":
+			return `Inspect ${classification.name} repo posture before any implementation that depends on it.`;
+		case "repo_branch_change":
+			return `Confirm ${classification.name} is on the branch the current work expects.`;
+		case "commit_advance":
+			return `Confirm ${classification.name} commit movement matches the intended local work.`;
+		case "health_transition":
+			return "Confirm Personal Ops health is still stable before using this packet as a clean handoff baseline.";
+		case "source_availability_change":
+			return `Confirm ${classification.name} source availability before relying on its coordination facts.`;
+		case "source_metadata_change":
+			return `Review ${classification.name} metadata movement if it affects sequencing or risk.`;
+	}
+}
+
+export function buildCoordinationVerificationPrompts(
+	report: CoordinationChangeClassificationReport,
+): CoordinationVerificationPromptReport {
+	const prompts = report.classifications.map((classification) => ({
+		entity: classification.name,
+		source_type: classification.type,
+		severity: classification.severity,
+		check: promptCheckForClassification(classification),
+		reason: classification.reason,
+	}));
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		source_classification_generated_at: report.generated_at,
+		summary: {
+			total_prompts: prompts.length,
+			high: prompts.filter((prompt) => prompt.severity === "high").length,
+			medium: prompts.filter((prompt) => prompt.severity === "medium").length,
+			low: prompts.filter((prompt) => prompt.severity === "low").length,
+		},
+		prompts,
+		next_actions:
+			prompts.length === 0
+				? ["No verification prompts were generated."]
+				: [
+						"Use prompts to focus local verification, not to approve action.",
+						"Keep verification read-only until the user explicitly requests implementation.",
+					],
+	};
+}
+
+export function formatCoordinationVerificationPrompts(
+	report: CoordinationVerificationPromptReport,
+): string {
+	const lines: string[] = [];
+	lines.push("Coordination Verification Prompts");
+	lines.push(`Generated: ${report.generated_at}`);
+	lines.push(`Source classification: ${report.source_classification_generated_at}`);
+	lines.push(
+		`Prompts: ${report.summary.total_prompts} total (${report.summary.high} high, ${report.summary.medium} medium, ${report.summary.low} low)`,
+	);
+	lines.push("");
+	lines.push("Suggested Verification Prompts");
+	if (report.prompts.length === 0) {
+		lines.push("- none");
+	} else {
+		for (const prompt of report.prompts) {
+			lines.push(
+				`- ${prompt.entity} (${prompt.severity}): ${prompt.check}`,
+			);
+		}
+	}
+	lines.push("");
+	lines.push("Next Actions");
+	for (const action of report.next_actions) lines.push(`- ${action}`);
+	return `${lines.join("\n")}\n`;
+}
+
 function formatClassificationFacts(
 	report: CoordinationChangeClassificationReport,
 ): string[] {
@@ -746,13 +853,27 @@ function formatClassificationFacts(
 	);
 }
 
+function formatVerificationPromptFacts(
+	report: CoordinationVerificationPromptReport,
+): string[] {
+	if (report.prompts.length === 0) return ["- none"];
+	return report.prompts.map(
+		(prompt) => `- ${prompt.entity} (${prompt.severity}): ${prompt.check}`,
+	);
+}
+
 export function buildCoordinationBriefing(
 	snapshot: CoordinationSnapshot,
 	diff?: CoordinationSnapshotDiff,
-	options: { classifyChanges?: boolean } = {},
+	options: { classifyChanges?: boolean; includeVerificationPrompts?: boolean } = {},
 ): CoordinationBriefing {
 	const shouldClassify = options.classifyChanges ?? true;
 	const classification = diff && shouldClassify ? classifyCoordinationSnapshotDiff(diff) : null;
+	const shouldIncludePrompts = options.includeVerificationPrompts ?? true;
+	const verificationPrompts =
+		classification && shouldIncludePrompts
+			? buildCoordinationVerificationPrompts(classification)
+			: null;
 	const packetId = `handoff-${packetTimestamp(snapshot.generated_at)}-coordination-snapshot`;
 	const lines: string[] = [];
 	lines.push("# Codex -> ChatGPT Handoff");
@@ -815,6 +936,16 @@ export function buildCoordinationBriefing(
 		lines.push("- No prior snapshot diff was supplied, so no change classification was generated.");
 	}
 	lines.push("");
+	lines.push("## Suggested Verification Prompts (Read-Only)");
+	lines.push("");
+	if (verificationPrompts) {
+		lines.push(...formatVerificationPromptFacts(verificationPrompts));
+	} else if (classification && !shouldIncludePrompts) {
+		lines.push("- Verification prompts were disabled for this briefing.");
+	} else {
+		lines.push("- No change classification was available, so no verification prompts were generated.");
+	}
+	lines.push("");
 	lines.push("Docs in Personal Ops:");
 	lines.push("");
 	lines.push("- `docs/CHATGPT-CODEX-HANDOFF.md`: handoff protocol.");
@@ -829,6 +960,9 @@ export function buildCoordinationBriefing(
 	);
 	lines.push(
 		"- `docs/COORDINATION-CHANGE-CLASSIFICATION.md`: read-only v0 change significance contract.",
+	);
+	lines.push(
+		"- `docs/COORDINATION-VERIFICATION-PROMPTS.md`: read-only verification prompt contract.",
 	);
 	lines.push("");
 	lines.push("## Current Goal");
@@ -926,6 +1060,17 @@ export function buildCoordinationBriefing(
 						included: false,
 						total_classifications: 0,
 						highest_severity: null,
+					}
+				: null,
+		verification_prompts: verificationPrompts
+			? {
+					included: true,
+					total_prompts: verificationPrompts.summary.total_prompts,
+				}
+			: classification && !shouldIncludePrompts
+				? {
+						included: false,
+						total_prompts: 0,
 					}
 				: null,
 		markdown: `${lines.join("\n")}\n`,
