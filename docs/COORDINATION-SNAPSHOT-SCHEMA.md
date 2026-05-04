@@ -23,6 +23,14 @@ personal-ops coordination snapshot
 
 The command is read-only. It does not write a state file, update Notion, mark bridge-db records, post notifications, or mutate git repos.
 
+Compare a manually supplied prior snapshot file with the current live snapshot using:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json
+```
+
+The diff command is also read-only. It accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object, then reports changed repo, source, and health fields.
+
 ## Scope
 
 Included in v1:

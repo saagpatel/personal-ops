@@ -89,6 +89,36 @@ export interface CoordinationBriefing {
 	markdown: string;
 }
 
+export interface CoordinationSnapshotDiffChange {
+	area: "repo" | "source" | "health";
+	name: string;
+	field: string;
+	before: string | number | boolean | null;
+	after: string | number | boolean | null;
+}
+
+export interface CoordinationSnapshotDiff {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	previous_snapshot: {
+		generated_at: string;
+		overall: CoordinationHealthSnapshot["overall"];
+	};
+	current_snapshot: {
+		generated_at: string;
+		overall: CoordinationHealthSnapshot["overall"];
+	};
+	summary: {
+		total_changes: number;
+		repo_changes: number;
+		source_changes: number;
+		health_changes: number;
+	};
+	changes: CoordinationSnapshotDiffChange[];
+	next_actions: string[];
+}
+
 const ACTIVE_REPOS = [
 	{
 		name: "personal-ops",
@@ -568,4 +598,232 @@ export function buildCoordinationBriefing(
 		},
 		markdown: `${lines.join("\n")}\n`,
 	};
+}
+
+function asComparable(value: unknown): string | number | boolean | null {
+	if (value === undefined) return null;
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		value == null
+	) {
+		return value;
+	}
+	return JSON.stringify(value);
+}
+
+function pushChange(
+	changes: CoordinationSnapshotDiffChange[],
+	area: CoordinationSnapshotDiffChange["area"],
+	name: string,
+	field: string,
+	before: unknown,
+	after: unknown,
+): void {
+	const normalizedBefore = asComparable(before);
+	const normalizedAfter = asComparable(after);
+	if (normalizedBefore === normalizedAfter) return;
+	changes.push({
+		area,
+		name,
+		field,
+		before: normalizedBefore,
+		after: normalizedAfter,
+	});
+}
+
+function repoByName(snapshot: CoordinationSnapshot): Map<string, CoordinationRepoSnapshot> {
+	return new Map(snapshot.repos.map((repo) => [repo.name, repo]));
+}
+
+function compareRepos(
+	changes: CoordinationSnapshotDiffChange[],
+	previous: CoordinationSnapshot,
+	current: CoordinationSnapshot,
+): void {
+	const previousRepos = repoByName(previous);
+	const currentRepos = repoByName(current);
+	const names = new Set([...previousRepos.keys(), ...currentRepos.keys()]);
+	for (const name of [...names].sort()) {
+		const before = previousRepos.get(name);
+		const after = currentRepos.get(name);
+		if (!before || !after) {
+			pushChange(
+				changes,
+				"repo",
+				name,
+				"presence",
+				before ? "present" : "missing",
+				after ? "present" : "missing",
+			);
+			continue;
+		}
+		pushChange(changes, "repo", name, "state", before.state, after.state);
+		pushChange(changes, "repo", name, "clean", before.clean, after.clean);
+		pushChange(changes, "repo", name, "branch", before.branch, after.branch);
+		pushChange(changes, "repo", name, "head", before.head, after.head);
+		pushChange(changes, "repo", name, "ahead", before.ahead, after.ahead);
+		pushChange(changes, "repo", name, "behind", before.behind, after.behind);
+	}
+}
+
+function compareSources(
+	changes: CoordinationSnapshotDiffChange[],
+	previous: CoordinationSnapshot,
+	current: CoordinationSnapshot,
+): void {
+	for (const key of ["bridge_db", "notion"] as const) {
+		const before = previous.sources[key];
+		const after = current.sources[key];
+		pushChange(changes, "source", key, "state", before.state, after.state);
+		pushChange(changes, "source", key, "message", before.message, after.message);
+	}
+	const beforePortfolio = previous.sources.github_repo_auditor;
+	const afterPortfolio = current.sources.github_repo_auditor;
+	pushChange(changes, "source", "github_repo_auditor", "state", beforePortfolio.state, afterPortfolio.state);
+	pushChange(changes, "source", "github_repo_auditor", "message", beforePortfolio.message, afterPortfolio.message);
+	pushChange(
+		changes,
+		"source",
+		"github_repo_auditor",
+		"generated_at",
+		beforePortfolio.generated_at,
+		afterPortfolio.generated_at,
+	);
+	pushChange(
+		changes,
+		"source",
+		"github_repo_auditor",
+		"project_count",
+		beforePortfolio.project_count,
+		afterPortfolio.project_count,
+	);
+	pushChange(
+		changes,
+		"source",
+		"github_repo_auditor",
+		"briefing_line",
+		beforePortfolio.briefing_line,
+		afterPortfolio.briefing_line,
+	);
+	const beforeNotifications = previous.sources.notification_hub;
+	const afterNotifications = current.sources.notification_hub;
+	pushChange(changes, "source", "notification_hub", "state", beforeNotifications.state, afterNotifications.state);
+	pushChange(
+		changes,
+		"source",
+		"notification_hub",
+		"message",
+		beforeNotifications.message,
+		afterNotifications.message,
+	);
+	pushChange(
+		changes,
+		"source",
+		"notification_hub",
+		"recent_event_count",
+		beforeNotifications.recent_event_count,
+		afterNotifications.recent_event_count,
+	);
+}
+
+function compareHealth(
+	changes: CoordinationSnapshotDiffChange[],
+	previous: CoordinationSnapshot,
+	current: CoordinationSnapshot,
+): void {
+	pushChange(changes, "health", "overall", "overall", previous.health.overall, current.health.overall);
+	pushChange(
+		changes,
+		"health",
+		"install",
+		"install_check_state",
+		previous.health.install_check_state,
+		current.health.install_check_state,
+	);
+	pushChange(
+		changes,
+		"health",
+		"deep",
+		"deep_health_state",
+		previous.health.deep_health_state,
+		current.health.deep_health_state,
+	);
+	pushChange(
+		changes,
+		"health",
+		"issues",
+		"issues",
+		previous.health.issues.join("; "),
+		current.health.issues.join("; "),
+	);
+}
+
+export function buildCoordinationSnapshotDiff(
+	previous: CoordinationSnapshot,
+	current: CoordinationSnapshot,
+): CoordinationSnapshotDiff {
+	const changes: CoordinationSnapshotDiffChange[] = [];
+	compareRepos(changes, previous, current);
+	compareSources(changes, previous, current);
+	compareHealth(changes, previous, current);
+	const repoChanges = changes.filter((change) => change.area === "repo").length;
+	const sourceChanges = changes.filter((change) => change.area === "source").length;
+	const healthChanges = changes.filter((change) => change.area === "health").length;
+	const nextActions =
+		changes.length === 0
+			? ["No coordination changes detected. A full ChatGPT packet is likely unnecessary."]
+			: [
+					"Review changed fields before asking ChatGPT for strategy.",
+					"Use a full coordination briefing if any changed field affects sequencing or risk.",
+				];
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		previous_snapshot: {
+			generated_at: previous.generated_at,
+			overall: previous.health.overall,
+		},
+		current_snapshot: {
+			generated_at: current.generated_at,
+			overall: current.health.overall,
+		},
+		summary: {
+			total_changes: changes.length,
+			repo_changes: repoChanges,
+			source_changes: sourceChanges,
+			health_changes: healthChanges,
+		},
+		changes,
+		next_actions: nextActions,
+	};
+}
+
+export function formatCoordinationSnapshotDiff(diff: CoordinationSnapshotDiff): string {
+	const lines: string[] = [];
+	lines.push("Coordination Snapshot Diff");
+	lines.push(`Generated: ${diff.generated_at}`);
+	lines.push(`Previous: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall})`);
+	lines.push(`Current: ${diff.current_snapshot.generated_at} (${diff.current_snapshot.overall})`);
+	lines.push(
+		`Changes: ${diff.summary.total_changes} total (${diff.summary.repo_changes} repo, ${diff.summary.source_changes} source, ${diff.summary.health_changes} health)`,
+	);
+	lines.push("");
+	if (diff.changes.length === 0) {
+		lines.push("Changed Fields");
+		lines.push("- none");
+	} else {
+		lines.push("Changed Fields");
+		for (const change of diff.changes) {
+			lines.push(
+				`- ${change.area}:${change.name}.${change.field}: ${String(change.before)} -> ${String(change.after)}`,
+			);
+		}
+	}
+	lines.push("");
+	lines.push("Next Actions");
+	for (const action of diff.next_actions) lines.push(`- ${action}`);
+	return `${lines.join("\n")}\n`;
 }

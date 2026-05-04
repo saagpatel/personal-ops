@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import fs from "node:fs";
 import { registerAuthAndMailCommands } from "./cli/commands/auth-mail.js";
 import { registerInstallAndBackupCommands } from "./cli/commands/install.js";
 import { registerRuntimeCommands } from "./cli/commands/runtime.js";
@@ -14,7 +15,10 @@ import {
 import {
   buildCoordinationBriefing,
   buildCoordinationSnapshot,
+  buildCoordinationSnapshotDiff,
   formatCoordinationSnapshot,
+  formatCoordinationSnapshotDiff,
+  type CoordinationSnapshot,
 } from "./coordination-snapshot.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
 import {
@@ -1775,6 +1779,30 @@ coordination
       options.json,
     );
     if (snapshot.health.overall !== "green") {
+      process.exitCode = 1;
+    }
+  });
+
+coordination
+  .command("diff")
+  .description("Compare the current read-only coordination snapshot against a manually supplied prior snapshot JSON file.")
+  .requiredOption("--from <path>", "Prior snapshot JSON file")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const raw = fs.readFileSync(options.from, "utf8");
+    const parsed = JSON.parse(raw) as Partial<{ coordination_snapshot: CoordinationSnapshot }> & Partial<CoordinationSnapshot>;
+    const previous = parsed.coordination_snapshot ?? parsed;
+    if (!previous.schema_version || !previous.generated_at || !previous.health || !previous.repos || !previous.sources) {
+      throw new Error("Prior snapshot JSON must contain `coordination_snapshot` or a raw coordination snapshot.");
+    }
+    const current = await buildCoordinationSnapshot(paths, requestJson, logger);
+    const diff = buildCoordinationSnapshotDiff(previous as CoordinationSnapshot, current);
+    printOutput(
+      { coordination_snapshot_diff: diff },
+      (value) => formatCoordinationSnapshotDiff(value.coordination_snapshot_diff),
+      options.json,
+    );
+    if (current.health.overall !== "green") {
       process.exitCode = 1;
     }
   });

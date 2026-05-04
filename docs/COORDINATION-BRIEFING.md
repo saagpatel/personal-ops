@@ -57,6 +57,24 @@ Codex verifies locally before implementation
 
 This keeps ChatGPT useful for memory, strategy, risk framing, and sequencing without letting it become proof of local state.
 
+## Read-Only Diff
+
+When a prior snapshot was manually saved by the operator, compare it with the current live snapshot using:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json
+```
+
+For structured inspection:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --json
+```
+
+The diff accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object. It does not write a new snapshot file. It only reports repo, source, and health fields that changed.
+
+Use the diff when ChatGPT only needs to understand what changed since the last loop. Use the full briefing when changed fields affect sequencing, risk, or user-facing recommendations.
+
 ## What Not To Do Yet
 
 - Do not build a dashboard.
@@ -68,6 +86,6 @@ This keeps ChatGPT useful for memory, strategy, risk framing, and sequencing wit
 
 ## Expansion Gate
 
-The next safe expansion is still read-only: a snapshot or briefing diff that summarizes what changed since a prior manually supplied packet.
+The next safe expansion is still read-only: a briefing diff formatter that can turn the snapshot diff into a shorter ChatGPT packet.
 
-Only add that after the generated briefing has been used in real loops and its packet shape stays stable.
+Only add that after the generated briefing and snapshot diff have been used in real loops and their packet shapes stay stable.
