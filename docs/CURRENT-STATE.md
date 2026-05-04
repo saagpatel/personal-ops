@@ -41,6 +41,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - added `personal-ops coordination diff --from <snapshot-json>` for read-only comparison against a manually supplied prior snapshot file
 - added `docs/COORDINATION-CHANGE-CLASSIFICATION.md` plus deterministic read-only classification for snapshot diffs and ChatGPT briefings
 - added `docs/COORDINATION-VERIFICATION-PROMPTS.md` plus human-readable read-only verification prompts derived from classifications
+- added `personal-ops health explain --json` for read-only health-state explainability when handoff packets need clearer current readiness context
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
 - kept mutation, send, publish, and auth-sensitive actions under explicit operator approval
@@ -63,6 +64,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 
 - `personal-ops install check --json`: `ready`, `62 pass / 0 warn / 0 fail`
 - `personal-ops health check --deep --json`: `ready`, `6 pass / 0 warn / 0 fail`
+- `personal-ops health explain --json`: available as the read-only explanation of which checks drive `ready`, `attention_needed`, or `degraded`
 - `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
 - `personal-ops coordination snapshot --json`: available as the read-only cross-project handoff lens; it reports Notion as intentionally deferred for this lane
 - `personal-ops coordination briefing --for chatgpt`: available as the read-only Markdown packet surface for the Codex-ChatGPT project
@@ -146,6 +148,7 @@ What is already true:
 - v0 change classification is read-only and labels diff meaning without deciding actions
 - v0 verification prompts are read-only and say what Codex should verify without giving execution permission
 - verification prompt normalization preserves `derived_from` source classifications so dedupe does not hide evidence
+- health explanations are read-only and derived from health checks; they clarify readiness but do not create another truth source
 
 What that means for the next session:
 

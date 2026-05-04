@@ -728,6 +728,19 @@ test("buildCoordinationBriefing can include a supplied snapshot diff", () => {
 	assert.match(briefing.markdown, /## Suggested Verification Prompts \(Read-Only\)/);
 	assert.match(briefing.markdown, /commit_advance \(low\)/);
 	assert.match(briefing.markdown, /Confirm personal-ops commit movement matches the intended local work/);
+	assert.match(briefing.markdown, /Current snapshot health: green/);
+	assert.match(
+		briefing.markdown,
+		/Prior snapshot health for comparison only: green at 2026-05-04T06:45:11.157Z/,
+	);
+	assert.match(
+		briefing.markdown,
+		/Prior snapshot health was green at 2026-05-04T06:45:11.157Z/,
+	);
+	assert.match(
+		briefing.markdown,
+		/Current snapshot health is green at 2026-05-04T07:45:11.157Z/,
+	);
 	assert.match(briefing.markdown, /Changes since prior snapshot: 1 total/);
 	assert.match(briefing.markdown, /repo:personal-ops.head: 0358b88 -> dd38df5/);
 	assert.match(briefing.markdown, /Treat dirty, ahead, behind, degraded, unavailable, and deferred fields as verification prompts/);

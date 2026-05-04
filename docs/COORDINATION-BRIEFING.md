@@ -48,7 +48,7 @@ The briefing includes:
 - creation time
 - Codex app and in-app browser setup
 - source-of-truth boundary reminder
-- snapshot schema and overall health
+- snapshot schema and current health, labeled separately from any prior snapshot health
 - repo posture for the active local coordination repos
 - source availability for GithubRepoAuditor, bridge-db, notification-hub, and deferred Notion
 - optional changed fields from a manually supplied prior snapshot
@@ -105,6 +105,8 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json 
 ```
 
 The diff accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object. It does not write a new snapshot file. It only reports repo, source, and health fields that changed.
+
+When a prior snapshot is supplied, the briefing must label prior health as comparison-only and current health as authoritative for the present packet. This prevents yellow-to-green transitions from being read as current yellow health.
 
 Classification is additive and derived only from the diff. It labels change meaning, but it does not decide actions.
 

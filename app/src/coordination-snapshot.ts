@@ -551,12 +551,14 @@ function formatSourceFacts(snapshot: CoordinationSnapshot): string[] {
 function formatDiffFacts(diff: CoordinationSnapshotDiff): string[] {
 	if (diff.changes.length === 0) {
 		return [
-			`- Prior snapshot: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall}).`,
+			`- Prior snapshot health was ${diff.previous_snapshot.overall} at ${diff.previous_snapshot.generated_at}.`,
+			`- Current snapshot health is ${diff.current_snapshot.overall} at ${diff.current_snapshot.generated_at}.`,
 			"- Changes since prior snapshot: none.",
 		];
 	}
 	return [
-		`- Prior snapshot: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall}).`,
+		`- Prior snapshot health was ${diff.previous_snapshot.overall} at ${diff.previous_snapshot.generated_at}.`,
+		`- Current snapshot health is ${diff.current_snapshot.overall} at ${diff.current_snapshot.generated_at}.`,
 		`- Changes since prior snapshot: ${diff.summary.total_changes} total (${diff.summary.repo_changes} repo, ${diff.summary.source_changes} source, ${diff.summary.health_changes} health).`,
 		...diff.changes.map(
 			(change) =>
@@ -956,13 +958,18 @@ export function buildCoordinationBriefing(
 	lines.push("");
 	lines.push(`- Snapshot schema: \`${snapshot.schema_version}\`.`);
 	lines.push(`- Snapshot generated: ${snapshot.generated_at}.`);
-	lines.push(`- Overall: ${snapshot.health.overall}.`);
+	lines.push(`- Current snapshot health: ${snapshot.health.overall}.`);
 	lines.push(
-		`- Personal Ops health: install check ${snapshot.health.install_check_state}; deep health ${snapshot.health.deep_health_state}.`,
+		`- Current Personal Ops health checks: install check ${snapshot.health.install_check_state}; deep health ${snapshot.health.deep_health_state}.`,
 	);
 	lines.push(
-		`- Issues: ${snapshot.health.issues.length === 0 ? "none" : snapshot.health.issues.join("; ")}.`,
+		`- Current health issues: ${snapshot.health.issues.length === 0 ? "none" : snapshot.health.issues.join("; ")}.`,
 	);
+	if (diff) {
+		lines.push(
+			`- Prior snapshot health for comparison only: ${diff.previous_snapshot.overall} at ${diff.previous_snapshot.generated_at}.`,
+		);
+	}
 	lines.push("");
 	lines.push("Repos:");
 	lines.push("");

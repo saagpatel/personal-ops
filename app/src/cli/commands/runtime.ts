@@ -37,7 +37,11 @@ import {
 	formatWorkflowBundleReport,
 	formatWorklistReport,
 } from "../../formatters.js";
-import { buildHealthCheckReport } from "../../health.js";
+import {
+	buildHealthCheckReport,
+	buildHealthExplanation,
+	formatHealthExplanation,
+} from "../../health.js";
 import {
 	buildInstallCheckReport,
 	fixInstallPermissions,
@@ -1459,6 +1463,36 @@ export function registerRuntimeCommands(
 			context.printOutput(
 				{ health_check: report },
 				(value) => formatHealthCheckReport(value.health_check),
+				options.json,
+			);
+			if (report.state !== "ready") {
+				process.exitCode = 1;
+			}
+		});
+	health
+		.command("explain")
+		.description(
+			"Explain which read-only health checks drive the current health state.",
+		)
+		.option("--deep", "Include live Gmail and Google Calendar verification")
+		.option(
+			"--max-snapshot-age-hours <hours>",
+			"Warn when the latest snapshot is older than this many hours",
+			"24",
+		)
+		.option("--json", "Print raw JSON")
+		.action(async (options) => {
+			const rawHours = Number(options.maxSnapshotAgeHours);
+			const snapshotAgeLimitHours =
+				Number.isFinite(rawHours) && rawHours > 0 ? rawHours : null;
+			const report = await buildHealthCheckReport(paths, context.requestJson, {
+				deep: Boolean(options.deep),
+				snapshotAgeLimitHours,
+			});
+			const explanation = buildHealthExplanation(report);
+			context.printOutput(
+				{ health_explanation: explanation },
+				(value) => formatHealthExplanation(value.health_explanation),
 				options.json,
 			);
 			if (report.state !== "ready") {

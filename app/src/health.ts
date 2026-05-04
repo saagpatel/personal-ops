@@ -34,6 +34,18 @@ interface BuildHealthCheckDependencies {
   buildInstallCheckReportImpl?: typeof buildInstallCheckReport;
 }
 
+export interface HealthExplanation {
+  schema_version: "1.0.0";
+  generated_at: string;
+  mode: "read_only";
+  health_state: HealthCheckReport["state"];
+  summary: HealthCheckReport["summary"];
+  state_reason: string;
+  driving_checks: DoctorCheck[];
+  ready_checks: DoctorCheck[];
+  suggested_verification: string[];
+}
+
 function summarizeChecks(checks: DoctorCheck[]) {
   return checks.reduce(
     (accumulator, check) => {
@@ -316,4 +328,62 @@ export async function buildHealthCheckReport(
     summary,
     checks,
   };
+}
+
+export function buildHealthExplanation(report: HealthCheckReport): HealthExplanation {
+  const drivingChecks = report.checks.filter((check) => check.severity !== "pass");
+  const readyChecks = report.checks.filter((check) => check.severity === "pass");
+  const stateReason =
+    report.state === "ready"
+      ? `Health is ready because all ${report.checks.length} checks passed.`
+      : report.state === "attention_needed"
+        ? `Health needs attention because ${report.summary.warn} warning check${report.summary.warn === 1 ? "" : "s"} and ${report.summary.fail} failing check${report.summary.fail === 1 ? "" : "s"} were reported.`
+        : `Health is degraded because ${report.summary.fail} failing check${report.summary.fail === 1 ? "" : "s"} were reported.`;
+  const suggestedVerification =
+    drivingChecks.length === 0
+      ? [
+          "Confirm the latest health report is current before using it as a clean baseline.",
+          "Confirm repo state is clean and aligned if health is used in a coordination handoff.",
+        ]
+      : drivingChecks.map(
+          (check) =>
+            `Verify ${check.title} (${check.id}) because it reported ${check.severity}: ${check.message}`,
+        );
+  return {
+    schema_version: "1.0.0",
+    generated_at: new Date().toISOString(),
+    mode: "read_only",
+    health_state: report.state,
+    summary: report.summary,
+    state_reason: stateReason,
+    driving_checks: drivingChecks,
+    ready_checks: readyChecks,
+    suggested_verification: suggestedVerification,
+  };
+}
+
+export function formatHealthExplanation(explanation: HealthExplanation): string {
+  const lines: string[] = [];
+  lines.push(`Personal Ops Health Explanation: ${explanation.health_state}`);
+  lines.push(`Generated: ${explanation.generated_at}`);
+  lines.push(`Mode: ${explanation.mode}`);
+  lines.push(
+    `Summary: ${explanation.summary.pass} pass / ${explanation.summary.warn} warn / ${explanation.summary.fail} fail`,
+  );
+  lines.push(`Reason: ${explanation.state_reason}`);
+  lines.push("");
+  lines.push("Driving Checks");
+  if (explanation.driving_checks.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const check of explanation.driving_checks) {
+      lines.push(`- [${check.severity}] ${check.title} (${check.id}): ${check.message}`);
+    }
+  }
+  lines.push("");
+  lines.push("Suggested Verification");
+  for (const item of explanation.suggested_verification) {
+    lines.push(`- ${item}`);
+  }
+  return lines.join("\n");
 }

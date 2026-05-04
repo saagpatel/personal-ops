@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildHealthCheckReport } from "../src/health.js";
+import {
+  buildHealthCheckReport,
+  buildHealthExplanation,
+  formatHealthExplanation,
+} from "../src/health.js";
 import { writeRecoveryRehearsalStamp } from "../src/recovery.js";
 import type { InstallCheckReport, Paths, SnapshotManifest } from "../src/types.js";
 
@@ -288,4 +292,85 @@ test("health check reports prune backlog and stale recovery rehearsal", async ()
   assert.equal(report.repair_plan.first_step_id, "backup_prune");
   assert.equal(report.checks.some((check) => check.id === "snapshot_retention_pressure" && check.severity === "warn"), true);
   assert.equal(report.checks.some((check) => check.id === "recovery_rehearsal_freshness" && check.severity === "warn"), true);
+});
+
+test("health explanation names the exact warning checks behind attention_needed", async () => {
+  const paths = createPaths();
+  const requestJson = async <T>(method: string, pathname: string): Promise<T> => {
+    if (method === "GET" && pathname === "/v1/status") {
+      return { status: { daemon_reachable: true, snapshot_latest: null } } as T;
+    }
+    if (method === "GET" && pathname === "/v1/doctor") {
+      return { doctor: { state: "ready", deep: false, summary: { pass: 1, warn: 0, fail: 0 }, checks: [] } } as T;
+    }
+    throw new Error(`Unexpected request: ${method} ${pathname}`);
+  };
+  writeSnapshot(paths, "2026-03-29T18-00-00Z", new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString());
+  writeRecoveryRehearsalStamp(paths, {
+    successful_at: localDaysAgo(16, 9),
+    app_version: "0.1.0",
+    command_name: "npm run verify:recovery",
+  });
+
+  const report = await buildHealthCheckReport(
+    paths,
+    requestJson,
+    { deep: false, snapshotAgeLimitHours: 24 },
+    { buildInstallCheckReportImpl: readyInstallCheck },
+  );
+  const explanation = buildHealthExplanation(report);
+  const formatted = formatHealthExplanation(explanation);
+
+  assert.equal(explanation.health_state, "attention_needed");
+  assert.equal(explanation.driving_checks.length, 1);
+  assert.equal(explanation.driving_checks[0]!.id, "recovery_rehearsal_freshness");
+  assert.match(explanation.state_reason, /1 warning check/);
+  assert.match(formatted, /Driving Checks/);
+  assert.match(formatted, /recovery_rehearsal_freshness/);
+  assert.doesNotMatch(formatted, /\b(?:git commit|git push|delete file|write file)\b/i);
+});
+
+test("health explanation says ready when no checks are driving attention", async () => {
+  const paths = createPaths();
+  const requestJson = async <T>(method: string, pathname: string): Promise<T> => {
+    if (method === "GET" && pathname === "/v1/status") {
+      return {
+        status: {
+          daemon_reachable: true,
+          snapshot_latest: {
+            snapshot_id: "2026-05-04T08-00-00Z",
+            created_at: new Date().toISOString(),
+            path: "/tmp/snapshot",
+            daemon_state: "ready",
+          },
+        },
+      } as T;
+    }
+    if (method === "GET" && pathname === "/v1/doctor") {
+      return { doctor: { state: "ready", deep: false, summary: { pass: 1, warn: 0, fail: 0 }, checks: [] } } as T;
+    }
+    throw new Error(`Unexpected request: ${method} ${pathname}`);
+  };
+  writeRecoveryRehearsalStamp(paths, {
+    successful_at: new Date().toISOString(),
+    app_version: "0.1.0",
+    command_name: "npm run verify:recovery",
+  });
+
+  const report = await buildHealthCheckReport(
+    paths,
+    requestJson,
+    { deep: false, snapshotAgeLimitHours: 24 },
+    { buildInstallCheckReportImpl: readyInstallCheck },
+  );
+  const explanation = buildHealthExplanation(report);
+
+  assert.equal(explanation.health_state, "ready");
+  assert.equal(explanation.driving_checks.length, 0);
+  assert.match(explanation.state_reason, /all 6 checks passed/);
+  assert.ok(
+    explanation.suggested_verification.some((item) =>
+      item.includes("clean baseline"),
+    ),
+  );
 });

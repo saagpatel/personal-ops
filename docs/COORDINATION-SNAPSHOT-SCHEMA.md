@@ -159,6 +159,8 @@ If a future field has more than one possible owner, do not add it until the owne
 
 The command exits non-zero when `health.overall` is not `green`.
 
+Use `personal-ops health explain --json` when a packet, automation, or operator note needs to explain why health is `ready`, `attention_needed`, or `degraded`. The explanation is read-only and derived from the same health checks; it does not create another health source of truth.
+
 ## What Not To Do Yet
 
 - Do not create a dashboard.
