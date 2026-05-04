@@ -16,6 +16,8 @@ import {
   buildCoordinationBriefing,
   buildCoordinationSnapshot,
   buildCoordinationSnapshotDiff,
+  classifyCoordinationSnapshotDiff,
+  formatCoordinationChangeClassification,
   formatCoordinationSnapshot,
   formatCoordinationSnapshotDiff,
   type CoordinationSnapshot,
@@ -1777,6 +1779,7 @@ coordination
   .description("Generate a derived read-only Markdown handoff briefing from the latest coordination snapshot.")
   .option("--for <target>", "Briefing target", "chatgpt")
   .option("--from <path>", "Optional prior snapshot JSON file to include a read-only diff")
+  .option("--no-classify", "Disable read-only change classification when a prior snapshot is supplied")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     if (options.for !== "chatgpt") {
@@ -1786,7 +1789,7 @@ coordination
     const diff = options.from
       ? buildCoordinationSnapshotDiff(readCoordinationSnapshotFile(options.from), snapshot)
       : undefined;
-    const briefing = buildCoordinationBriefing(snapshot, diff);
+    const briefing = buildCoordinationBriefing(snapshot, diff, { classifyChanges: options.classify });
     printOutput(
       { coordination_briefing: briefing },
       (value) => value.coordination_briefing.markdown,
@@ -1801,14 +1804,22 @@ coordination
   .command("diff")
   .description("Compare the current read-only coordination snapshot against a manually supplied prior snapshot JSON file.")
   .requiredOption("--from <path>", "Prior snapshot JSON file")
+  .option("--classify", "Include read-only deterministic change classification")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     const previous = readCoordinationSnapshotFile(options.from);
     const current = await buildCoordinationSnapshot(paths, requestJson, logger);
     const diff = buildCoordinationSnapshotDiff(previous, current);
+    const classification = options.classify ? classifyCoordinationSnapshotDiff(diff) : null;
     printOutput(
-      { coordination_snapshot_diff: diff },
-      (value) => formatCoordinationSnapshotDiff(value.coordination_snapshot_diff),
+      {
+        coordination_snapshot_diff: diff,
+        ...(classification ? { coordination_change_classification: classification } : {}),
+      },
+      (value) =>
+        `${formatCoordinationSnapshotDiff(value.coordination_snapshot_diff)}${
+          classification ? `\n${formatCoordinationChangeClassification(classification)}` : ""
+        }`,
       options.json,
     );
     if (current.health.overall !== "green") {

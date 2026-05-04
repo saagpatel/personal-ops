@@ -31,6 +31,14 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json
 
 The diff command is also read-only. It accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object, then reports changed repo, source, and health fields.
 
+Add deterministic read-only change classification with:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --classify
+```
+
+Classification consumes only the diff output. It labels significance for review and does not decide actions.
+
 ## Scope
 
 Included in v1:
@@ -57,6 +65,7 @@ Notion is intentionally deferred because active Notion work is handled in a sepa
 | `sources.bridge_db` | `/Users/d/Projects/bridge-db` MCP runtime | Availability only in v1. No handoffs are created, cleared, or marked. |
 | `sources.notification_hub` | `http://127.0.0.1:9199/health` and local `events.jsonl` | Health and event-count only in v1. No events are posted. |
 | `sources.notion` | `/Users/d/Notion` and the Notion workspace | Deferred in this lane. |
+| change classification | `personal-ops coordination diff` output | Derived only from changed fields. It must not call sibling systems. |
 
 If a future field has more than one possible owner, do not add it until the owner is explicit.
 

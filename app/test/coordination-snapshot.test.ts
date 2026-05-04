@@ -3,6 +3,8 @@ import test from "node:test";
 import {
 	buildCoordinationBriefing,
 	buildCoordinationSnapshotDiff,
+	classifyCoordinationSnapshotDiff,
+	formatCoordinationChangeClassification,
 	formatCoordinationSnapshot,
 	formatCoordinationSnapshotDiff,
 	parseDivergence,
@@ -275,6 +277,179 @@ test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes"
 	assert.match(formatted, /health:overall.overall: green -> yellow/);
 });
 
+test("classifyCoordinationSnapshotDiff labels deterministic significant changes", () => {
+	const previous: CoordinationSnapshot = {
+		schema_version: "1.0.0",
+		generated_at: "2026-05-04T06:45:11.157Z",
+		machine: {
+			hostname: "machine.local",
+			user: "d",
+		},
+		scope: {
+			mode: "read_only",
+			notion_lane: "deferred",
+			description: "Derived only.",
+		},
+		repos: [
+			{
+				name: "personal-ops",
+				path: "/Users/d/.local/share/personal-ops",
+				branch: "main",
+				upstream: "origin/main",
+				head: "f3171b5",
+				last_commit_subject: "Add ChatGPT coordination briefing",
+				clean: false,
+				ahead: 0,
+				behind: 0,
+				state: "degraded",
+				message: "Repo posture needs attention.",
+				source_of_truth: "local git",
+			},
+		],
+		sources: {
+			github_repo_auditor: {
+				name: "GithubRepoAuditor portfolio truth",
+				state: "available",
+				source_of_truth: "portfolio-truth-latest.json",
+				message: "115 repos",
+				generated_at: "2026-05-04T00:00:00.000Z",
+				project_count: 115,
+				briefing_line: "115 repos",
+			},
+			bridge_db: {
+				name: "bridge-db",
+				state: "available",
+				source_of_truth: "bridge-db",
+				message: "reachable",
+			},
+			notification_hub: {
+				name: "notification-hub",
+				state: "available",
+				source_of_truth: "notification-hub",
+				message: "reachable",
+				recent_event_count: 25,
+			},
+			notion: {
+				name: "Notion",
+				state: "deferred",
+				source_of_truth: "/Users/d/Notion",
+				message: "handled separately",
+			},
+		},
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: ["personal-ops: Repo posture needs attention."],
+		},
+		next_actions: ["Repair degraded signals."],
+	};
+	const current: CoordinationSnapshot = {
+		...previous,
+		generated_at: "2026-05-04T07:45:11.157Z",
+		repos: [
+			{
+				...previous.repos[0]!,
+				head: "c631881",
+				last_commit_subject: "Add optional diff to ChatGPT briefing",
+				clean: true,
+				state: "available",
+				message: null,
+			},
+		],
+		health: {
+			...previous.health,
+			overall: "green",
+			issues: [],
+		},
+	};
+
+	const diff = buildCoordinationSnapshotDiff(previous, current);
+	const first = classifyCoordinationSnapshotDiff(diff);
+	const second = classifyCoordinationSnapshotDiff(diff);
+	const formatted = formatCoordinationChangeClassification(first);
+
+	assert.deepEqual(first.classifications, second.classifications);
+	assert.equal(first.summary.highest_severity, "high");
+	assert.ok(
+		first.classifications.some(
+			(classification) => classification.type === "repo_state_recovery" && classification.severity === "high",
+		),
+	);
+	assert.ok(
+		first.classifications.some(
+			(classification) => classification.type === "health_transition" && classification.severity === "high",
+		),
+	);
+	assert.ok(
+		first.classifications.some(
+			(classification) => classification.type === "commit_advance" && classification.severity === "low",
+		),
+	);
+	assert.match(formatted, /Coordination Change Classification/);
+	assert.match(formatted, /repo_state_recovery \(high\)/);
+});
+
+test("classifyCoordinationSnapshotDiff stays quiet for no-op diffs", () => {
+	const snapshot: CoordinationSnapshot = {
+		schema_version: "1.0.0",
+		generated_at: "2026-05-04T06:45:11.157Z",
+		machine: {
+			hostname: "machine.local",
+			user: "d",
+		},
+		scope: {
+			mode: "read_only",
+			notion_lane: "deferred",
+			description: "Derived only.",
+		},
+		repos: [],
+		sources: {
+			github_repo_auditor: {
+				name: "GithubRepoAuditor portfolio truth",
+				state: "available",
+				source_of_truth: "portfolio-truth-latest.json",
+				message: "115 repos",
+				generated_at: "2026-05-04T00:00:00.000Z",
+				project_count: 115,
+				briefing_line: "115 repos",
+			},
+			bridge_db: {
+				name: "bridge-db",
+				state: "available",
+				source_of_truth: "bridge-db",
+				message: "reachable",
+			},
+			notification_hub: {
+				name: "notification-hub",
+				state: "available",
+				source_of_truth: "notification-hub",
+				message: "reachable",
+				recent_event_count: 25,
+			},
+			notion: {
+				name: "Notion",
+				state: "deferred",
+				source_of_truth: "/Users/d/Notion",
+				message: "handled separately",
+			},
+		},
+		health: {
+			overall: "green",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: [],
+		},
+		next_actions: ["Use this snapshot as the next packet input."],
+	};
+	const diff = buildCoordinationSnapshotDiff(snapshot, snapshot);
+	const classification = classifyCoordinationSnapshotDiff(diff);
+
+	assert.equal(classification.summary.total_classifications, 0);
+	assert.equal(classification.summary.highest_severity, null);
+	assert.deepEqual(classification.classifications, []);
+});
+
 test("buildCoordinationBriefing can include a supplied snapshot diff", () => {
 	const previous: CoordinationSnapshot = {
 		schema_version: "1.0.0",
@@ -354,7 +529,14 @@ test("buildCoordinationBriefing can include a supplied snapshot diff", () => {
 		included: true,
 		total_changes: 1,
 	});
+	assert.deepEqual(briefing.change_classification, {
+		included: true,
+		total_classifications: 1,
+		highest_severity: "low",
+	});
 	assert.match(briefing.markdown, /What changed since prior snapshot/);
+	assert.match(briefing.markdown, /## Significant Changes/);
+	assert.match(briefing.markdown, /commit_advance \(low\)/);
 	assert.match(briefing.markdown, /Changes since prior snapshot: 1 total/);
 	assert.match(briefing.markdown, /repo:personal-ops.head: 0358b88 -> dd38df5/);
 	assert.match(briefing.markdown, /Treat dirty, ahead, behind, degraded, unavailable, and deferred fields as verification prompts/);

@@ -90,6 +90,11 @@ export interface CoordinationBriefing {
 		included: boolean;
 		total_changes: number;
 	} | null;
+	change_classification: {
+		included: boolean;
+		total_classifications: number;
+		highest_severity: CoordinationChangeSeverity | null;
+	} | null;
 	markdown: string;
 }
 
@@ -120,6 +125,44 @@ export interface CoordinationSnapshotDiff {
 		health_changes: number;
 	};
 	changes: CoordinationSnapshotDiffChange[];
+	next_actions: string[];
+}
+
+export type CoordinationChangeSeverity = "low" | "medium" | "high";
+
+export type CoordinationChangeType =
+	| "repo_state_recovery"
+	| "repo_state_regression"
+	| "repo_branch_change"
+	| "commit_advance"
+	| "health_transition"
+	| "source_availability_change"
+	| "source_metadata_change";
+
+export interface CoordinationChangeClassification {
+	type: CoordinationChangeType;
+	severity: CoordinationChangeSeverity;
+	area: CoordinationSnapshotDiffChange["area"];
+	name: string;
+	field: string;
+	before: CoordinationSnapshotDiffChange["before"];
+	after: CoordinationSnapshotDiffChange["after"];
+	reason: string;
+}
+
+export interface CoordinationChangeClassificationReport {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	source_diff_generated_at: string;
+	summary: {
+		total_classifications: number;
+		high: number;
+		medium: number;
+		low: number;
+		highest_severity: CoordinationChangeSeverity | null;
+	};
+	classifications: CoordinationChangeClassification[];
 	next_actions: string[];
 }
 
@@ -487,10 +530,229 @@ function formatDiffFacts(diff: CoordinationSnapshotDiff): string[] {
 	];
 }
 
+function severityRank(severity: CoordinationChangeSeverity): number {
+	return { low: 1, medium: 2, high: 3 }[severity];
+}
+
+function highestSeverity(
+	classifications: CoordinationChangeClassification[],
+): CoordinationChangeSeverity | null {
+	let highest: CoordinationChangeSeverity | null = null;
+	for (const classification of classifications) {
+		if (!highest || severityRank(classification.severity) > severityRank(highest)) {
+			highest = classification.severity;
+		}
+	}
+	return highest;
+}
+
+function isAvailable(value: CoordinationSnapshotDiffChange["before"]): boolean {
+	return value === "available" || value === "green" || value === "ready" || value === true || value === 0;
+}
+
+function isUnavailable(value: CoordinationSnapshotDiffChange["before"]): boolean {
+	return (
+		value === "degraded" ||
+		value === "unavailable" ||
+		value === "yellow" ||
+		value === "red" ||
+		value === false ||
+		(typeof value === "number" && value > 0)
+	);
+}
+
+function classifyChange(change: CoordinationSnapshotDiffChange): CoordinationChangeClassification {
+	if (change.area === "repo") {
+		if (change.field === "presence") {
+			const type = change.after === "present" ? "repo_state_recovery" : "repo_state_regression";
+			return {
+				type,
+				severity: "high",
+				area: change.area,
+				name: change.name,
+				field: change.field,
+				before: change.before,
+				after: change.after,
+				reason:
+					type === "repo_state_recovery"
+						? `${change.name} repo is present again.`
+						: `${change.name} repo is missing and must be verified locally.`,
+			};
+		}
+		if (change.field === "state" || change.field === "clean" || change.field === "ahead" || change.field === "behind") {
+			const recovered = isUnavailable(change.before) && isAvailable(change.after);
+			const regressed = isAvailable(change.before) && isUnavailable(change.after);
+			if (recovered) {
+				return {
+					type: "repo_state_recovery",
+					severity: "high",
+					area: change.area,
+					name: change.name,
+					field: change.field,
+					before: change.before,
+					after: change.after,
+					reason: `${change.name} repo posture recovered on ${change.field}.`,
+				};
+			}
+			if (regressed) {
+				return {
+					type: "repo_state_regression",
+					severity: "high",
+					area: change.area,
+					name: change.name,
+					field: change.field,
+					before: change.before,
+					after: change.after,
+					reason: `${change.name} repo posture now needs local verification on ${change.field}.`,
+				};
+			}
+			return {
+				type: "repo_state_regression",
+				severity: "medium",
+				area: change.area,
+				name: change.name,
+				field: change.field,
+				before: change.before,
+				after: change.after,
+				reason: `${change.name} repo posture changed on ${change.field}.`,
+			};
+		}
+		if (change.field === "branch") {
+			return {
+				type: "repo_branch_change",
+				severity: "medium",
+				area: change.area,
+				name: change.name,
+				field: change.field,
+				before: change.before,
+				after: change.after,
+				reason: `${change.name} branch changed and should be verified before action.`,
+			};
+		}
+		if (change.field === "head") {
+			return {
+				type: "commit_advance",
+				severity: "low",
+				area: change.area,
+				name: change.name,
+				field: change.field,
+				before: change.before,
+				after: change.after,
+				reason: `${change.name} commit changed; verify it matches expected local work.`,
+			};
+		}
+	}
+	if (change.area === "health") {
+		return {
+			type: "health_transition",
+			severity: change.field === "overall" || change.field === "issues" ? "high" : "medium",
+			area: change.area,
+			name: change.name,
+			field: change.field,
+			before: change.before,
+			after: change.after,
+			reason: `Health ${change.field} changed; Codex should verify readiness before action.`,
+		};
+	}
+	if (change.area === "source" && change.field === "state") {
+		return {
+			type: "source_availability_change",
+			severity: isUnavailable(change.after) ? "high" : "medium",
+			area: change.area,
+			name: change.name,
+			field: change.field,
+			before: change.before,
+			after: change.after,
+			reason: `${change.name} source availability changed.`,
+		};
+	}
+	return {
+		type: "source_metadata_change",
+		severity: "low",
+		area: change.area,
+		name: change.name,
+		field: change.field,
+		before: change.before,
+		after: change.after,
+		reason: `${change.name} ${change.area} metadata changed on ${change.field}.`,
+	};
+}
+
+export function classifyCoordinationSnapshotDiff(
+	diff: CoordinationSnapshotDiff,
+): CoordinationChangeClassificationReport {
+	const classifications = diff.changes.map(classifyChange);
+	const high = classifications.filter((item) => item.severity === "high").length;
+	const medium = classifications.filter((item) => item.severity === "medium").length;
+	const low = classifications.filter((item) => item.severity === "low").length;
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		source_diff_generated_at: diff.generated_at,
+		summary: {
+			total_classifications: classifications.length,
+			high,
+			medium,
+			low,
+			highest_severity: highestSeverity(classifications),
+		},
+		classifications,
+		next_actions:
+			classifications.length === 0
+				? ["No significant coordination changes detected."]
+				: [
+						"Use classifications to focus review, not to approve action.",
+						"Verify high-severity classifications locally before implementation.",
+					],
+	};
+}
+
+export function formatCoordinationChangeClassification(
+	report: CoordinationChangeClassificationReport,
+): string {
+	const lines: string[] = [];
+	lines.push("Coordination Change Classification");
+	lines.push(`Generated: ${report.generated_at}`);
+	lines.push(`Source diff: ${report.source_diff_generated_at}`);
+	lines.push(
+		`Classifications: ${report.summary.total_classifications} total (${report.summary.high} high, ${report.summary.medium} medium, ${report.summary.low} low)`,
+	);
+	lines.push(`Highest severity: ${report.summary.highest_severity ?? "none"}`);
+	lines.push("");
+	lines.push("Significant Changes");
+	if (report.classifications.length === 0) {
+		lines.push("- none");
+	} else {
+		for (const classification of report.classifications) {
+			lines.push(
+				`- ${classification.type} (${classification.severity}): ${classification.reason} [${classification.area}:${classification.name}.${classification.field}: ${String(classification.before)} -> ${String(classification.after)}]`,
+			);
+		}
+	}
+	lines.push("");
+	lines.push("Next Actions");
+	for (const action of report.next_actions) lines.push(`- ${action}`);
+	return `${lines.join("\n")}\n`;
+}
+
+function formatClassificationFacts(
+	report: CoordinationChangeClassificationReport,
+): string[] {
+	if (report.classifications.length === 0) return ["- none"];
+	return report.classifications.map(
+		(classification) =>
+			`- ${classification.type} (${classification.severity}): ${classification.reason}`,
+	);
+}
+
 export function buildCoordinationBriefing(
 	snapshot: CoordinationSnapshot,
 	diff?: CoordinationSnapshotDiff,
+	options: { classifyChanges?: boolean } = {},
 ): CoordinationBriefing {
+	const shouldClassify = options.classifyChanges ?? true;
+	const classification = diff && shouldClassify ? classifyCoordinationSnapshotDiff(diff) : null;
 	const packetId = `handoff-${packetTimestamp(snapshot.generated_at)}-coordination-snapshot`;
 	const lines: string[] = [];
 	lines.push("# Codex -> ChatGPT Handoff");
@@ -543,6 +805,16 @@ export function buildCoordinationBriefing(
 		lines.push("- No prior snapshot diff was supplied for this briefing.");
 	}
 	lines.push("");
+	lines.push("## Significant Changes");
+	lines.push("");
+	if (classification) {
+		lines.push(...formatClassificationFacts(classification));
+	} else if (diff && !shouldClassify) {
+		lines.push("- Change classification was disabled for this briefing.");
+	} else {
+		lines.push("- No prior snapshot diff was supplied, so no change classification was generated.");
+	}
+	lines.push("");
 	lines.push("Docs in Personal Ops:");
 	lines.push("");
 	lines.push("- `docs/CHATGPT-CODEX-HANDOFF.md`: handoff protocol.");
@@ -554,6 +826,9 @@ export function buildCoordinationBriefing(
 	);
 	lines.push(
 		"- `docs/COORDINATION-BRIEFING.md`: read-only Markdown packet contract.",
+	);
+	lines.push(
+		"- `docs/COORDINATION-CHANGE-CLASSIFICATION.md`: read-only v0 change significance contract.",
 	);
 	lines.push("");
 	lines.push("## Current Goal");
@@ -640,6 +915,19 @@ export function buildCoordinationBriefing(
 					total_changes: diff.summary.total_changes,
 				}
 			: null,
+		change_classification: classification
+			? {
+					included: true,
+					total_classifications: classification.summary.total_classifications,
+					highest_severity: classification.summary.highest_severity,
+				}
+			: diff && !shouldClassify
+				? {
+						included: false,
+						total_classifications: 0,
+						highest_severity: null,
+					}
+				: null,
 		markdown: `${lines.join("\n")}\n`,
 	};
 }

@@ -29,6 +29,14 @@ personal-ops coordination briefing --for chatgpt --json
 
 The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
 
+By default, a briefing with `--from` also includes a short read-only `Significant Changes` section. That section is generated from deterministic diff classification rules in `docs/COORDINATION-CHANGE-CLASSIFICATION.md`.
+
+Disable the classification section with:
+
+```bash
+personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json --no-classify
+```
+
 ## Packet Shape
 
 The briefing includes:
@@ -41,6 +49,7 @@ The briefing includes:
 - repo posture for the active local coordination repos
 - source availability for GithubRepoAuditor, bridge-db, notification-hub, and deferred Notion
 - optional changed fields from a manually supplied prior snapshot
+- optional significant change classifications from those changed fields
 - a local verification checklist for Codex
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
@@ -79,7 +88,15 @@ For structured inspection:
 personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --json
 ```
 
+Include deterministic read-only classification with:
+
+```bash
+personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json --classify
+```
+
 The diff accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object. It does not write a new snapshot file. It only reports repo, source, and health fields that changed.
+
+Classification is additive and derived only from the diff. It labels change meaning, but it does not decide actions.
 
 Use the diff when ChatGPT only needs to understand what changed since the last loop. Use the full briefing when changed fields affect sequencing, risk, or user-facing recommendations.
 
@@ -104,4 +121,4 @@ This keeps one packet shape while still making the change set visible.
 
 The next safe expansion is still read-only: compact and verbose output modes for the generated briefing.
 
-Only add those after the generated briefing with optional diff has been used in real loops and its packet shape stays stable.
+Only add those after the generated briefing with optional diff and v0 classification has been used in real loops and its packet shape stays stable.
