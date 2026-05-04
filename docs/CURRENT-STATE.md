@@ -1,92 +1,90 @@
 # Current State
 
-Date: 2026-04-24
-Status: Operator Inbox implementation in progress on a stable baseline
+Date: 2026-05-03
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, and ChatGPT/Codex handoff docs are merged and verified.
 
-This note captures the repo state after the April 2026 audit, stabilization, documentation cleanup pass, Operator Home Phase 1, the follow-up audit fixes, and the first Operator Inbox implementation slice on `codex/operator-inbox-phases`.
+This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
 ## What changed recently
 
-### Cleanup and stabilization pass
-
-- fixed a real CLI regression where `inbox` was being registered twice
-- made `app` builds start from a clean `dist/` so stale compiled artifacts no longer pollute test runs
-- moved older phase-by-phase planning artifacts into `docs/archive/` to reduce top-level doc clutter
-- refreshed the current-truth docs so the active baseline is easier to resume from
-
-### Operator Home Phase 1
-
-- added a dedicated operator-home seam under `app/src/service/operator-home.ts`
-- extended `workspace_home` into a richer operator surface with sectioned content
-- added `focus`, `day_start`, and `decisions` modes for shaping the home summary
-- introduced provenance, freshness, and confidence metadata on top-level home items
-- aligned console and CLI/status formatting around the same operator-home story
-
-### Audit fix pass
-
-- refreshed wrappers and the optional desktop app so install checks match the current checkout
-- re-authenticated Gmail and Google grants for the configured mailbox
-- created a fresh recovery snapshot after auth repair
-- added a bridge-db dependency seam so tests can avoid writing to the live bridge database
-- updated the Hono override to the fixed advisory range
-- replaced the stale root `Makefile` pnpm workflow with npm-backed app commands
-- archived the terminal Phase 37 and Phase 38 artifacts under `docs/archive/assistant-led-phases/`
-
-### Operator Inbox slice
+### Operator Inbox is now on main
 
 - added a typed `OperatorInboxReport` contract for priority, state, source ownership, safe actions, freshness, confidence, and evidence
-- added an additive `app/src/service/operator-inbox.ts` read model that composes existing local surfaces instead of creating a second authority layer
-- wired the report through service, HTTP, CLI, MCP, and the browser console as a read-only operator surface
-- included read-only external adapters for bridge-db handoffs, notification-hub urgent events, GitHub Repo Auditor portfolio truth, and Notion project snapshots
-- kept unavailable external sources visible as source states rather than treating them as fatal errors
-- added focused Operator Inbox tests for repair priority, external read-only source handling, and formatter output
+- added the read-only Operator Inbox model in `app/src/service/operator-inbox.ts`
+- wired the report through service, HTTP, CLI, MCP, and the browser console
+- kept external systems visible as source states rather than treating unavailable reads as fatal
+- added external adapters for bridge-db, notification-hub, GitHub Repo Auditor portfolio truth, and Notion project snapshots
+- split high-churn service tests into narrower focused files so future service work is easier to verify
+
+### Bridge and external-source truthfulness was hardened
+
+- fixed Operator Inbox bridge source state so unavailable bridge reads are not reported as available
+- repaired bridge activity reads from bridge-db structured MCP results
+- fixed the daemon bridge-db `uv` launch path so live runtime reads use the stable local toolchain path
+- kept bridge-db as an external source of coordination truth, not a personal-ops-owned data store
+
+### Local install and desktop surfaces were refreshed
+
+- wrapper provenance now points at the current checkout
+- CLI, daemon, Codex MCP, and Claude MCP wrappers are installed and current
+- the macOS desktop shell is installed and matches the current checkout
+- the LaunchAgent is loaded and points at the installed daemon wrapper
+
+### ChatGPT and Codex handoff protocol was added
+
+- added `docs/CHATGPT-CODEX-HANDOFF.md` for compact, verified Codex-to-ChatGPT packets
+- linked that protocol from `START-HERE.md`
+- kept ChatGPT advice explicitly downstream of verified local evidence
+- kept mutation, send, publish, and auth-sensitive actions under explicit operator approval
 
 ## Current repo posture
 
 `personal-ops` is currently in a strong maintenance-and-iteration state:
 
+- `main` is aligned with `origin/main`
+- latest commit is `d8e9711 docs: add ChatGPT Codex handoff protocol`
 - the assistant-led delivery track is complete through Phase 38
-- Operator Home Phase 1 is merged on top of that stable baseline
-- the repo keeps a stable local-first product baseline with CLI, daemon, HTTP API, MCP bridge, browser console, and optional desktop shell
-- the top-level docs now prioritize current truth, while deep implementation history lives under `docs/archive/`
-- the live install, doctor, and health checks are ready after the April 23 repair pass
-- the active Operator Inbox branch is additive and should be verified fully before merge
+- Operator Home Phase 1 is merged
+- Operator Inbox foundations are merged
+- bridge activity and external-source truthfulness fixes are merged
+- the repo remains a local-first product baseline with CLI, daemon, HTTP API, MCP bridge, browser console, optional desktop shell, and health/recovery workflows
 
-## Verification status
+## Live verification snapshot
 
-The cleanup, Operator Home, and audit-fix work were verified locally with:
+Checked on 2026-05-03 at 19:36 PDT:
 
-- `npm run typecheck`
-- `npm run build`
-- focused CLI and docs-navigation checks
-- `npm test`
-- `npm run release:check:ci`
-- `npm run verify:recovery`
-- `npm audit`
-- `personal-ops install check --json`
-- `personal-ops doctor --deep --json`
-- `personal-ops health check --deep --json`
+- `personal-ops install check --json`: `ready`, `62 pass / 0 warn / 0 fail`
+- `personal-ops health check --deep --json`: `ready`, `6 pass / 0 warn / 0 fail`
+- `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
 
-At the end of the audit-fix pass:
+Important live details from that check:
 
-- the main test suite passed
-- the docs-navigation checks passed
-- the CI-style local release baseline passed
-- the Operator Home Phase 1 merge was rechecked on current `main`
-- the live runtime returned to `ready` after wrapper, desktop, auth, and snapshot repair
+- latest recovery snapshot: `2026-05-03T09-02-43Z`, about 17.6 hours old at check time
+- recovery rehearsal: last successful run was via `npm run verify:recovery`
+- deep doctor: healthy
+- daemon: reachable
+- desktop app: installed and current for checkout `d8e9711a`
+- wrapper Node path: `/Users/d/.local/share/mise/installs/node/24.14.0/bin/node`
 
-For the Operator Inbox slice so far:
+## Current operator signals
 
-- `npm --prefix app run typecheck` passed
-- `npm --prefix app run build` passed
-- `node --test app/dist/test/operator-inbox.test.js` passed
-- `npm --prefix app run release:check:ci` passed after the console bundle fix
-- `npm --prefix app run verify:console` passed
-- `npm --prefix app run verify:recovery` passed
-- `npm --prefix app audit` reported 0 vulnerabilities
-- `personal-ops install all --json` refreshed the installed wrappers/LaunchAgent runtime
-- `personal-ops install check --json` returned ready (62 pass / 0 warn / 0 fail)
-- `personal-ops health check --deep --json` returned ready (6 pass / 0 warn / 0 fail)
+Operator Inbox is healthy, but it is surfacing real work:
+
+- assistant-prepared work is ready for review
+- outbound draft groups are still send-gated and require operator review
+- local drafts are waiting for review
+- Notion and repo-auditor signals are available but may be stale until those sibling systems refresh their own snapshots
+
+These are operator/workflow signals, not repo health failures.
+
+## Related system state
+
+At the time of this checkpoint:
+
+- `/Users/d/Projects/bridge-db` is clean and aligned with `origin/main`
+- `/Users/d/Projects/GithubRepoAuditor` is clean and aligned with `origin/main`
+- `/Users/d/Projects/notification-hub` is clean and aligned with `origin/main`
+- `/Users/d/Notion` has active local Notion repair edits and should be handled in the separate Notion lane
 
 ## What to read first when resuming
 
@@ -94,8 +92,15 @@ If you need current truth:
 
 - `README.md`
 - `START-HERE.md`
-- `docs/ASSISTANT-LED-ROADMAP.md`
+- `docs/CHATGPT-CODEX-HANDOFF.md`
 - this file
+
+If you need architecture and operating contracts:
+
+- `ARCHITECTURE.md`
+- `CLIENTS.md`
+- `OPERATIONS.md`
+- `docs/AUTOMATIONS.md`
 
 If you need the historical implementation trail:
 
@@ -104,29 +109,30 @@ If you need the historical implementation trail:
 
 ## Current product direction
 
-The next build direction is no longer emergency cleanup. The current product direction is to grow `personal-ops` toward an Operator Home while continuing small maintainability extractions.
+The next build direction is no longer emergency cleanup. The current product direction is to improve the operator-facing layer while preserving sibling-system ownership boundaries.
 
 What is already true:
 
 - the repo has a stable verified baseline
-- the first Operator Home shell is now present in `workspace_home`
-- the Operator Inbox now stitches sibling-system integrations only as read-only signal adapters
-- bridge-db activity logging is now injectable so tests can stay isolated from live operating state
-- shared service-test fixture setup now lives outside the monolithic `service.test.ts`
-- outbound bridge activity logging now flows through a small compatibility helper instead of inline `service.ts` calls
+- Operator Home and Operator Inbox are both present on `main`
+- external systems are read through adapters and source-state summaries
+- bridge-db remains the cross-agent bridge, while `personal-ops` remains the operator-facing hub
+- send-adjacent and external mutations remain gated by explicit operator approval
+- docs now include a first draft of the Codex-to-ChatGPT handoff protocol
 
 What that means for the next session:
 
-- build on the new operator-home shell instead of reopening broad cleanup work
-- finish verification and review for the Operator Inbox foundations slice
-- keep external-system ownership boundaries intact while preparing future integration seams
-- treat `personal-ops` as the operator-facing layer, not the source of truth for every sibling system
+- build on the merged Operator Home and Operator Inbox surfaces
+- keep external-system ownership boundaries intact
+- prefer small read-model, formatter, and operator-flow improvements over broad rewrites
+- use `npm --prefix app run release:check:ci`, `personal-ops health check --deep --json`, and `personal-ops inbox operator --json` as the primary confidence path for changes near the operator surface
 
 ## Suggested next focus
 
 Good next-session starting points:
 
-- harden Operator Inbox outcome tracking and noise controls after the first slice is merged
-- keep Decision Console and deeper working-set / evidence-card refinement behind the inbox foundations slice
+- harden Operator Inbox outcome tracking and noise controls
+- make stale external snapshots clearer without marking the whole inbox unhealthy
+- refine Decision Console and evidence-card surfaces behind the existing Operator Inbox contract
 - continue extracting high-churn code out of `app/src/service.ts` only behind compatibility facades
-- keep using the current docs layer for truth and the archive only for deep history
+- run a recovery rehearsal when it becomes stale enough to matter, using `cd /Users/d/.local/share/personal-ops/app && npm run verify:recovery`
