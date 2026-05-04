@@ -15,13 +15,19 @@ Generate a paste-ready ChatGPT handoff packet with:
 personal-ops coordination briefing --for chatgpt
 ```
 
+Include a read-only diff from a manually supplied prior snapshot with:
+
+```bash
+personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
+```
+
 For structured inspection:
 
 ```bash
 personal-ops coordination briefing --for chatgpt --json
 ```
 
-The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state.
+The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
 
 ## Packet Shape
 
@@ -34,6 +40,8 @@ The briefing includes:
 - snapshot schema and overall health
 - repo posture for the active local coordination repos
 - source availability for GithubRepoAuditor, bridge-db, notification-hub, and deferred Notion
+- optional changed fields from a manually supplied prior snapshot
+- a local verification checklist for Codex
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
 
@@ -75,6 +83,14 @@ The diff accepts either a full `{"coordination_snapshot": ...}` command output f
 
 Use the diff when ChatGPT only needs to understand what changed since the last loop. Use the full briefing when changed fields affect sequencing, risk, or user-facing recommendations.
 
+If ChatGPT needs both current state and changes, prefer:
+
+```bash
+personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
+```
+
+This keeps one packet shape while still making the change set visible.
+
 ## What Not To Do Yet
 
 - Do not build a dashboard.
@@ -86,6 +102,6 @@ Use the diff when ChatGPT only needs to understand what changed since the last l
 
 ## Expansion Gate
 
-The next safe expansion is still read-only: a briefing diff formatter that can turn the snapshot diff into a shorter ChatGPT packet.
+The next safe expansion is still read-only: compact and verbose output modes for the generated briefing.
 
-Only add that after the generated briefing and snapshot diff have been used in real loops and their packet shapes stay stable.
+Only add those after the generated briefing with optional diff has been used in real loops and its packet shape stays stable.

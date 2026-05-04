@@ -1746,6 +1746,16 @@ const coordination = program
   .command("coordination")
   .description("Read cross-project coordination posture without mutating sibling systems.");
 
+function readCoordinationSnapshotFile(filePath: string): CoordinationSnapshot {
+  const raw = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(raw) as Partial<{ coordination_snapshot: CoordinationSnapshot }> & Partial<CoordinationSnapshot>;
+  const snapshot = parsed.coordination_snapshot ?? parsed;
+  if (!snapshot.schema_version || !snapshot.generated_at || !snapshot.health || !snapshot.repos || !snapshot.sources) {
+    throw new Error("Prior snapshot JSON must contain `coordination_snapshot` or a raw coordination snapshot.");
+  }
+  return snapshot as CoordinationSnapshot;
+}
+
 coordination
   .command("snapshot")
   .description("Generate a derived read-only coordination snapshot for Codex and ChatGPT handoffs.")
@@ -1766,13 +1776,17 @@ coordination
   .command("briefing")
   .description("Generate a derived read-only Markdown handoff briefing from the latest coordination snapshot.")
   .option("--for <target>", "Briefing target", "chatgpt")
+  .option("--from <path>", "Optional prior snapshot JSON file to include a read-only diff")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     if (options.for !== "chatgpt") {
       throw new Error("Only `--for chatgpt` is supported right now.");
     }
     const snapshot = await buildCoordinationSnapshot(paths, requestJson, logger);
-    const briefing = buildCoordinationBriefing(snapshot);
+    const diff = options.from
+      ? buildCoordinationSnapshotDiff(readCoordinationSnapshotFile(options.from), snapshot)
+      : undefined;
+    const briefing = buildCoordinationBriefing(snapshot, diff);
     printOutput(
       { coordination_briefing: briefing },
       (value) => value.coordination_briefing.markdown,
@@ -1789,14 +1803,9 @@ coordination
   .requiredOption("--from <path>", "Prior snapshot JSON file")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
-    const raw = fs.readFileSync(options.from, "utf8");
-    const parsed = JSON.parse(raw) as Partial<{ coordination_snapshot: CoordinationSnapshot }> & Partial<CoordinationSnapshot>;
-    const previous = parsed.coordination_snapshot ?? parsed;
-    if (!previous.schema_version || !previous.generated_at || !previous.health || !previous.repos || !previous.sources) {
-      throw new Error("Prior snapshot JSON must contain `coordination_snapshot` or a raw coordination snapshot.");
-    }
+    const previous = readCoordinationSnapshotFile(options.from);
     const current = await buildCoordinationSnapshot(paths, requestJson, logger);
-    const diff = buildCoordinationSnapshotDiff(previous as CoordinationSnapshot, current);
+    const diff = buildCoordinationSnapshotDiff(previous, current);
     printOutput(
       { coordination_snapshot_diff: diff },
       (value) => formatCoordinationSnapshotDiff(value.coordination_snapshot_diff),

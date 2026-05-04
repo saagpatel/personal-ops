@@ -79,6 +79,12 @@ When the current coordination snapshot is enough context, generate the packet wi
 personal-ops coordination briefing --for chatgpt
 ```
 
+When a prior snapshot file is available and ChatGPT should focus on what changed, include it with:
+
+```bash
+personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
+```
+
 The generated briefing is read-only and should be treated as a derived packet from `personal-ops coordination snapshot`, not as a new source of truth.
 
 ```markdown

@@ -37,6 +37,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - added `docs/CROSS-PROJECT-COORDINATION.md` to preserve sibling-system ownership boundaries
 - added `docs/COORDINATION-SNAPSHOT-SCHEMA.md` plus `personal-ops coordination snapshot` for a derived, read-only handoff lens
 - added `docs/COORDINATION-BRIEFING.md` plus `personal-ops coordination briefing --for chatgpt` for paste-ready Markdown packets generated from the snapshot
+- extended `personal-ops coordination briefing --for chatgpt --from <snapshot-json>` to include a read-only change summary in the ChatGPT packet
 - added `personal-ops coordination diff --from <snapshot-json>` for read-only comparison against a manually supplied prior snapshot file
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
@@ -63,6 +64,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 - `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
 - `personal-ops coordination snapshot --json`: available as the read-only cross-project handoff lens; it reports Notion as intentionally deferred for this lane
 - `personal-ops coordination briefing --for chatgpt`: available as the read-only Markdown packet surface for the Codex-ChatGPT project
+- `personal-ops coordination briefing --for chatgpt --from <snapshot-json>`: available when the ChatGPT packet should include changes since a manually supplied prior snapshot
 - `personal-ops coordination diff --from <snapshot-json>`: available as the read-only change summary when a prior snapshot file is manually supplied
 
 Important live details from that check:
@@ -132,7 +134,7 @@ What is already true:
 - docs now include a first draft of the Codex-to-ChatGPT handoff protocol
 - docs now include a cross-project coordination contract for the five-project local operating layer
 - the first coordination snapshot surface is read-only and does not write to sibling systems
-- the first coordination briefing surface is read-only and formats snapshot truth for ChatGPT without creating another state store
+- the first coordination briefing surface is read-only and formats snapshot truth plus optional supplied diffs for ChatGPT without creating another state store
 - the first coordination diff surface is read-only and compares the current snapshot with a manually supplied prior snapshot file
 
 What that means for the next session:
@@ -142,6 +144,7 @@ What that means for the next session:
 - prefer small read-model, formatter, and operator-flow improvements over broad rewrites
 - use `personal-ops coordination snapshot --json` as the compact handoff input before asking ChatGPT for cross-tool strategy
 - use `personal-ops coordination briefing --for chatgpt` when a paste-ready Markdown packet is needed for the Codex-ChatGPT project
+- add `--from <snapshot-json>` to the briefing when ChatGPT needs current state plus what changed
 - use `personal-ops coordination diff --from <snapshot-json>` when ChatGPT only needs to see what changed between two manual loops
 - use `npm --prefix app run release:check:ci`, `personal-ops health check --deep --json`, and `personal-ops inbox operator --json` as the primary confidence path for changes near the operator surface
 

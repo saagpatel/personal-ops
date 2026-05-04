@@ -86,6 +86,10 @@ export interface CoordinationBriefing {
 		generated_at: string;
 		overall: CoordinationHealthSnapshot["overall"];
 	};
+	source_diff: {
+		included: boolean;
+		total_changes: number;
+	} | null;
 	markdown: string;
 }
 
@@ -466,8 +470,26 @@ function formatSourceFacts(snapshot: CoordinationSnapshot): string[] {
 	];
 }
 
+function formatDiffFacts(diff: CoordinationSnapshotDiff): string[] {
+	if (diff.changes.length === 0) {
+		return [
+			`- Prior snapshot: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall}).`,
+			"- Changes since prior snapshot: none.",
+		];
+	}
+	return [
+		`- Prior snapshot: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall}).`,
+		`- Changes since prior snapshot: ${diff.summary.total_changes} total (${diff.summary.repo_changes} repo, ${diff.summary.source_changes} source, ${diff.summary.health_changes} health).`,
+		...diff.changes.map(
+			(change) =>
+				`- ${change.area}:${change.name}.${change.field}: ${String(change.before)} -> ${String(change.after)}.`,
+		),
+	];
+}
+
 export function buildCoordinationBriefing(
 	snapshot: CoordinationSnapshot,
+	diff?: CoordinationSnapshotDiff,
 ): CoordinationBriefing {
 	const packetId = `handoff-${packetTimestamp(snapshot.generated_at)}-coordination-snapshot`;
 	const lines: string[] = [];
@@ -513,6 +535,14 @@ export function buildCoordinationBriefing(
 	lines.push("");
 	lines.push(...formatSourceFacts(snapshot));
 	lines.push("");
+	lines.push("What changed since prior snapshot:");
+	lines.push("");
+	if (diff) {
+		lines.push(...formatDiffFacts(diff));
+	} else {
+		lines.push("- No prior snapshot diff was supplied for this briefing.");
+	}
+	lines.push("");
 	lines.push("Docs in Personal Ops:");
 	lines.push("");
 	lines.push("- `docs/CHATGPT-CODEX-HANDOFF.md`: handoff protocol.");
@@ -531,6 +561,14 @@ export function buildCoordinationBriefing(
 	lines.push(
 		"Help us turn the latest coordination snapshot into the next practical Codex-to-ChatGPT loop while keeping Notion deferred for now.",
 	);
+	lines.push("");
+	lines.push("## Local Verification Checklist For Codex");
+	lines.push("");
+	lines.push("- Re-run `personal-ops health check --deep --json` before local changes.");
+	lines.push("- Check `git status --short --branch` in any repo ChatGPT mentions.");
+	lines.push("- Treat dirty, ahead, behind, degraded, unavailable, and deferred fields as verification prompts, not action approval.");
+	lines.push("- Keep Notion out of this lane unless the user explicitly reopens it here.");
+	lines.push("- Run focused tests before committing any implementation change.");
 	lines.push("");
 	lines.push("## What Codex Needs From ChatGPT");
 	lines.push("");
@@ -596,6 +634,12 @@ export function buildCoordinationBriefing(
 			generated_at: snapshot.generated_at,
 			overall: snapshot.health.overall,
 		},
+		source_diff: diff
+			? {
+					included: true,
+					total_changes: diff.summary.total_changes,
+				}
+			: null,
 		markdown: `${lines.join("\n")}\n`,
 	};
 }
