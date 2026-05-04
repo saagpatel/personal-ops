@@ -104,6 +104,26 @@ export interface CoordinationBriefing {
 	markdown: string;
 }
 
+export interface CoordinationBriefingSelfCheck {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	packet_id: string;
+	coordination_mode: CoordinationBriefing["coordination_mode"];
+	state: "pass" | "fail";
+	summary: {
+		pass: number;
+		fail: number;
+	};
+	checks: {
+		id: string;
+		title: string;
+		severity: "pass" | "fail";
+		message: string;
+	}[];
+	next_actions: string[];
+}
+
 export interface CoordinationSnapshotDiffChange {
 	area: "repo" | "source" | "health";
 	name: string;
@@ -1294,6 +1314,169 @@ export function buildCoordinationBriefing(
 				: null,
 		markdown: `${lines.join("\n")}\n`,
 	};
+}
+
+function selfCheckPass(
+	id: string,
+	title: string,
+	message: string,
+): CoordinationBriefingSelfCheck["checks"][number] {
+	return { id, title, severity: "pass", message };
+}
+
+function selfCheckFail(
+	id: string,
+	title: string,
+	message: string,
+): CoordinationBriefingSelfCheck["checks"][number] {
+	return { id, title, severity: "fail", message };
+}
+
+function includesAll(value: string, needles: string[]): boolean {
+	return needles.every((needle) => value.includes(needle));
+}
+
+export function buildCoordinationBriefingSelfCheck(
+	briefing: CoordinationBriefing,
+): CoordinationBriefingSelfCheck {
+	const markdown = briefing.markdown;
+	const checks: CoordinationBriefingSelfCheck["checks"] = [];
+	const requiredSections = [
+		"# Codex -> ChatGPT Handoff",
+		"Packet ID:",
+		"Created:",
+		"Mode: General cross-tool coordination",
+		`Coordination Mode: ${briefing.coordination_mode}`,
+		"ChatGPT Project: Codex-ChatGPT",
+		"## Setup",
+		"## Verified Local Facts",
+		"## Significant Changes",
+		"## Suggested Verification Prompts (Read-Only)",
+		"## Current Goal",
+		"## Local Verification Checklist For Codex",
+		"## What Codex Needs From ChatGPT",
+		"## Boundaries",
+	];
+	checks.push(
+		includesAll(markdown, requiredSections)
+			? selfCheckPass("required_sections", "Required packet sections", "Required ChatGPT handoff sections are present.")
+			: selfCheckFail("required_sections", "Required packet sections", "One or more required ChatGPT handoff sections are missing."),
+	);
+
+	const responseSections = [
+		"# ChatGPT -> Codex Briefing",
+		"## Memory-Based Context",
+		"## Inferences Or Strategy",
+		"## Local Verification Still Needed",
+		"## Risks Or Cautions",
+		"## Recommended Next Codex Actions",
+		"## Questions For The User",
+	];
+	checks.push(
+		includesAll(markdown, responseSections)
+			? selfCheckPass("response_contract_sections", "Response contract sections", "Required ChatGPT response sections are present.")
+			: selfCheckFail("response_contract_sections", "Response contract sections", "One or more required ChatGPT response sections are missing."),
+	);
+
+	const advisoryBoundaries = [
+		"Repo evidence wins over ChatGPT memory.",
+		"Treat this as guidance for Codex, not permission to execute local changes.",
+		"No ChatGPT recommendation is execution approval.",
+		"`docs/CHATGPT-RESPONSE-CONTRACT.md`: advisory ChatGPT response contract.",
+	];
+	checks.push(
+		includesAll(markdown, advisoryBoundaries)
+			? selfCheckPass("advisory_boundaries", "Advisory boundaries", "ChatGPT guidance is clearly downstream of local verification.")
+			: selfCheckFail("advisory_boundaries", "Advisory boundaries", "Advisory-only response boundaries are incomplete."),
+	);
+
+	const notionBoundaries = [
+		"Notion: deferred",
+		"Do not pull Notion into this lane",
+	];
+	checks.push(
+		includesAll(markdown, notionBoundaries)
+			? selfCheckPass("notion_deferred", "Deferred Notion lane", "Notion remains explicitly deferred in this packet.")
+			: selfCheckFail("notion_deferred", "Deferred Notion lane", "Deferred Notion lane language is missing or incomplete."),
+	);
+
+	const promptSource = briefing.verification_prompts?.source;
+	const promptModeMatches =
+		briefing.coordination_mode === "baseline_verification"
+			? promptSource === "baseline_verification" && markdown.includes("- Mode: baseline_verification.") && !markdown.includes("- Mode: diff.")
+			: promptSource === "diff_classification" && markdown.includes("- Mode: diff.") && !markdown.includes("- Mode: baseline_verification.");
+	checks.push(
+		briefing.verification_prompts?.included === true && promptModeMatches
+			? selfCheckPass("verification_prompts", "Verification prompt mode", "Verification prompts are included and match the coordination mode.")
+			: selfCheckFail("verification_prompts", "Verification prompt mode", "Verification prompts are missing or do not match the coordination mode."),
+	);
+
+	const modeFieldsMatch =
+		briefing.coordination_mode === "baseline_verification"
+			? briefing.source_diff === null || briefing.source_diff.total_changes === 0
+			: briefing.source_diff?.included === true && briefing.source_diff.total_changes > 0;
+	checks.push(
+		modeFieldsMatch
+			? selfCheckPass("mode_consistency", "Mode consistency", "Diff and baseline fields match the declared coordination mode.")
+			: selfCheckFail("mode_consistency", "Mode consistency", "Diff and baseline fields do not match the declared coordination mode."),
+	);
+
+	const forbiddenMutationLanguage = [
+		/\bgit\s+push\b/i,
+		/\bgit\s+commit\b/i,
+		/\bgit\s+merge\b/i,
+		/\brm\s+-rf\b/i,
+		/\bdelete\s+files?\b/i,
+		/\bpost\s+to\s+notion\b/i,
+		/\bwrite\s+to\s+bridge-db\b/i,
+		/\bsend\s+notification\b/i,
+		/\bapproval\s+is\s+not\s+required\b/i,
+	];
+	const forbiddenMatch = forbiddenMutationLanguage.find((pattern) => pattern.test(markdown));
+	checks.push(
+		forbiddenMatch
+			? selfCheckFail("no_mutation_instructions", "No mutation instructions", `Packet contains mutation-like language matching ${forbiddenMatch}.`)
+			: selfCheckPass("no_mutation_instructions", "No mutation instructions", "Packet does not include direct mutation instructions."),
+	);
+
+	const failCount = checks.filter((check) => check.severity === "fail").length;
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		packet_id: briefing.packet_id,
+		coordination_mode: briefing.coordination_mode,
+		state: failCount === 0 ? "pass" : "fail",
+		summary: {
+			pass: checks.length - failCount,
+			fail: failCount,
+		},
+		checks,
+		next_actions:
+			failCount === 0
+				? ["Packet is ready for operator-approved ChatGPT handoff."]
+				: ["Repair failed packet contract checks before sending this briefing to ChatGPT."],
+	};
+}
+
+export function formatCoordinationBriefingSelfCheck(
+	report: CoordinationBriefingSelfCheck,
+): string {
+	const lines: string[] = [];
+	lines.push("Coordination Briefing Self-Check");
+	lines.push(`Packet ID: ${report.packet_id}`);
+	lines.push(`Mode: ${report.coordination_mode}`);
+	lines.push(`State: ${report.state}`);
+	lines.push(`Summary: ${report.summary.pass} pass / ${report.summary.fail} fail`);
+	lines.push("");
+	lines.push("Checks:");
+	for (const check of report.checks) {
+		lines.push(`- ${check.severity}: ${check.title} - ${check.message}`);
+	}
+	lines.push("");
+	lines.push("Next Actions:");
+	lines.push(...report.next_actions.map((action) => `- ${action}`));
+	return lines.join("\n");
 }
 
 function asComparable(value: unknown): string | number | boolean | null {

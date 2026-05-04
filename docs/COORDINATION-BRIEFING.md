@@ -34,6 +34,12 @@ For structured inspection:
 personal-ops coordination briefing --for chatgpt --json
 ```
 
+Validate the generated packet contract before sending it to ChatGPT with:
+
+```bash
+personal-ops coordination briefing --for chatgpt --self-check
+```
+
 The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` or `--against ... --candidate` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
 
 By default, a briefing with `--from` also includes a short read-only `Significant Changes` section. That section is generated from deterministic diff classification rules in `docs/COORDINATION-CHANGE-CLASSIFICATION.md`.
@@ -69,6 +75,20 @@ The briefing includes:
 - the ChatGPT response structure Codex expects back
 - boundaries that keep ChatGPT advice downstream of local verification
 - a link to the ChatGPT response contract that keeps responses advisory
+
+## Self-Check
+
+`--self-check` validates the generated packet without sending it or writing new state. It checks:
+
+- required packet sections
+- required ChatGPT response sections
+- advisory-only boundaries
+- deferred Notion lane language
+- verification prompts that match `diff` or `baseline_verification` mode
+- consistency between the declared mode and diff fields
+- absence of direct mutation instructions
+
+The command exits nonzero if the packet contract fails or if the current coordination snapshot is not green.
 
 Packet IDs use:
 

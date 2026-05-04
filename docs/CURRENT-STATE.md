@@ -1,7 +1,7 @@
 # Current State
 
 Date: 2026-05-04
-Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the ChatGPT response contract, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the manual snapshot diff surface, read-only baseline selection, read-only baseline verification, v0 change classification, and v0 verification prompts are verified or in active verification.
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, the ChatGPT response contract, the read-only Coordination Snapshot contract, the generated coordination briefing surface, the coordination briefing self-check, the manual snapshot diff surface, read-only baseline selection, read-only baseline verification, v0 change classification, and v0 verification prompts are verified or in active verification.
 
 This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
@@ -45,6 +45,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - added `docs/COORDINATION-CHANGE-CLASSIFICATION.md` plus deterministic read-only classification for snapshot diffs and ChatGPT briefings
 - added `docs/COORDINATION-VERIFICATION-PROMPTS.md` plus human-readable read-only verification prompts derived from classifications
 - added focused baseline packet coverage so the green no-diff packet keeps its response contract, advisory boundary, and deferred Notion language
+- added `personal-ops coordination briefing --for chatgpt --self-check` for read-only packet contract validation before ChatGPT handoff
 - added `personal-ops health explain --json` for read-only health-state explainability when handoff packets need clearer current readiness context
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
@@ -72,6 +73,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 - `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
 - `personal-ops coordination snapshot --json`: available as the read-only cross-project handoff lens; it reports Notion as intentionally deferred for this lane
 - `personal-ops coordination briefing --for chatgpt`: available as the read-only Markdown packet surface for the Codex-ChatGPT project
+- `personal-ops coordination briefing --for chatgpt --self-check`: validates the generated packet contract before sending it to ChatGPT
 - `personal-ops coordination briefing --for chatgpt`: emits `baseline_verification` mode when no prior diff is supplied
 - `personal-ops coordination briefing --for chatgpt --from <snapshot-json>`: available when the ChatGPT packet should include changes since a manually supplied prior snapshot
 - `personal-ops coordination diff --from <snapshot-json>`: available as the read-only change summary when a prior snapshot file is manually supplied

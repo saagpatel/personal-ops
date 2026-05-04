@@ -4,8 +4,10 @@ import {
 	buildCoordinationBriefing,
 	buildCoordinationBaselineVerificationPrompts,
 	buildCoordinationSnapshotDiff,
+	buildCoordinationBriefingSelfCheck,
 	buildCoordinationVerificationPrompts,
 	classifyCoordinationSnapshotDiff,
+	formatCoordinationBriefingSelfCheck,
 	formatCoordinationChangeClassification,
 	formatCoordinationVerificationPrompts,
 	formatCoordinationSnapshot,
@@ -309,6 +311,54 @@ test("buildCoordinationBriefing baseline packet keeps the advisory response cont
 	assert.doesNotMatch(briefing.markdown, /diff_classification/);
 	assert.match(briefing.markdown, /Notion: deferred/);
 	assert.match(briefing.markdown, /Do not pull Notion into this lane/);
+});
+
+test("buildCoordinationBriefingSelfCheck validates green baseline packet contract", () => {
+	const briefing = buildCoordinationBriefing(coordinationSnapshotFixture());
+	const report = buildCoordinationBriefingSelfCheck(briefing);
+	const formatted = formatCoordinationBriefingSelfCheck(report);
+
+	assert.equal(report.state, "pass");
+	assert.deepEqual(report.summary, { pass: 7, fail: 0 });
+	assert.deepEqual(
+		report.checks.map((check) => check.id),
+		[
+			"required_sections",
+			"response_contract_sections",
+			"advisory_boundaries",
+			"notion_deferred",
+			"verification_prompts",
+			"mode_consistency",
+			"no_mutation_instructions",
+		],
+	);
+	assert.ok(report.checks.every((check) => check.severity === "pass"));
+	assert.match(formatted, /Coordination Briefing Self-Check/);
+	assert.match(formatted, /State: pass/);
+	assert.match(formatted, /Summary: 7 pass \/ 0 fail/);
+});
+
+test("buildCoordinationBriefingSelfCheck fails when advisory boundary drifts", () => {
+	const briefing = buildCoordinationBriefing(coordinationSnapshotFixture());
+	const report = buildCoordinationBriefingSelfCheck({
+		...briefing,
+		markdown: briefing.markdown
+			.replace("- No ChatGPT recommendation is execution approval.\n", "")
+			.concat("\nRun git push origin main.\n"),
+	});
+
+	assert.equal(report.state, "fail");
+	assert.equal(report.summary.fail, 2);
+	assert.ok(
+		report.checks.some(
+			(check) => check.id === "advisory_boundaries" && check.severity === "fail",
+		),
+	);
+	assert.ok(
+		report.checks.some(
+			(check) => check.id === "no_mutation_instructions" && check.severity === "fail",
+		),
+	);
 });
 
 test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes", () => {

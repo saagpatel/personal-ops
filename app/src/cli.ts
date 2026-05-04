@@ -15,11 +15,13 @@ import {
 } from "./cli/shared.js";
 import {
   buildCoordinationBriefing,
+  buildCoordinationBriefingSelfCheck,
   buildCoordinationSnapshot,
   buildCoordinationSnapshotDiff,
   buildCoordinationVerificationPrompts,
   classifyCoordinationSnapshotDiff,
   formatCoordinationChangeClassification,
+  formatCoordinationBriefingSelfCheck,
   formatCoordinationSnapshot,
   formatCoordinationSnapshotDiff,
   formatCoordinationVerificationPrompts,
@@ -1834,6 +1836,7 @@ coordination
   .option("--candidate <path>", "Candidate snapshot JSON file for --against previous or --against last-green", collectCoordinationCandidate, [])
   .option("--no-classify", "Disable read-only change classification when a prior snapshot is supplied")
   .option("--no-prompts", "Disable read-only verification prompts when classifications are included")
+  .option("--self-check", "Validate the generated briefing contract instead of printing the packet")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
     if (options.for !== "chatgpt") {
@@ -1848,11 +1851,23 @@ coordination
       classifyChanges: options.classify,
       includeVerificationPrompts: options.prompts,
     });
-    printOutput(
-      { coordination_briefing: briefing },
-      (value) => value.coordination_briefing.markdown,
-      options.json,
-    );
+    if (options.selfCheck) {
+      const selfCheck = buildCoordinationBriefingSelfCheck(briefing);
+      printOutput(
+        { coordination_briefing_self_check: selfCheck },
+        (value) => formatCoordinationBriefingSelfCheck(value.coordination_briefing_self_check),
+        options.json,
+      );
+      if (selfCheck.state !== "pass") {
+        process.exitCode = 1;
+      }
+    } else {
+      printOutput(
+        { coordination_briefing: briefing },
+        (value) => value.coordination_briefing.markdown,
+        options.json,
+      );
+    }
     if (snapshot.health.overall !== "green") {
       process.exitCode = 1;
     }
