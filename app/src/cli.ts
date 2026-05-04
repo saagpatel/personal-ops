@@ -11,6 +11,10 @@ import {
   resolveCliOption,
   type CliContext,
 } from "./cli/shared.js";
+import {
+  buildCoordinationSnapshot,
+  formatCoordinationSnapshot,
+} from "./coordination-snapshot.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
 import {
   formatApprovalConfirmation,
@@ -1731,6 +1735,26 @@ audit
     if (options.client) search.set("client", String(options.client));
     const response = await requestJson<{ events: unknown[] }>("GET", `/v1/audit/events?${search.toString()}`);
     printOutput(response, (value) => formatAuditEvents(value.events), options.json);
+  });
+
+const coordination = program
+  .command("coordination")
+  .description("Read cross-project coordination posture without mutating sibling systems.");
+
+coordination
+  .command("snapshot")
+  .description("Generate a derived read-only coordination snapshot for Codex and ChatGPT handoffs.")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    const snapshot = await buildCoordinationSnapshot(paths, requestJson, logger);
+    printOutput(
+      { coordination_snapshot: snapshot },
+      (value) => formatCoordinationSnapshot(value.coordination_snapshot),
+      options.json,
+    );
+    if (snapshot.health.overall !== "green") {
+      process.exitCode = 1;
+    }
   });
 
 registerRuntimeCommands(program, cliContext, logger, paths);

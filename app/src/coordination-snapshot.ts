@@ -1,0 +1,392 @@
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import { BridgeDbClient } from "./bridge-db.js";
+import { buildHealthCheckReport } from "./health.js";
+import { buildInstallCheckReport } from "./install.js";
+import type { Logger } from "./logger.js";
+import { NotificationHubClient } from "./notification-hub.js";
+import { PortfolioReader } from "./portfolio-reader.js";
+import type { HealthCheckReport, InstallCheckReport, Paths } from "./types.js";
+
+interface JsonRequester {
+	<T>(method: string, pathname: string, body?: unknown): Promise<T>;
+}
+
+export type CoordinationSourceState =
+	| "available"
+	| "unavailable"
+	| "degraded"
+	| "deferred";
+
+export interface CoordinationRepoSnapshot {
+	name: string;
+	path: string;
+	branch: string;
+	upstream: string | null;
+	head: string;
+	last_commit_subject: string;
+	clean: boolean;
+	ahead: number;
+	behind: number;
+	state: CoordinationSourceState;
+	message: string | null;
+	source_of_truth: string;
+}
+
+export interface CoordinationSourceSnapshot {
+	name: string;
+	state: CoordinationSourceState;
+	source_of_truth: string;
+	message: string;
+}
+
+export interface CoordinationHealthSnapshot {
+	overall: "green" | "yellow" | "red";
+	install_check_state: InstallCheckReport["state"];
+	deep_health_state: HealthCheckReport["state"] | "unavailable";
+	issues: string[];
+}
+
+export interface CoordinationSnapshot {
+	schema_version: "1.0.0";
+	generated_at: string;
+	machine: {
+		hostname: string;
+		user: string;
+	};
+	scope: {
+		mode: "read_only";
+		notion_lane: "deferred";
+		description: string;
+	};
+	repos: CoordinationRepoSnapshot[];
+	sources: {
+		github_repo_auditor: CoordinationSourceSnapshot & {
+			generated_at: string | null;
+			project_count: number | null;
+			briefing_line: string | null;
+		};
+		bridge_db: CoordinationSourceSnapshot;
+		notification_hub: CoordinationSourceSnapshot & {
+			recent_event_count: number;
+		};
+		notion: CoordinationSourceSnapshot;
+	};
+	health: CoordinationHealthSnapshot;
+	next_actions: string[];
+}
+
+const ACTIVE_REPOS = [
+	{
+		name: "personal-ops",
+		path: "/Users/d/.local/share/personal-ops",
+		source_of_truth: "local git checkout plus Personal Ops health checks",
+	},
+	{
+		name: "GithubRepoAuditor",
+		path: "/Users/d/Projects/GithubRepoAuditor",
+		source_of_truth: "GithubRepoAuditor repo and portfolio truth output",
+	},
+	{
+		name: "bridge-db",
+		path: "/Users/d/Projects/bridge-db",
+		source_of_truth: "bridge-db repo and MCP runtime",
+	},
+	{
+		name: "notification-hub",
+		path: "/Users/d/Projects/notification-hub",
+		source_of_truth: "notification-hub repo and local daemon/logs",
+	},
+] as const;
+
+function runGit(repoPath: string, args: string[]): string {
+	return execFileSync("git", args, {
+		cwd: repoPath,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	}).trim();
+}
+
+export function parseDivergence(output: string): {
+	ahead: number;
+	behind: number;
+} {
+	const [behindText, aheadText] = output.split(/\s+/);
+	return {
+		behind: Number(behindText ?? 0) || 0,
+		ahead: Number(aheadText ?? 0) || 0,
+	};
+}
+
+function collectRepoSnapshot(
+	repo: (typeof ACTIVE_REPOS)[number],
+): CoordinationRepoSnapshot {
+	try {
+		const branch = runGit(repo.path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		const head = runGit(repo.path, ["rev-parse", "--short", "HEAD"]);
+		const lastCommitSubject = runGit(repo.path, ["log", "-1", "--pretty=%s"]);
+		const porcelain = runGit(repo.path, ["status", "--porcelain"]);
+		let upstream: string | null = null;
+		let ahead = 0;
+		let behind = 0;
+		try {
+			upstream = runGit(repo.path, [
+				"rev-parse",
+				"--abbrev-ref",
+				"--symbolic-full-name",
+				"@{u}",
+			]);
+			const divergence = parseDivergence(
+				runGit(repo.path, [
+					"rev-list",
+					"--left-right",
+					"--count",
+					`${upstream}...HEAD`,
+				]),
+			);
+			ahead = divergence.ahead;
+			behind = divergence.behind;
+		} catch {
+			upstream = null;
+		}
+		return {
+			name: repo.name,
+			path: repo.path,
+			branch,
+			upstream,
+			head,
+			last_commit_subject: lastCommitSubject,
+			clean: porcelain.length === 0,
+			ahead,
+			behind,
+			state:
+				porcelain.length === 0 && ahead === 0 && behind === 0
+					? "available"
+					: "degraded",
+			message:
+				porcelain.length === 0 && ahead === 0 && behind === 0
+					? null
+					: "Repo posture needs attention before using this as a clean handoff baseline.",
+			source_of_truth: repo.source_of_truth,
+		};
+	} catch (error) {
+		return {
+			name: repo.name,
+			path: repo.path,
+			branch: "",
+			upstream: null,
+			head: "",
+			last_commit_subject: "",
+			clean: false,
+			ahead: 0,
+			behind: 0,
+			state: "unavailable",
+			message: error instanceof Error ? error.message : String(error),
+			source_of_truth: repo.source_of_truth,
+		};
+	}
+}
+
+function healthOverall(
+	repos: CoordinationRepoSnapshot[],
+	installCheck: InstallCheckReport,
+	healthCheck: HealthCheckReport | null,
+): CoordinationHealthSnapshot["overall"] {
+	if (
+		repos.some((repo) => repo.state === "unavailable") ||
+		installCheck.state === "degraded" ||
+		healthCheck?.state === "degraded"
+	) {
+		return "red";
+	}
+	if (
+		repos.some((repo) => repo.state === "degraded") ||
+		installCheck.state !== "ready" ||
+		!healthCheck ||
+		healthCheck.state !== "ready"
+	) {
+		return "yellow";
+	}
+	return "green";
+}
+
+function buildIssues(
+	repos: CoordinationRepoSnapshot[],
+	installCheck: InstallCheckReport,
+	healthCheck: HealthCheckReport | null,
+): string[] {
+	const issues = repos
+		.filter((repo) => repo.state !== "available")
+		.map(
+			(repo) => `${repo.name}: ${repo.message ?? "repo posture needs attention"}`,
+		);
+	if (installCheck.state !== "ready") {
+		issues.push(`personal-ops install check is ${installCheck.state}`);
+	}
+	if (!healthCheck) {
+		issues.push("personal-ops deep health is unavailable");
+	} else if (healthCheck.state !== "ready") {
+		issues.push(`personal-ops deep health is ${healthCheck.state}`);
+	}
+	return issues;
+}
+
+function buildNextActions(
+	snapshot: Pick<CoordinationSnapshot, "health">,
+): string[] {
+	if (snapshot.health.overall === "green") {
+		return [
+			"Use this snapshot as the next Codex-to-ChatGPT packet input.",
+			"Keep deeper automation deferred until the snapshot contract proves useful manually.",
+		];
+	}
+	return [
+		"Repair degraded or unavailable repo and health signals before treating this as a clean handoff baseline.",
+		"Regenerate the snapshot after repairs.",
+	];
+}
+
+export async function buildCoordinationSnapshot(
+	paths: Paths,
+	requestJson: JsonRequester,
+	logger: Logger,
+): Promise<CoordinationSnapshot> {
+	const generatedAt = new Date().toISOString();
+	const repos = ACTIVE_REPOS.map(collectRepoSnapshot);
+	const installCheck = buildInstallCheckReport(paths);
+	let healthCheck: HealthCheckReport | null = null;
+	try {
+		healthCheck = await buildHealthCheckReport(paths, requestJson, {
+			deep: true,
+			snapshotAgeLimitHours: 24,
+		});
+	} catch {
+		healthCheck = null;
+	}
+
+	const portfolio = new PortfolioReader().getPortfolioHealth();
+	const bridgeDb = new BridgeDbClient();
+	let bridgeAvailable = false;
+	try {
+		bridgeAvailable = await bridgeDb.isAvailable();
+	} finally {
+		await bridgeDb.close();
+	}
+
+	const notificationHub = new NotificationHubClient(logger);
+	const notificationHubHealthy = await notificationHub.isHealthy();
+	const recentEvents = notificationHub.readRecentEvents(25);
+
+	const health: CoordinationHealthSnapshot = {
+		overall: healthOverall(repos, installCheck, healthCheck),
+		install_check_state: installCheck.state,
+		deep_health_state: healthCheck?.state ?? "unavailable",
+		issues: buildIssues(repos, installCheck, healthCheck),
+	};
+
+	const snapshot: CoordinationSnapshot = {
+		schema_version: "1.0.0",
+		generated_at: generatedAt,
+		machine: {
+			hostname: os.hostname(),
+			user: os.userInfo().username,
+		},
+		scope: {
+			mode: "read_only",
+			notion_lane: "deferred",
+			description:
+				"Derived coordination lens for the active local operating layer. It does not write to sibling systems and is not a source of truth.",
+		},
+		repos,
+		sources: {
+			github_repo_auditor: {
+				name: "GithubRepoAuditor portfolio truth",
+				state: portfolio.generated_at ? "available" : "unavailable",
+				source_of_truth:
+					"/Users/d/Projects/GithubRepoAuditor/output/portfolio-truth-latest.json",
+				message: portfolio.briefing_line,
+				generated_at: portfolio.generated_at || null,
+				project_count: portfolio.project_count || null,
+				briefing_line: portfolio.briefing_line || null,
+			},
+			bridge_db: {
+				name: "bridge-db",
+				state: bridgeAvailable ? "available" : "unavailable",
+				source_of_truth: "/Users/d/Projects/bridge-db",
+				message: bridgeAvailable
+					? "bridge-db MCP runtime is reachable"
+					: "bridge-db MCP runtime is not reachable",
+			},
+			notification_hub: {
+				name: "notification-hub",
+				state: notificationHubHealthy ? "available" : "degraded",
+				source_of_truth:
+					"http://127.0.0.1:9199/health and local events.jsonl",
+				message: notificationHubHealthy
+					? "notification-hub health endpoint is reachable"
+					: "notification-hub health endpoint is not reachable",
+				recent_event_count: recentEvents.length,
+			},
+			notion: {
+				name: "Notion",
+				state: "deferred",
+				source_of_truth: "/Users/d/Notion and Notion workspace",
+				message:
+					"Notion is intentionally deferred in this lane because active Notion work is being handled separately.",
+			},
+		},
+		health,
+		next_actions: [],
+	};
+	snapshot.next_actions = buildNextActions(snapshot);
+	return snapshot;
+}
+
+export function formatCoordinationSnapshot(
+	snapshot: CoordinationSnapshot,
+): string {
+	const lines: string[] = [];
+	lines.push("Coordination Snapshot");
+	lines.push(`Generated: ${snapshot.generated_at}`);
+	lines.push(`Overall: ${snapshot.health.overall}`);
+	lines.push("");
+	lines.push("Repos");
+	for (const repo of snapshot.repos) {
+		const sync =
+			repo.upstream == null
+				? "no upstream"
+				: `${repo.ahead} ahead / ${repo.behind} behind`;
+		lines.push(
+			`- ${repo.name}: ${repo.clean ? "clean" : "dirty"}, ${repo.branch || "unknown branch"}, ${sync}, ${repo.head} ${repo.last_commit_subject}`,
+		);
+		if (repo.message) lines.push(`  ${repo.message}`);
+	}
+	lines.push("");
+	lines.push("Sources");
+	lines.push(
+		`- GithubRepoAuditor: ${snapshot.sources.github_repo_auditor.state} (${snapshot.sources.github_repo_auditor.briefing_line ?? snapshot.sources.github_repo_auditor.message})`,
+	);
+	lines.push(
+		`- bridge-db: ${snapshot.sources.bridge_db.state} (${snapshot.sources.bridge_db.message})`,
+	);
+	lines.push(
+		`- notification-hub: ${snapshot.sources.notification_hub.state} (${snapshot.sources.notification_hub.message}; ${snapshot.sources.notification_hub.recent_event_count} recent events read)`,
+	);
+	lines.push(
+		`- Notion: ${snapshot.sources.notion.state} (${snapshot.sources.notion.message})`,
+	);
+	lines.push("");
+	lines.push("Health");
+	lines.push(`- install check: ${snapshot.health.install_check_state}`);
+	lines.push(`- deep health: ${snapshot.health.deep_health_state}`);
+	if (snapshot.health.issues.length > 0) {
+		lines.push("- issues:");
+		for (const issue of snapshot.health.issues) lines.push(`  - ${issue}`);
+	} else {
+		lines.push("- issues: none");
+	}
+	lines.push("");
+	lines.push("Next Actions");
+	for (const action of snapshot.next_actions) lines.push(`- ${action}`);
+	return `${lines.join("\n")}\n`;
+}

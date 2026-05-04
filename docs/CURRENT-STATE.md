@@ -1,7 +1,7 @@
 # Current State
 
-Date: 2026-05-03
-Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, and ChatGPT/Codex handoff docs are merged and verified.
+Date: 2026-05-04
+Status: Stable on `main`; Operator Inbox, bridge activity, wrappers, desktop shell, ChatGPT/Codex handoff docs, and the read-only Coordination Snapshot contract are merged and verified.
 
 This note is the resume checkpoint for `personal-ops`. It supersedes the older April checkpoint that still described Operator Inbox as an in-progress branch.
 
@@ -35,6 +35,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 - added `docs/CHATGPT-CODEX-HANDOFF.md` for compact, verified Codex-to-ChatGPT packets
 - added `docs/CODEX-CHATGPT-MACHINE-SNAPSHOT.md` to orient ChatGPT before cross-project strategy asks
 - added `docs/CROSS-PROJECT-COORDINATION.md` to preserve sibling-system ownership boundaries
+- added `docs/COORDINATION-SNAPSHOT-SCHEMA.md` plus `personal-ops coordination snapshot` for a derived, read-only handoff lens
 - linked that protocol from `START-HERE.md`
 - kept ChatGPT advice explicitly downstream of verified local evidence
 - kept mutation, send, publish, and auth-sensitive actions under explicit operator approval
@@ -44,7 +45,7 @@ This note is the resume checkpoint for `personal-ops`. It supersedes the older A
 `personal-ops` is currently in a strong maintenance-and-iteration state:
 
 - `main` is aligned with `origin/main`
-- latest commit is `d8e9711 docs: add ChatGPT Codex handoff protocol`
+- latest published handoff/coordination commit is `66b8b42 docs: add cross-project coordination contract`
 - the assistant-led delivery track is complete through Phase 38
 - Operator Home Phase 1 is merged
 - Operator Inbox foundations are merged
@@ -58,6 +59,7 @@ Checked on 2026-05-03 at 19:36 PDT:
 - `personal-ops install check --json`: `ready`, `62 pass / 0 warn / 0 fail`
 - `personal-ops health check --deep --json`: `ready`, `6 pass / 0 warn / 0 fail`
 - `personal-ops inbox operator --json`: Operator Inbox generated successfully and reported bridge-db, notification-hub, repo-auditor, and Notion sources as available
+- `personal-ops coordination snapshot --json`: available as the read-only cross-project handoff lens; it reports Notion as intentionally deferred for this lane
 
 Important live details from that check:
 
@@ -86,7 +88,7 @@ At the time of this checkpoint:
 - `/Users/d/Projects/bridge-db` is clean and aligned with `origin/main`
 - `/Users/d/Projects/GithubRepoAuditor` is clean and aligned with `origin/main`
 - `/Users/d/Projects/notification-hub` is clean and aligned with `origin/main`
-- `/Users/d/Notion` has local command-center ID edits and should be handled in the separate Notion lane
+- `/Users/d/Notion` is intentionally handled in a separate Notion lane and should not be pulled into this coordination-snapshot implementation pass
 
 ## What to read first when resuming
 
@@ -96,6 +98,7 @@ If you need current truth:
 - `START-HERE.md`
 - `docs/CHATGPT-CODEX-HANDOFF.md`
 - `docs/CROSS-PROJECT-COORDINATION.md`
+- `docs/COORDINATION-SNAPSHOT-SCHEMA.md`
 - this file
 
 If you need architecture and operating contracts:
@@ -123,12 +126,14 @@ What is already true:
 - send-adjacent and external mutations remain gated by explicit operator approval
 - docs now include a first draft of the Codex-to-ChatGPT handoff protocol
 - docs now include a cross-project coordination contract for the five-project local operating layer
+- the first coordination snapshot surface is read-only and does not write to sibling systems
 
 What that means for the next session:
 
 - build on the merged Operator Home and Operator Inbox surfaces
 - keep external-system ownership boundaries intact
 - prefer small read-model, formatter, and operator-flow improvements over broad rewrites
+- use `personal-ops coordination snapshot --json` as the compact handoff input before asking ChatGPT for cross-tool strategy
 - use `npm --prefix app run release:check:ci`, `personal-ops health check --deep --json`, and `personal-ops inbox operator --json` as the primary confidence path for changes near the operator surface
 
 ## Suggested next focus
