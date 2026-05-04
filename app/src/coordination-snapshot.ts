@@ -114,6 +114,7 @@ export interface CoordinationSnapshotDiff {
 	schema_version: "1.0.0";
 	generated_at: string;
 	mode: "read_only";
+	baseline: CoordinationSnapshotBaseline | null;
 	previous_snapshot: {
 		generated_at: string;
 		overall: CoordinationHealthSnapshot["overall"];
@@ -130,6 +131,27 @@ export interface CoordinationSnapshotDiff {
 	};
 	changes: CoordinationSnapshotDiffChange[];
 	next_actions: string[];
+}
+
+export type CoordinationBaselineKind =
+	| "explicit"
+	| "previous"
+	| "last_trusted_green";
+
+export interface CoordinationSnapshotBaseline {
+	kind: CoordinationBaselineKind;
+	label: string;
+	source_path: string | null;
+}
+
+export interface CoordinationBaselineCandidate {
+	snapshot: CoordinationSnapshot;
+	source_path: string;
+}
+
+export interface CoordinationBaselineSelection {
+	baseline: CoordinationSnapshotBaseline;
+	snapshot: CoordinationSnapshot;
 }
 
 export type CoordinationChangeSeverity = "low" | "medium" | "high";
@@ -549,14 +571,19 @@ function formatSourceFacts(snapshot: CoordinationSnapshot): string[] {
 }
 
 function formatDiffFacts(diff: CoordinationSnapshotDiff): string[] {
+	const baselineLine = diff.baseline
+		? `- Compared against: ${diff.baseline.label}${diff.baseline.source_path ? ` (${diff.baseline.source_path})` : ""}.`
+		: "- Compared against: explicit prior snapshot.";
 	if (diff.changes.length === 0) {
 		return [
+			baselineLine,
 			`- Prior snapshot health was ${diff.previous_snapshot.overall} at ${diff.previous_snapshot.generated_at}.`,
 			`- Current snapshot health is ${diff.current_snapshot.overall} at ${diff.current_snapshot.generated_at}.`,
 			"- Changes since prior snapshot: none.",
 		];
 	}
 	return [
+		baselineLine,
 		`- Prior snapshot health was ${diff.previous_snapshot.overall} at ${diff.previous_snapshot.generated_at}.`,
 		`- Current snapshot health is ${diff.current_snapshot.overall} at ${diff.current_snapshot.generated_at}.`,
 		`- Changes since prior snapshot: ${diff.summary.total_changes} total (${diff.summary.repo_changes} repo, ${diff.summary.source_changes} source, ${diff.summary.health_changes} health).`,
@@ -1017,6 +1044,9 @@ export function buildCoordinationBriefing(
 		"- `docs/COORDINATION-SNAPSHOT-SCHEMA.md`: read-only v1 snapshot contract.",
 	);
 	lines.push(
+		"- `docs/COORDINATION-BASELINE.md`: read-only baseline selection contract.",
+	);
+	lines.push(
 		"- `docs/COORDINATION-BRIEFING.md`: read-only Markdown packet contract.",
 	);
 	lines.push(
@@ -1301,6 +1331,7 @@ function compareHealth(
 export function buildCoordinationSnapshotDiff(
 	previous: CoordinationSnapshot,
 	current: CoordinationSnapshot,
+	baseline: CoordinationSnapshotBaseline | null = null,
 ): CoordinationSnapshotDiff {
 	const changes: CoordinationSnapshotDiffChange[] = [];
 	compareRepos(changes, previous, current);
@@ -1320,6 +1351,7 @@ export function buildCoordinationSnapshotDiff(
 		schema_version: "1.0.0",
 		generated_at: new Date().toISOString(),
 		mode: "read_only",
+		baseline,
 		previous_snapshot: {
 			generated_at: previous.generated_at,
 			overall: previous.health.overall,
@@ -1343,6 +1375,13 @@ export function formatCoordinationSnapshotDiff(diff: CoordinationSnapshotDiff): 
 	const lines: string[] = [];
 	lines.push("Coordination Snapshot Diff");
 	lines.push(`Generated: ${diff.generated_at}`);
+	if (diff.baseline) {
+		lines.push(
+			`Compared against: ${diff.baseline.label}${diff.baseline.source_path ? ` (${diff.baseline.source_path})` : ""}`,
+		);
+	} else {
+		lines.push("Compared against: explicit prior snapshot");
+	}
 	lines.push(`Previous: ${diff.previous_snapshot.generated_at} (${diff.previous_snapshot.overall})`);
 	lines.push(`Current: ${diff.current_snapshot.generated_at} (${diff.current_snapshot.overall})`);
 	lines.push(
@@ -1364,4 +1403,57 @@ export function formatCoordinationSnapshotDiff(diff: CoordinationSnapshotDiff): 
 	lines.push("Next Actions");
 	for (const action of diff.next_actions) lines.push(`- ${action}`);
 	return `${lines.join("\n")}\n`;
+}
+
+function snapshotTime(snapshot: CoordinationSnapshot): number {
+	const time = Date.parse(snapshot.generated_at);
+	return Number.isNaN(time) ? 0 : time;
+}
+
+function newestCandidate(
+	candidates: CoordinationBaselineCandidate[],
+): CoordinationBaselineCandidate | null {
+	return candidates.reduce<CoordinationBaselineCandidate | null>((newest, candidate) => {
+		if (!newest) return candidate;
+		return snapshotTime(candidate.snapshot) > snapshotTime(newest.snapshot)
+			? candidate
+			: newest;
+	}, null);
+}
+
+export function selectCoordinationBaselineSnapshot(
+	kind: CoordinationBaselineKind,
+	candidates: CoordinationBaselineCandidate[],
+): CoordinationBaselineSelection {
+	if (candidates.length === 0) {
+		throw new Error(
+			"`--candidate` snapshot files are required when using `--against previous` or `--against last-green`.",
+		);
+	}
+	const selected =
+		kind === "last_trusted_green"
+			? newestCandidate(
+					candidates.filter(
+						(candidate) => candidate.snapshot.health.overall === "green",
+					),
+				)
+			: newestCandidate(candidates);
+	if (!selected) {
+		throw new Error(
+			kind === "last_trusted_green"
+				? "No green coordination snapshot candidates were supplied for `--against last-green`."
+				: "No coordination snapshot candidates were supplied.",
+		);
+	}
+	return {
+		snapshot: selected.snapshot,
+		baseline: {
+			kind,
+			label:
+				kind === "last_trusted_green"
+					? `last trusted green snapshot from ${selected.snapshot.generated_at}`
+					: `latest previous snapshot from ${selected.snapshot.generated_at}`,
+			source_path: selected.source_path,
+		},
+	};
 }

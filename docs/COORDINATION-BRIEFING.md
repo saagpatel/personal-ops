@@ -21,13 +21,20 @@ Include a read-only diff from a manually supplied prior snapshot with:
 personal-ops coordination briefing --for chatgpt --from /path/to/prior-coordination-snapshot.json
 ```
 
+Choose a read-only baseline from operator-supplied candidate snapshots with:
+
+```bash
+personal-ops coordination briefing --for chatgpt --against previous --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+personal-ops coordination briefing --for chatgpt --against last-green --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+```
+
 For structured inspection:
 
 ```bash
 personal-ops coordination briefing --for chatgpt --json
 ```
 
-The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
+The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` or `--against ... --candidate` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
 
 By default, a briefing with `--from` also includes a short read-only `Significant Changes` section. That section is generated from deterministic diff classification rules in `docs/COORDINATION-CHANGE-CLASSIFICATION.md`.
 
@@ -52,6 +59,7 @@ The briefing includes:
 - repo posture for the active local coordination repos
 - source availability for GithubRepoAuditor, bridge-db, notification-hub, and deferred Notion
 - optional changed fields from a manually supplied prior snapshot
+- the selected baseline label when a diff is included
 - optional significant change classifications from those changed fields
 - optional read-only verification prompts from those classifications
 - a local verification checklist for Codex
@@ -86,6 +94,13 @@ When a prior snapshot was manually saved by the operator, compare it with the cu
 personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json
 ```
 
+For deterministic baseline selection from candidate files:
+
+```bash
+personal-ops coordination diff --against previous --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+personal-ops coordination diff --against last-green --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+```
+
 For structured inspection:
 
 ```bash
@@ -105,6 +120,8 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json 
 ```
 
 The diff accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object. It does not write a new snapshot file. It only reports repo, source, and health fields that changed.
+
+`--against last-green` chooses the newest supplied candidate whose `health.overall` is `green`. This avoids replaying stale yellow comparison state into a current green ChatGPT packet.
 
 When a prior snapshot is supplied, the briefing must label prior health as comparison-only and current health as authoritative for the present packet. This prevents yellow-to-green transitions from being read as current yellow health.
 

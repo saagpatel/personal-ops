@@ -10,8 +10,88 @@ import {
 	formatCoordinationSnapshot,
 	formatCoordinationSnapshotDiff,
 	parseDivergence,
+	selectCoordinationBaselineSnapshot,
 	type CoordinationSnapshot,
 } from "../src/coordination-snapshot.js";
+
+function coordinationSnapshotFixture(
+	overrides: Partial<CoordinationSnapshot> = {},
+): CoordinationSnapshot {
+	const snapshot: CoordinationSnapshot = {
+		schema_version: "1.0.0",
+		generated_at: "2026-05-04T06:45:11.157Z",
+		machine: {
+			hostname: "machine.local",
+			user: "d",
+		},
+		scope: {
+			mode: "read_only",
+			notion_lane: "deferred",
+			description: "Derived only.",
+		},
+		repos: [
+			{
+				name: "personal-ops",
+				path: "/Users/d/.local/share/personal-ops",
+				branch: "main",
+				upstream: "origin/main",
+				head: "0358b88",
+				last_commit_subject: "Add read-only coordination snapshot",
+				clean: true,
+				ahead: 0,
+				behind: 0,
+				state: "available",
+				message: null,
+				source_of_truth: "local git",
+			},
+		],
+		sources: {
+			github_repo_auditor: {
+				name: "GithubRepoAuditor portfolio truth",
+				state: "available",
+				source_of_truth: "portfolio-truth-latest.json",
+				message: "115 repos",
+				generated_at: "2026-05-04T00:00:00.000Z",
+				project_count: 115,
+				briefing_line: "115 repos",
+			},
+			bridge_db: {
+				name: "bridge-db",
+				state: "available",
+				source_of_truth: "bridge-db",
+				message: "reachable",
+			},
+			notification_hub: {
+				name: "notification-hub",
+				state: "available",
+				source_of_truth: "notification-hub",
+				message: "reachable",
+				recent_event_count: 25,
+			},
+			notion: {
+				name: "Notion",
+				state: "deferred",
+				source_of_truth: "/Users/d/Notion",
+				message: "handled separately",
+			},
+		},
+		health: {
+			overall: "green",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: [],
+		},
+		next_actions: ["Use this snapshot as the next packet input."],
+	};
+	return {
+		...snapshot,
+		...overrides,
+		machine: { ...snapshot.machine, ...overrides.machine },
+		scope: { ...snapshot.scope, ...overrides.scope },
+		sources: { ...snapshot.sources, ...overrides.sources },
+		health: { ...snapshot.health, ...overrides.health },
+	};
+}
 
 test("parseDivergence maps git left-right counts into behind and ahead", () => {
 	assert.deepEqual(parseDivergence("0\t1"), { behind: 0, ahead: 1 });
@@ -277,6 +357,79 @@ test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes"
 	assert.match(formatted, /repo:personal-ops.head: 0358b88 -> f3171b5/);
 	assert.match(formatted, /source:notification_hub.recent_event_count: 25 -> 30/);
 	assert.match(formatted, /health:overall.overall: green -> yellow/);
+});
+
+test("selectCoordinationBaselineSnapshot chooses latest previous or latest green candidate", () => {
+	const earlyGreen = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T06:00:00.000Z",
+		health: { overall: "green", install_check_state: "ready", deep_health_state: "ready", issues: [] },
+	});
+	const laterYellow = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T07:00:00.000Z",
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: ["prior warning"],
+		},
+	});
+	const latestGreen = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T08:00:00.000Z",
+		health: { overall: "green", install_check_state: "ready", deep_health_state: "ready", issues: [] },
+	});
+	const candidates = [
+		{ snapshot: earlyGreen, source_path: "/tmp/early-green.json" },
+		{ snapshot: laterYellow, source_path: "/tmp/later-yellow.json" },
+		{ snapshot: latestGreen, source_path: "/tmp/latest-green.json" },
+	];
+
+	const previous = selectCoordinationBaselineSnapshot("previous", candidates);
+	const lastGreen = selectCoordinationBaselineSnapshot("last_trusted_green", candidates);
+
+	assert.equal(previous.snapshot.generated_at, "2026-05-04T08:00:00.000Z");
+	assert.equal(previous.baseline.kind, "previous");
+	assert.match(previous.baseline.label, /latest previous snapshot/);
+	assert.equal(lastGreen.snapshot.generated_at, "2026-05-04T08:00:00.000Z");
+	assert.equal(lastGreen.baseline.kind, "last_trusted_green");
+	assert.match(lastGreen.baseline.label, /last trusted green snapshot/);
+});
+
+test("last trusted green baseline prevents stale yellow replay", () => {
+	const staleYellow = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T07:00:00.000Z",
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: ["old warning"],
+		},
+	});
+	const trustedGreen = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T06:00:00.000Z",
+		health: { overall: "green", install_check_state: "ready", deep_health_state: "ready", issues: [] },
+	});
+	const currentGreen = coordinationSnapshotFixture({
+		generated_at: "2026-05-04T08:00:00.000Z",
+		health: { overall: "green", install_check_state: "ready", deep_health_state: "ready", issues: [] },
+		repos: [{ ...trustedGreen.repos[0]!, head: "dd38df5" }],
+	});
+	const selection = selectCoordinationBaselineSnapshot("last_trusted_green", [
+		{ snapshot: trustedGreen, source_path: "/tmp/trusted-green.json" },
+		{ snapshot: staleYellow, source_path: "/tmp/stale-yellow.json" },
+	]);
+	const diff = buildCoordinationSnapshotDiff(
+		selection.snapshot,
+		currentGreen,
+		selection.baseline,
+	);
+	const formatted = formatCoordinationSnapshotDiff(diff);
+	const briefing = buildCoordinationBriefing(currentGreen, diff);
+
+	assert.equal(diff.previous_snapshot.overall, "green");
+	assert.equal(diff.baseline?.source_path, "/tmp/trusted-green.json");
+	assert.match(formatted, /Compared against: last trusted green snapshot/);
+	assert.match(briefing.markdown, /Compared against: last trusted green snapshot/);
+	assert.doesNotMatch(briefing.markdown, /Prior snapshot health for comparison only: yellow/);
 });
 
 test("classifyCoordinationSnapshotDiff labels deterministic significant changes", () => {

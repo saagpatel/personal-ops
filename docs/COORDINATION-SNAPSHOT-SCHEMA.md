@@ -31,6 +31,15 @@ personal-ops coordination diff --from /path/to/prior-coordination-snapshot.json
 
 The diff command is also read-only. It accepts either a full `{"coordination_snapshot": ...}` command output file or the raw snapshot object, then reports changed repo, source, and health fields.
 
+Choose a comparison baseline from operator-supplied candidate files with:
+
+```bash
+personal-ops coordination diff --against previous --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+personal-ops coordination diff --against last-green --candidate /path/to/snapshot-a.json --candidate /path/to/snapshot-b.json
+```
+
+`previous` selects the newest supplied candidate. `last-green` selects the newest supplied candidate whose `health.overall` is `green`. Both modes are read-only and do not persist baseline state.
+
 Add deterministic read-only change classification with:
 
 ```bash
@@ -75,6 +84,7 @@ Notion is intentionally deferred because active Notion work is handled in a sepa
 | `sources.notion` | `/Users/d/Notion` and the Notion workspace | Deferred in this lane. |
 | change classification | `personal-ops coordination diff` output | Derived only from changed fields. It must not call sibling systems. |
 | verification prompts | change classification output | Derived only from classifications. They must stay human-readable and read-only. |
+| baseline selection | operator-supplied coordination snapshot files | Derived only from supplied candidates. It must not write a baseline registry. |
 
 If a future field has more than one possible owner, do not add it until the owner is explicit.
 

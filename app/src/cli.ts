@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import fs from "node:fs";
+import path from "node:path";
 import { registerAuthAndMailCommands } from "./cli/commands/auth-mail.js";
 import { registerInstallAndBackupCommands } from "./cli/commands/install.js";
 import { registerRuntimeCommands } from "./cli/commands/runtime.js";
@@ -22,6 +23,8 @@ import {
   formatCoordinationSnapshot,
   formatCoordinationSnapshotDiff,
   formatCoordinationVerificationPrompts,
+  selectCoordinationBaselineSnapshot,
+  type CoordinationBaselineKind,
   type CoordinationSnapshot,
 } from "./coordination-snapshot.js";
 import { ensureRuntimeFiles, loadConfig } from "./config.js";
@@ -1760,6 +1763,52 @@ function readCoordinationSnapshotFile(filePath: string): CoordinationSnapshot {
   return snapshot as CoordinationSnapshot;
 }
 
+function collectCoordinationCandidate(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function coordinationBaselineKind(value: string): CoordinationBaselineKind {
+  if (value === "explicit" || value === "previous") return value;
+  if (value === "last-green" || value === "last_trusted_green") return "last_trusted_green";
+  throw new Error("`--against` must be one of: explicit, previous, last-green.");
+}
+
+function selectCoordinationBaseline(options: {
+  against?: string;
+  from?: string;
+  candidate?: string[];
+}): { baselineSnapshot: CoordinationSnapshot; baseline: { kind: CoordinationBaselineKind; label: string; source_path: string | null } } | null {
+  const against = coordinationBaselineKind(options.against ?? "explicit");
+  if (against === "explicit") {
+    if (!options.from) return null;
+    const sourcePath = path.resolve(options.from);
+    const snapshot = readCoordinationSnapshotFile(sourcePath);
+    return {
+      baselineSnapshot: snapshot,
+      baseline: {
+        kind: "explicit",
+        label: `explicit snapshot from ${snapshot.generated_at}`,
+        source_path: sourcePath,
+      },
+    };
+  }
+  if (options.from) {
+    throw new Error("Use either `--from` for explicit comparison or `--candidate` with `--against previous|last-green`, not both.");
+  }
+  const candidates = (options.candidate ?? []).map((candidatePath) => {
+    const sourcePath = path.resolve(candidatePath);
+    return {
+      source_path: sourcePath,
+      snapshot: readCoordinationSnapshotFile(sourcePath),
+    };
+  });
+  const selection = selectCoordinationBaselineSnapshot(against, candidates);
+  return {
+    baselineSnapshot: selection.snapshot,
+    baseline: selection.baseline,
+  };
+}
+
 coordination
   .command("snapshot")
   .description("Generate a derived read-only coordination snapshot for Codex and ChatGPT handoffs.")
@@ -1781,6 +1830,8 @@ coordination
   .description("Generate a derived read-only Markdown handoff briefing from the latest coordination snapshot.")
   .option("--for <target>", "Briefing target", "chatgpt")
   .option("--from <path>", "Optional prior snapshot JSON file to include a read-only diff")
+  .option("--against <mode>", "Baseline selection mode: explicit, previous, or last-green", "explicit")
+  .option("--candidate <path>", "Candidate snapshot JSON file for --against previous or --against last-green", collectCoordinationCandidate, [])
   .option("--no-classify", "Disable read-only change classification when a prior snapshot is supplied")
   .option("--no-prompts", "Disable read-only verification prompts when classifications are included")
   .option("--json", "Print raw JSON")
@@ -1789,8 +1840,9 @@ coordination
       throw new Error("Only `--for chatgpt` is supported right now.");
     }
     const snapshot = await buildCoordinationSnapshot(paths, requestJson, logger);
-    const diff = options.from
-      ? buildCoordinationSnapshotDiff(readCoordinationSnapshotFile(options.from), snapshot)
+    const baselineSelection = selectCoordinationBaseline(options);
+    const diff = baselineSelection
+      ? buildCoordinationSnapshotDiff(baselineSelection.baselineSnapshot, snapshot, baselineSelection.baseline)
       : undefined;
     const briefing = buildCoordinationBriefing(snapshot, diff, {
       classifyChanges: options.classify,
@@ -1808,15 +1860,20 @@ coordination
 
 coordination
   .command("diff")
-  .description("Compare the current read-only coordination snapshot against a manually supplied prior snapshot JSON file.")
-  .requiredOption("--from <path>", "Prior snapshot JSON file")
+  .description("Compare the current read-only coordination snapshot against a selected prior baseline snapshot.")
+  .option("--from <path>", "Prior snapshot JSON file for explicit comparison")
+  .option("--against <mode>", "Baseline selection mode: explicit, previous, or last-green", "explicit")
+  .option("--candidate <path>", "Candidate snapshot JSON file for --against previous or --against last-green", collectCoordinationCandidate, [])
   .option("--classify", "Include read-only deterministic change classification")
   .option("--with-prompts", "Include read-only verification prompts derived from classifications")
   .option("--json", "Print raw JSON")
   .action(async (options) => {
-    const previous = readCoordinationSnapshotFile(options.from);
+    const baselineSelection = selectCoordinationBaseline(options);
+    if (!baselineSelection) {
+      throw new Error("Use `--from <path>` or `--against previous|last-green --candidate <path>` for coordination diff.");
+    }
     const current = await buildCoordinationSnapshot(paths, requestJson, logger);
-    const diff = buildCoordinationSnapshotDiff(previous, current);
+    const diff = buildCoordinationSnapshotDiff(baselineSelection.baselineSnapshot, current, baselineSelection.baseline);
     const classification = options.classify || options.withPrompts ? classifyCoordinationSnapshotDiff(diff) : null;
     const prompts = classification && options.withPrompts ? buildCoordinationVerificationPrompts(classification) : null;
     printOutput(
