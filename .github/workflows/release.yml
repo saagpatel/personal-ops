@@ -47,6 +47,6 @@ jobs:
         run: npm run release:notes -- --version "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: ${{ runner.temp }}/release-notes.md
