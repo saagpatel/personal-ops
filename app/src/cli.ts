@@ -12,6 +12,7 @@ import {
   type CliContext,
 } from "./cli/shared.js";
 import {
+  buildCoordinationBriefing,
   buildCoordinationSnapshot,
   formatCoordinationSnapshot,
 } from "./coordination-snapshot.js";
@@ -1750,6 +1751,27 @@ coordination
     printOutput(
       { coordination_snapshot: snapshot },
       (value) => formatCoordinationSnapshot(value.coordination_snapshot),
+      options.json,
+    );
+    if (snapshot.health.overall !== "green") {
+      process.exitCode = 1;
+    }
+  });
+
+coordination
+  .command("briefing")
+  .description("Generate a derived read-only Markdown handoff briefing from the latest coordination snapshot.")
+  .option("--for <target>", "Briefing target", "chatgpt")
+  .option("--json", "Print raw JSON")
+  .action(async (options) => {
+    if (options.for !== "chatgpt") {
+      throw new Error("Only `--for chatgpt` is supported right now.");
+    }
+    const snapshot = await buildCoordinationSnapshot(paths, requestJson, logger);
+    const briefing = buildCoordinationBriefing(snapshot);
+    printOutput(
+      { coordination_briefing: briefing },
+      (value) => value.coordination_briefing.markdown,
       options.json,
     );
     if (snapshot.health.overall !== "green") {

@@ -73,6 +73,14 @@ handoff-20260503-114948-personal-ops-first-real-loop
 
 Use this when Codex has verified local context and wants ChatGPT's memory, strategy, or framing help.
 
+When the current coordination snapshot is enough context, generate the packet with:
+
+```bash
+personal-ops coordination briefing --for chatgpt
+```
+
+The generated briefing is read-only and should be treated as a derived packet from `personal-ops coordination snapshot`, not as a new source of truth.
+
 ```markdown
 # Codex -> ChatGPT Handoff
 

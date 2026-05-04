@@ -76,6 +76,19 @@ export interface CoordinationSnapshot {
 	next_actions: string[];
 }
 
+export interface CoordinationBriefing {
+	packet_id: string;
+	target: "chatgpt";
+	created_at: string;
+	mode: "general_cross_tool_coordination";
+	source_snapshot: {
+		schema_version: CoordinationSnapshot["schema_version"];
+		generated_at: string;
+		overall: CoordinationHealthSnapshot["overall"];
+	};
+	markdown: string;
+}
+
 const ACTIVE_REPOS = [
 	{
 		name: "personal-ops",
@@ -389,4 +402,170 @@ export function formatCoordinationSnapshot(
 	lines.push("Next Actions");
 	for (const action of snapshot.next_actions) lines.push(`- ${action}`);
 	return `${lines.join("\n")}\n`;
+}
+
+function packetTimestamp(generatedAt: string): string {
+	const date = new Date(generatedAt);
+	if (Number.isNaN(date.getTime())) return "unknown-time";
+	return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "");
+}
+
+function createdAtLine(generatedAt: string): string {
+	const date = new Date(generatedAt);
+	if (Number.isNaN(date.getTime())) return generatedAt;
+	return date.toISOString();
+}
+
+function formatRepoFacts(snapshot: CoordinationSnapshot): string[] {
+	return snapshot.repos.map((repo) => {
+		const sync =
+			repo.upstream == null
+				? "no upstream"
+				: `${repo.ahead} ahead / ${repo.behind} behind`;
+		const state = repo.state === "available" ? "available" : repo.state;
+		return `- \`${repo.name}\`: ${state}, ${repo.clean ? "clean" : "dirty"}, \`${repo.branch || "unknown branch"}\`, ${sync}, commit \`${repo.head} ${repo.last_commit_subject}\`.`;
+	});
+}
+
+function formatSourceFacts(snapshot: CoordinationSnapshot): string[] {
+	return [
+		`- GithubRepoAuditor source: ${snapshot.sources.github_repo_auditor.state}; ${snapshot.sources.github_repo_auditor.briefing_line ?? snapshot.sources.github_repo_auditor.message}.`,
+		`- bridge-db source: ${snapshot.sources.bridge_db.state}; ${snapshot.sources.bridge_db.message}.`,
+		`- notification-hub source: ${snapshot.sources.notification_hub.state}; ${snapshot.sources.notification_hub.message}; ${snapshot.sources.notification_hub.recent_event_count} recent events read.`,
+		`- Notion: ${snapshot.sources.notion.state}; ${snapshot.sources.notion.message}`,
+	];
+}
+
+export function buildCoordinationBriefing(
+	snapshot: CoordinationSnapshot,
+): CoordinationBriefing {
+	const packetId = `handoff-${packetTimestamp(snapshot.generated_at)}-coordination-snapshot`;
+	const lines: string[] = [];
+	lines.push("# Codex -> ChatGPT Handoff");
+	lines.push("");
+	lines.push(`Packet ID: ${packetId}`);
+	lines.push(`Created: ${createdAtLine(snapshot.generated_at)}`);
+	lines.push("Mode: General cross-tool coordination");
+	lines.push("ChatGPT Project: Codex-ChatGPT");
+	lines.push("");
+	lines.push("## Setup");
+	lines.push("");
+	lines.push("- We are using the Codex app.");
+	lines.push("- Codex is using the in-app browser tool.");
+	lines.push("- The user is logged in to ChatGPT inside the Codex app browser.");
+	lines.push("- ChatGPT contributes memory-based and strategic context.");
+	lines.push("- Codex contributes verified local state and executes local work.");
+	lines.push("- Repo evidence wins over ChatGPT memory.");
+	lines.push("");
+	lines.push("## Verified Local Facts");
+	lines.push("");
+	lines.push(
+		"Codex generated this packet from the read-only Personal Ops coordination snapshot.",
+	);
+	lines.push("");
+	lines.push("Snapshot summary:");
+	lines.push("");
+	lines.push(`- Snapshot schema: \`${snapshot.schema_version}\`.`);
+	lines.push(`- Snapshot generated: ${snapshot.generated_at}.`);
+	lines.push(`- Overall: ${snapshot.health.overall}.`);
+	lines.push(
+		`- Personal Ops health: install check ${snapshot.health.install_check_state}; deep health ${snapshot.health.deep_health_state}.`,
+	);
+	lines.push(
+		`- Issues: ${snapshot.health.issues.length === 0 ? "none" : snapshot.health.issues.join("; ")}.`,
+	);
+	lines.push("");
+	lines.push("Repos:");
+	lines.push("");
+	lines.push(...formatRepoFacts(snapshot));
+	lines.push("");
+	lines.push("Sources:");
+	lines.push("");
+	lines.push(...formatSourceFacts(snapshot));
+	lines.push("");
+	lines.push("Docs in Personal Ops:");
+	lines.push("");
+	lines.push("- `docs/CHATGPT-CODEX-HANDOFF.md`: handoff protocol.");
+	lines.push(
+		"- `docs/CROSS-PROJECT-COORDINATION.md`: ownership boundaries and source-of-truth order.",
+	);
+	lines.push(
+		"- `docs/COORDINATION-SNAPSHOT-SCHEMA.md`: read-only v1 snapshot contract.",
+	);
+	lines.push(
+		"- `docs/COORDINATION-BRIEFING.md`: read-only Markdown packet contract.",
+	);
+	lines.push("");
+	lines.push("## Current Goal");
+	lines.push("");
+	lines.push(
+		"Help us turn the latest coordination snapshot into the next practical Codex-to-ChatGPT loop while keeping Notion deferred for now.",
+	);
+	lines.push("");
+	lines.push("## What Codex Needs From ChatGPT");
+	lines.push("");
+	lines.push("Please respond in this structure:");
+	lines.push("");
+	lines.push("# ChatGPT -> Codex Briefing");
+	lines.push("");
+	lines.push(`Packet response for: ${packetId}`);
+	lines.push("");
+	lines.push("## Memory-Based Context");
+	lines.push("");
+	lines.push(
+		"What do you remember about the user's long-running preferences, project style, and coordination goals that matters here?",
+	);
+	lines.push("");
+	lines.push("## Inferences Or Strategy");
+	lines.push("");
+	lines.push(
+		"Given the verified snapshot, what is the best next coordination shape?",
+	);
+	lines.push("");
+	lines.push("## Local Verification Still Needed");
+	lines.push("");
+	lines.push(
+		"What should Codex verify locally before implementing anything else?",
+	);
+	lines.push("");
+	lines.push("## Risks Or Cautions");
+	lines.push("");
+	lines.push(
+		"What should we avoid so this does not become another source of truth, noisy dashboard, or premature automation layer?",
+	);
+	lines.push("");
+	lines.push("## Recommended Next Codex Actions");
+	lines.push("");
+	lines.push(
+		"Give 3 to 5 concrete next actions Codex can take in Personal Ops or the adjacent repos. Keep them small, durable, and repo-backed.",
+	);
+	lines.push("");
+	lines.push("## Questions For The User");
+	lines.push("");
+	lines.push("Only include questions that materially affect sequencing.");
+	lines.push("");
+	lines.push("## Boundaries");
+	lines.push("");
+	lines.push("- Do not claim current local facts beyond what Codex provided.");
+	lines.push("- Label memory-based context separately from inference.");
+	lines.push(
+		"- Treat this as guidance for Codex, not permission to execute local changes.",
+	);
+	lines.push(
+		"- Keep command output summarized unless exact excerpts are necessary.",
+	);
+	lines.push("- Do not pull Notion into this lane; Notion is being handled separately.");
+	lines.push("");
+	return {
+		packet_id: packetId,
+		target: "chatgpt",
+		created_at: snapshot.generated_at,
+		mode: "general_cross_tool_coordination",
+		source_snapshot: {
+			schema_version: snapshot.schema_version,
+			generated_at: snapshot.generated_at,
+			overall: snapshot.health.overall,
+		},
+		markdown: `${lines.join("\n")}\n`,
+	};
 }
