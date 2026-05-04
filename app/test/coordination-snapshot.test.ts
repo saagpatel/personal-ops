@@ -5,9 +5,11 @@ import {
 	buildCoordinationBaselineVerificationPrompts,
 	buildCoordinationSnapshotDiff,
 	buildCoordinationBriefingSelfCheck,
+	buildCoordinationHandoffAcceptanceReport,
 	buildCoordinationVerificationPrompts,
 	classifyCoordinationSnapshotDiff,
 	formatCoordinationBriefingSelfCheck,
+	formatCoordinationHandoffAcceptanceReport,
 	formatCoordinationChangeClassification,
 	formatCoordinationVerificationPrompts,
 	formatCoordinationSnapshot,
@@ -359,6 +361,40 @@ test("buildCoordinationBriefingSelfCheck fails when advisory boundary drifts", (
 			(check) => check.id === "no_mutation_instructions" && check.severity === "fail",
 		),
 	);
+});
+
+test("buildCoordinationHandoffAcceptanceReport covers fixture-backed packet modes", () => {
+	const report = buildCoordinationHandoffAcceptanceReport();
+	const formatted = formatCoordinationHandoffAcceptanceReport(report);
+
+	assert.equal(report.state, "pass");
+	assert.equal(report.summary.scenarios, 6);
+	assert.equal(report.summary.fail, 0);
+	assert.deepEqual(
+		report.scenarios.map((scenario) => scenario.id),
+		[
+			"green-baseline-verification",
+			"diff-with-classification",
+			"dirty-repo-yellow",
+			"source-unavailable",
+			"health-attention-needed",
+			"notion-deferred",
+		],
+	);
+	assert.equal(
+		report.scenarios.find((scenario) => scenario.id === "diff-with-classification")?.coordination_mode,
+		"diff",
+	);
+	assert.ok(
+		report.scenarios
+			.filter((scenario) => scenario.id !== "diff-with-classification")
+			.every((scenario) => scenario.coordination_mode === "baseline_verification"),
+	);
+	assert.ok(report.scenarios.every((scenario) => scenario.state === "pass"));
+	assert.match(formatted, /Coordination Handoff Acceptance/);
+	assert.match(formatted, /green-baseline-verification/);
+	assert.match(formatted, /diff-with-classification/);
+	assert.match(formatted, /notion-deferred/);
 });
 
 test("buildCoordinationSnapshotDiff summarizes repo, source, and health changes", () => {

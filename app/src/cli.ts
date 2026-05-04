@@ -16,12 +16,14 @@ import {
 import {
   buildCoordinationBriefing,
   buildCoordinationBriefingSelfCheck,
+  buildCoordinationHandoffAcceptanceReport,
   buildCoordinationSnapshot,
   buildCoordinationSnapshotDiff,
   buildCoordinationVerificationPrompts,
   classifyCoordinationSnapshotDiff,
   formatCoordinationChangeClassification,
   formatCoordinationBriefingSelfCheck,
+  formatCoordinationHandoffAcceptanceReport,
   formatCoordinationSnapshot,
   formatCoordinationSnapshotDiff,
   formatCoordinationVerificationPrompts,
@@ -1869,6 +1871,22 @@ coordination
       );
     }
     if (snapshot.health.overall !== "green") {
+      process.exitCode = 1;
+    }
+  });
+
+coordination
+  .command("handoff-test")
+  .description("Run read-only fixture-backed acceptance checks for Codex-to-ChatGPT handoff packets.")
+  .option("--json", "Print raw JSON")
+  .action((options) => {
+    const report = buildCoordinationHandoffAcceptanceReport();
+    printOutput(
+      { coordination_handoff_acceptance: report },
+      (value) => formatCoordinationHandoffAcceptanceReport(value.coordination_handoff_acceptance),
+      options.json,
+    );
+    if (report.state !== "pass") {
       process.exitCode = 1;
     }
   });

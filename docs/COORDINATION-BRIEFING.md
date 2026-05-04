@@ -40,6 +40,12 @@ Validate the generated packet contract before sending it to ChatGPT with:
 personal-ops coordination briefing --for chatgpt --self-check
 ```
 
+Run the fixture-backed acceptance matrix with:
+
+```bash
+personal-ops coordination handoff-test
+```
+
 The command builds the current `personal-ops coordination snapshot` first, then formats a compact Markdown packet from that verified local state. When `--from` or `--against ... --candidate` is supplied, it includes the same read-only diff model used by `personal-ops coordination diff`.
 
 By default, a briefing with `--from` also includes a short read-only `Significant Changes` section. That section is generated from deterministic diff classification rules in `docs/COORDINATION-CHANGE-CLASSIFICATION.md`.
@@ -89,6 +95,12 @@ The briefing includes:
 - absence of direct mutation instructions
 
 The command exits nonzero if the packet contract fails or if the current coordination snapshot is not green.
+
+## Acceptance Matrix
+
+`personal-ops coordination handoff-test` uses synthetic fixtures to prove the handoff contract across representative packet shapes. See `docs/COORDINATION-HANDOFF-ACCEPTANCE.md`.
+
+The acceptance matrix is read-only and does not inspect live external systems. It covers green baseline, diff with classification, dirty repo/yellow health, unavailable source, health attention, and deferred Notion scenarios.
 
 Packet IDs use:
 

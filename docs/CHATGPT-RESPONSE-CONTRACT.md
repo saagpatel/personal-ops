@@ -67,6 +67,8 @@ Codex should verify that baseline packets still include:
 
 Use `personal-ops coordination briefing --for chatgpt --self-check` before sending a packet when Codex needs a quick read-only contract validation.
 
+Use `personal-ops coordination handoff-test` when Codex needs fixture-backed confidence that baseline, diff, yellow-health, unavailable-source, and deferred-Notion packet shapes still satisfy the contract.
+
 ## Diff Mode
 
 When a handoff packet is in `diff` mode, ChatGPT may focus on changed fields and sequencing risks.

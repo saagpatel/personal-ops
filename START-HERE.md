@@ -98,6 +98,8 @@ Use this path if you want to:
   The read-only schema and command contract for generating a derived cross-project coordination snapshot.
 - [docs/COORDINATION-BRIEFING.md](docs/COORDINATION-BRIEFING.md)
   The read-only Markdown handoff packet generated from the coordination snapshot for Codex-to-ChatGPT loops.
+- [docs/COORDINATION-HANDOFF-ACCEPTANCE.md](docs/COORDINATION-HANDOFF-ACCEPTANCE.md)
+  The fixture-backed acceptance matrix for keeping handoff packet contracts from drifting.
 - [docs/ASSISTANT-LED-ROADMAP.md](docs/ASSISTANT-LED-ROADMAP.md)
   The current and future source of truth for the completed assistant-led initiative, now through Phase 38.
 - [docs/CURRENT-STATE.md](docs/CURRENT-STATE.md)

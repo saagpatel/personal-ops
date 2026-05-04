@@ -124,6 +124,32 @@ export interface CoordinationBriefingSelfCheck {
 	next_actions: string[];
 }
 
+export interface CoordinationHandoffAcceptanceReport {
+	schema_version: "1.0.0";
+	generated_at: string;
+	mode: "read_only";
+	state: "pass" | "fail";
+	summary: {
+		scenarios: number;
+		total_checks: number;
+		pass: number;
+		fail: number;
+	};
+	scenarios: {
+		id: string;
+		title: string;
+		state: "pass" | "fail";
+		coordination_mode: CoordinationBriefing["coordination_mode"];
+		checks: {
+			id: string;
+			title: string;
+			severity: "pass" | "fail";
+			message: string;
+		}[];
+	}[];
+	next_actions: string[];
+}
+
 export interface CoordinationSnapshotDiffChange {
 	area: "repo" | "source" | "health";
 	name: string;
@@ -1472,6 +1498,301 @@ export function formatCoordinationBriefingSelfCheck(
 	lines.push("Checks:");
 	for (const check of report.checks) {
 		lines.push(`- ${check.severity}: ${check.title} - ${check.message}`);
+	}
+	lines.push("");
+	lines.push("Next Actions:");
+	lines.push(...report.next_actions.map((action) => `- ${action}`));
+	return lines.join("\n");
+}
+
+function acceptanceSnapshotFixture(
+	overrides: Partial<CoordinationSnapshot> = {},
+): CoordinationSnapshot {
+	const snapshot: CoordinationSnapshot = {
+		schema_version: "1.0.0",
+		generated_at: "2026-05-04T10:30:00.000Z",
+		machine: {
+			hostname: "machine.local",
+			user: "d",
+		},
+		scope: {
+			mode: "read_only",
+			notion_lane: "deferred",
+			description: "Synthetic fixture for read-only handoff acceptance.",
+		},
+		repos: [
+			{
+				name: "personal-ops",
+				path: "/Users/d/.local/share/personal-ops",
+				branch: "main",
+				upstream: "origin/main",
+				head: "c7c8927",
+				last_commit_subject: "Add coordination briefing self-check",
+				clean: true,
+				ahead: 0,
+				behind: 0,
+				state: "available",
+				message: null,
+				source_of_truth: "local git fixture",
+			},
+		],
+		sources: {
+			github_repo_auditor: {
+				name: "GithubRepoAuditor portfolio truth",
+				state: "available",
+				source_of_truth: "portfolio-truth-latest.json",
+				message: "115 repos",
+				generated_at: "2026-05-04T00:00:00.000Z",
+				project_count: 115,
+				briefing_line: "115 repos",
+			},
+			bridge_db: {
+				name: "bridge-db",
+				state: "available",
+				source_of_truth: "bridge-db",
+				message: "reachable",
+			},
+			notification_hub: {
+				name: "notification-hub",
+				state: "available",
+				source_of_truth: "notification-hub",
+				message: "reachable",
+				recent_event_count: 25,
+			},
+			notion: {
+				name: "Notion",
+				state: "deferred",
+				source_of_truth: "/Users/d/Notion",
+				message: "handled separately",
+			},
+		},
+		health: {
+			overall: "green",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: [],
+		},
+		next_actions: ["Use this snapshot as the next packet input."],
+	};
+	return {
+		...snapshot,
+		...overrides,
+		machine: { ...snapshot.machine, ...overrides.machine },
+		scope: { ...snapshot.scope, ...overrides.scope },
+		sources: { ...snapshot.sources, ...overrides.sources },
+		health: { ...snapshot.health, ...overrides.health },
+	};
+}
+
+function acceptancePass(
+	id: string,
+	title: string,
+	message: string,
+): CoordinationHandoffAcceptanceReport["scenarios"][number]["checks"][number] {
+	return { id, title, severity: "pass", message };
+}
+
+function acceptanceFail(
+	id: string,
+	title: string,
+	message: string,
+): CoordinationHandoffAcceptanceReport["scenarios"][number]["checks"][number] {
+	return { id, title, severity: "fail", message };
+}
+
+function acceptanceCheck(
+	condition: boolean,
+	id: string,
+	title: string,
+	passMessage: string,
+	failMessage: string,
+): CoordinationHandoffAcceptanceReport["scenarios"][number]["checks"][number] {
+	return condition
+		? acceptancePass(id, title, passMessage)
+		: acceptanceFail(id, title, failMessage);
+}
+
+function acceptanceScenario(
+	id: string,
+	title: string,
+	briefing: CoordinationBriefing,
+	checks: CoordinationHandoffAcceptanceReport["scenarios"][number]["checks"],
+): CoordinationHandoffAcceptanceReport["scenarios"][number] {
+	const failCount = checks.filter((check) => check.severity === "fail").length;
+	return {
+		id,
+		title,
+		state: failCount === 0 ? "pass" : "fail",
+		coordination_mode: briefing.coordination_mode,
+		checks,
+	};
+}
+
+export function buildCoordinationHandoffAcceptanceReport(): CoordinationHandoffAcceptanceReport {
+	const scenarios: CoordinationHandoffAcceptanceReport["scenarios"] = [];
+
+	const greenSnapshot = acceptanceSnapshotFixture();
+	const greenBriefing = buildCoordinationBriefing(greenSnapshot);
+	const greenSelfCheck = buildCoordinationBriefingSelfCheck(greenBriefing);
+	scenarios.push(
+		acceptanceScenario("green-baseline-verification", "Green baseline verification", greenBriefing, [
+			acceptanceCheck(greenBriefing.coordination_mode === "baseline_verification", "mode", "Coordination mode", "Baseline mode is explicit.", "Expected baseline verification mode."),
+			acceptanceCheck(greenSelfCheck.state === "pass", "self_check", "Self-check", "Self-check passes.", "Self-check should pass."),
+			acceptanceCheck(greenBriefing.source_snapshot.overall === "green", "health", "Health", "Current health is green.", "Expected green health."),
+		]),
+	);
+
+	const previousDiffSnapshot = acceptanceSnapshotFixture({
+		generated_at: "2026-05-04T10:00:00.000Z",
+		repos: [
+			{
+				...greenSnapshot.repos[0]!,
+				head: "b485a9d",
+				last_commit_subject: "Add ChatGPT response contract",
+			},
+		],
+	});
+	const currentDiffSnapshot = acceptanceSnapshotFixture({
+		generated_at: "2026-05-04T10:30:00.000Z",
+		repos: [
+			{
+				...greenSnapshot.repos[0]!,
+				head: "c7c8927",
+				last_commit_subject: "Add coordination briefing self-check",
+			},
+		],
+	});
+	const diff = buildCoordinationSnapshotDiff(previousDiffSnapshot, currentDiffSnapshot, {
+		kind: "explicit",
+		label: "acceptance fixture previous snapshot",
+		source_path: null,
+	});
+	const diffBriefing = buildCoordinationBriefing(currentDiffSnapshot, diff);
+	const diffSelfCheck = buildCoordinationBriefingSelfCheck(diffBriefing);
+	scenarios.push(
+		acceptanceScenario("diff-with-classification", "Diff with classification", diffBriefing, [
+			acceptanceCheck(diffBriefing.coordination_mode === "diff", "mode", "Coordination mode", "Diff mode is explicit.", "Expected diff mode."),
+			acceptanceCheck((diffBriefing.change_classification?.total_classifications ?? 0) > 0, "classification", "Classification", "Diff classification is included.", "Expected at least one classification."),
+			acceptanceCheck(diffBriefing.verification_prompts?.source === "diff_classification", "prompts", "Prompt source", "Prompts come from diff classification.", "Expected diff-classification prompts."),
+			acceptanceCheck(diffSelfCheck.state === "pass", "self_check", "Self-check", "Self-check passes.", "Self-check should pass."),
+		]),
+	);
+
+	const dirtyRepoSnapshot = acceptanceSnapshotFixture({
+		repos: [
+			{
+				...greenSnapshot.repos[0]!,
+				clean: false,
+				state: "degraded",
+				message: "Repo posture needs attention before using this as a clean handoff baseline.",
+			},
+		],
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: ["personal-ops: Repo posture needs attention before using this as a clean handoff baseline."],
+		},
+	});
+	const dirtyBriefing = buildCoordinationBriefing(dirtyRepoSnapshot);
+	const dirtySelfCheck = buildCoordinationBriefingSelfCheck(dirtyBriefing);
+	scenarios.push(
+		acceptanceScenario("dirty-repo-yellow", "Dirty repo yellow health", dirtyBriefing, [
+			acceptanceCheck(dirtyBriefing.source_snapshot.overall === "yellow", "health", "Health", "Yellow health is represented.", "Expected yellow health."),
+			acceptanceCheck(dirtyBriefing.markdown.includes("dirty"), "repo_posture", "Repo posture", "Dirty repo posture is visible.", "Expected dirty repo posture."),
+			acceptanceCheck(dirtySelfCheck.state === "pass", "self_check", "Self-check", "Self-check still validates packet contract.", "Self-check should pass for a well-formed yellow packet."),
+		]),
+	);
+
+	const unavailableSourceSnapshot = acceptanceSnapshotFixture({
+		sources: {
+			...greenSnapshot.sources,
+			bridge_db: {
+				...greenSnapshot.sources.bridge_db,
+				state: "unavailable",
+				message: "bridge-db unavailable in fixture",
+			},
+		},
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "ready",
+			issues: ["bridge-db source unavailable in fixture"],
+		},
+	});
+	const unavailableBriefing = buildCoordinationBriefing(unavailableSourceSnapshot);
+	const unavailableSelfCheck = buildCoordinationBriefingSelfCheck(unavailableBriefing);
+	scenarios.push(
+		acceptanceScenario("source-unavailable", "Unavailable source", unavailableBriefing, [
+			acceptanceCheck(unavailableBriefing.markdown.includes("bridge-db source: unavailable"), "source_state", "Source state", "Unavailable source is visible.", "Expected unavailable source state."),
+			acceptanceCheck(unavailableBriefing.source_snapshot.overall === "yellow", "health", "Health", "Yellow health is represented.", "Expected yellow health."),
+			acceptanceCheck(unavailableSelfCheck.state === "pass", "self_check", "Self-check", "Self-check validates packet contract.", "Self-check should pass."),
+		]),
+	);
+
+	const attentionSnapshot = acceptanceSnapshotFixture({
+		health: {
+			overall: "yellow",
+			install_check_state: "ready",
+			deep_health_state: "attention_needed",
+			issues: ["personal-ops deep health is attention_needed"],
+		},
+	});
+	const attentionBriefing = buildCoordinationBriefing(attentionSnapshot);
+	const attentionSelfCheck = buildCoordinationBriefingSelfCheck(attentionBriefing);
+	scenarios.push(
+		acceptanceScenario("health-attention-needed", "Health attention needed", attentionBriefing, [
+			acceptanceCheck(attentionBriefing.markdown.includes("deep health attention_needed"), "health_detail", "Health detail", "Attention-needed health detail is visible.", "Expected attention-needed health detail."),
+			acceptanceCheck(attentionBriefing.source_snapshot.overall === "yellow", "health", "Health", "Yellow health is represented.", "Expected yellow health."),
+			acceptanceCheck(attentionSelfCheck.state === "pass", "self_check", "Self-check", "Self-check validates packet contract.", "Self-check should pass."),
+		]),
+	);
+
+	const notionBriefing = buildCoordinationBriefing(greenSnapshot);
+	const notionSelfCheck = buildCoordinationBriefingSelfCheck(notionBriefing);
+	scenarios.push(
+		acceptanceScenario("notion-deferred", "Notion deferred", notionBriefing, [
+			acceptanceCheck(notionBriefing.markdown.includes("Notion: deferred"), "notion_marker", "Notion marker", "Notion deferred marker is present.", "Expected Notion deferred marker."),
+			acceptanceCheck(notionBriefing.markdown.includes("Do not pull Notion into this lane"), "notion_boundary", "Notion boundary", "Notion boundary language is present.", "Expected Notion boundary language."),
+			acceptanceCheck(notionSelfCheck.state === "pass", "self_check", "Self-check", "Self-check validates Notion boundary.", "Self-check should pass."),
+		]),
+	);
+
+	const allChecks = scenarios.flatMap((scenario) => scenario.checks);
+	const failCount = allChecks.filter((check) => check.severity === "fail").length;
+	return {
+		schema_version: "1.0.0",
+		generated_at: new Date().toISOString(),
+		mode: "read_only",
+		state: failCount === 0 ? "pass" : "fail",
+		summary: {
+			scenarios: scenarios.length,
+			total_checks: allChecks.length,
+			pass: allChecks.length - failCount,
+			fail: failCount,
+		},
+		scenarios,
+		next_actions:
+			failCount === 0
+				? ["Handoff acceptance fixtures pass. Continue burn-in with real Codex-to-ChatGPT loops before adding new coordination layers."]
+				: ["Repair failed handoff acceptance fixtures before expanding the coordination loop."],
+	};
+}
+
+export function formatCoordinationHandoffAcceptanceReport(
+	report: CoordinationHandoffAcceptanceReport,
+): string {
+	const lines: string[] = [];
+	lines.push("Coordination Handoff Acceptance");
+	lines.push(`State: ${report.state}`);
+	lines.push(`Summary: ${report.summary.scenarios} scenarios / ${report.summary.pass} pass / ${report.summary.fail} fail`);
+	lines.push("");
+	lines.push("Scenarios:");
+	for (const scenario of report.scenarios) {
+		lines.push(`- ${scenario.state}: ${scenario.id} (${scenario.coordination_mode})`);
+		for (const check of scenario.checks) {
+			lines.push(`  - ${check.severity}: ${check.title} - ${check.message}`);
+		}
 	}
 	lines.push("");
 	lines.push("Next Actions:");
