@@ -545,10 +545,26 @@ test("buildCoordinationVerificationPrompts derives stable read-only checks", () 
 	const formatted = formatCoordinationVerificationPrompts(first);
 
 	assert.deepEqual(first.prompts, second.prompts);
-	assert.equal(first.summary.total_prompts, classification.summary.total_classifications);
+	assert.ok(first.summary.total_prompts < classification.summary.total_classifications);
+	assert.equal(
+		first.prompts.filter((prompt) => prompt.entity === "personal-ops").length,
+		2,
+	);
+	assert.equal(
+		first.prompts.filter((prompt) => prompt.entity === "health").length,
+		1,
+	);
 	assert.ok(
 		first.prompts.some((prompt) =>
 			prompt.check.includes("Confirm personal-ops is clean, on the expected branch"),
+		),
+	);
+	assert.ok(
+		first.prompts.some(
+			(prompt) =>
+				prompt.entity === "personal-ops" &&
+				prompt.derived_from.length > 1 &&
+				prompt.derived_from.every((source) => source.type === "repo_state_recovery"),
 		),
 	);
 	assert.ok(

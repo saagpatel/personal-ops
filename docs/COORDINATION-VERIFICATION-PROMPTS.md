@@ -35,6 +35,8 @@ They do not answer: "what should Codex do?"
 
 Prompts must stay read-only, short, deterministic, and downstream of classification. They are additive guidance for local verification, not execution approval or automation input.
 
+Prompts are normalized by default so repeated classifications do not create repeated checks.
+
 ## Allowed Prompt Types
 
 The prompt `source_type` must match one of the classification types from `docs/COORDINATION-CHANGE-CLASSIFICATION.md`:
@@ -58,6 +60,22 @@ The prompt `source_type` must match one of the classification types from `docs/C
 | `health_transition` | Confirm Personal Ops health is still stable before using the packet as a clean baseline. |
 | `source_availability_change` | Confirm source availability before relying on coordination facts from that source. |
 | `source_metadata_change` | Review metadata movement if it affects sequencing or risk. |
+
+## Normalization Rules
+
+Normalization is structural cleanup only. It must not reinterpret meaning, infer user intent, or hide source evidence.
+
+Rules:
+
+- Canonicalize health classifications to entity `health`.
+- Keep repo and source classifications under their source name.
+- Dedupe prompts with the same canonical entity and exact check text.
+- Preserve stable order by the first matching classification.
+- Preserve the highest severity among merged classifications.
+- Preserve all source classifications in `derived_from`.
+- Preserve all unique source reasons in `reason`, separated by ` | `.
+
+Normalization must be deterministic: the same classification report must produce the same prompt list except for generated timestamps.
 
 ## Safety Rules
 

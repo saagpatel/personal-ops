@@ -70,6 +70,7 @@ Checked on 2026-05-03 at 23:54 PDT:
 - `personal-ops coordination diff --from <snapshot-json>`: available as the read-only change summary when a prior snapshot file is manually supplied
 - `personal-ops coordination diff --from <snapshot-json> --classify`: available as the read-only significance layer derived only from the diff
 - `personal-ops coordination diff --from <snapshot-json> --with-prompts`: available as the read-only verification prompt layer derived only from classifications
+- verification prompts are normalized by default so repeated classifications collapse into one traceable check
 
 Important live details from that check:
 
@@ -144,6 +145,7 @@ What is already true:
 - the first coordination diff surface is read-only and compares the current snapshot with a manually supplied prior snapshot file
 - v0 change classification is read-only and labels diff meaning without deciding actions
 - v0 verification prompts are read-only and say what Codex should verify without giving execution permission
+- verification prompt normalization preserves `derived_from` source classifications so dedupe does not hide evidence
 
 What that means for the next session:
 

@@ -176,6 +176,14 @@ export interface CoordinationVerificationPrompt {
 	severity: CoordinationChangeSeverity;
 	check: string;
 	reason: string;
+	derived_from: {
+		area: CoordinationSnapshotDiffChange["area"];
+		name: string;
+		field: string;
+		type: CoordinationChangeType;
+		severity: CoordinationChangeSeverity;
+		reason: string;
+	}[];
 }
 
 export interface CoordinationVerificationPromptReport {
@@ -784,16 +792,62 @@ function promptCheckForClassification(
 	}
 }
 
+function canonicalVerificationPromptEntity(
+	classification: CoordinationChangeClassification,
+): string {
+	if (classification.area === "health") return "health";
+	return classification.name;
+}
+
+function higherPromptSeverity(
+	first: CoordinationChangeSeverity,
+	second: CoordinationChangeSeverity,
+): CoordinationChangeSeverity {
+	const rank: Record<CoordinationChangeSeverity, number> = {
+		low: 0,
+		medium: 1,
+		high: 2,
+	};
+	return rank[second] > rank[first] ? second : first;
+}
+
 export function buildCoordinationVerificationPrompts(
 	report: CoordinationChangeClassificationReport,
 ): CoordinationVerificationPromptReport {
-	const prompts = report.classifications.map((classification) => ({
-		entity: classification.name,
-		source_type: classification.type,
-		severity: classification.severity,
-		check: promptCheckForClassification(classification),
-		reason: classification.reason,
-	}));
+	const prompts: CoordinationVerificationPrompt[] = [];
+	const promptByKey = new Map<string, CoordinationVerificationPrompt>();
+	for (const classification of report.classifications) {
+		const entity = canonicalVerificationPromptEntity(classification);
+		const check = promptCheckForClassification(classification);
+		const key = `${entity}\u0000${check}`;
+		const source = {
+			area: classification.area,
+			name: classification.name,
+			field: classification.field,
+			type: classification.type,
+			severity: classification.severity,
+			reason: classification.reason,
+		};
+		const existing = promptByKey.get(key);
+		if (existing) {
+			existing.severity = higherPromptSeverity(existing.severity, classification.severity);
+			if (!existing.reason.split(" | ").includes(classification.reason)) {
+				existing.reason = `${existing.reason} | ${classification.reason}`;
+			}
+			existing.derived_from.push(source);
+			continue;
+		}
+		const prompt = {
+			entity,
+			source_type: classification.type,
+			severity: classification.severity,
+			check,
+			reason: classification.reason,
+			derived_from: [source],
+		};
+		prompts.push(prompt);
+		promptByKey.set(key, prompt);
+	}
 	return {
 		schema_version: "1.0.0",
 		generated_at: new Date().toISOString(),
